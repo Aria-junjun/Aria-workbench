@@ -1,0 +1,95 @@
+{
+  "e8b39b9c-c0b6-46d4-bef6-263307ba74a6": {
+    "product": {
+      "schemaVersion": 2,
+      "id": "product-research-762k7a",
+      "name": "测试亚克力留言板",
+      "category": "书写板",
+      "coreUse": "计划记录",
+      "useScenarios": [
+        "冰箱"
+      ],
+      "defaultUnit": "套",
+      "specifications": [
+        {
+          "id": "spec-厚度",
+          "name": "厚度",
+          "value": "2",
+          "unit": "mm",
+          "source": "research"
+        }
+      ],
+      "procurementQuotes": [
+        {
+          "source": "1688",
+          "specification": "20×30cm",
+          "price": "12元/套",
+          "moq": "10套",
+          "freight": "不含运费",
+          "quotedAt": "2026-07-20"
+        }
+      ],
+      "materialStructures": [
+        {
+          "name": "亚克力板",
+          "role": "主体板材",
+          "keyParameters": "厚度",
+          "weaknesses": "易划伤"
+        }
+      ],
+      "machinery": [
+        "激光切割机"
+      ],
+      "qualityControls": [
+        "检查平整度"
+      ],
+      "industryClusters": [
+        "浙江台州"
+      ],
+      "costItems": [],
+      "hardCostStatus": "pending",
+      "manufacturing": {
+        "processes": [
+          "激光切割"
+        ],
+        "notes": "所需机器：激光切割机\n质量控制点：检查平整度\n主要产业带：浙江台州"
+      },
+      "optimizationOptions": [],
+      "risks": {
+        "quality": [
+          "易划伤"
+        ],
+        "supply": [],
+        "compliance": [],
+        "other": []
+      },
+      "opportunities": [],
+      "decision": {
+        "summary": "必须确认：实际厚度",
+        "recommendation": "是",
+        "rationale": "打样重点：耐刮测试；下一步行动：询价",
+        "status": "proceed"
+      },
+      "rawDocument": {
+        "content": "## 产品与规格\n产品名称：测试亚克力留言板\n产品品类：书写板\n核心用途：计划记录\n使用场景：冰箱\n默认计量单位：套\n\n## 关键规格\n| 参数 | 数值 | 单位 | 影响说明 |\n| --- | --- | --- | --- |\n| 厚度 | 2 | mm | 影响挺度 |\n\n## 1688采购参考\n| 来源 | 对应规格 | 批发报价 | MOQ | 运费口径 | 报价时间 |\n| --- | --- | --- | --- | --- | --- |\n| 1688 | 20×30cm | 12元/套 | 10套 | 不含运费 | 2026-07-20 |\n\n## 原料与结构\n| 原料或结构 | 作用 | 关键参数 | 已知弊端 |\n| --- | --- | --- | --- |\n| 亚克力板 | 主体板材 | 厚度 | 易划伤 |\n\n## 生产流程与设备\n核心工艺：激光切割\n所需机器：激光切割机\n质量控制点：检查平整度\n主要产业带：浙江台州\n\n## 缺陷与风险\n产品缺陷：易划伤\n\n## 成熟替代与优化\n| 优化对象 | 具体方案 | 改善目标 | 保持效果的依据 | 实现条件 | 新风险 | 验证方法 |\n| --- | --- | --- | --- | --- | --- | --- |\n\n## 采购与验证\n必须确认：实际厚度\n打样重点：耐刮测试\n是否值得继续：是\n下一步行动：询价",
+        "capturedAt": "2026-07-21T04:02:14.992Z"
+      },
+      "importIssues": [
+        {
+          "field": "材料与产品硬成本",
+          "message": "材料与产品硬成本待补。",
+          "severity": "warning"
+        }
+      ],
+      "createdAt": "2026-07-21T04:02:14.992Z"
+    },
+    "issues": [
+      {
+        "id": "issue-1",
+        "severity": "warning",
+        "section": "材料与产品硬成本",
+        "message": "材料与产品硬成本待补。"
+      }
+    ]
+  }
+}
