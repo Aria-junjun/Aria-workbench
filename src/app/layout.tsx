@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
+import { DataSyncLoader } from "@/components/data-sync-loader";
 import { ThemeLoader } from "@/components/theme-loader";
 import "./globals.css";
 
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN">
       <body>
         <ThemeLoader />
+        <DataSyncLoader />
         <AppShell>{children}</AppShell>
       </body>
     </html>
