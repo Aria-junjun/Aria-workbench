@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, Pin, PinOff, Pencil, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Pin, PinOff, Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { includesQuery, loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
 import { labelPriority, labelTaskType } from "@/features/workbench/display-labels";
@@ -21,6 +21,14 @@ export default function TasksPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "open" | "done">("all");
+  const [showCreate, setShowCreate] = useState(false);
+  const [createDraft, setCreateDraft] = useState({
+    title: "",
+    dueText: "",
+    priority: "medium" as "high" | "medium" | "low",
+    type: "follow_up" as string,
+    supplierId: ""
+  });
 
   const data = loadLocalWorkbenchData();
   const tasks = data.tasks;
@@ -120,19 +128,118 @@ export default function TasksPage() {
     setEditDraft({});
   }
 
+  function saveCreate() {
+    if (!createDraft.title.trim()) return;
+    const supplier = data.suppliers.find((s) => s.id === createDraft.supplierId);
+    const newTask: LocalTask = {
+      id: crypto.randomUUID(),
+      title: createDraft.title.trim(),
+      dueText: createDraft.dueText || undefined,
+      priority: createDraft.priority,
+      type: createDraft.type || "follow_up",
+      status: "open",
+      createdAt: new Date().toISOString(),
+      supplierId: supplier?.id,
+      supplierName: supplier?.name
+    };
+    saveLocalWorkbenchData({ ...data, tasks: [newTask, ...data.tasks] });
+    setCreateDraft({ title: "", dueText: "", priority: "medium", type: "follow_up", supplierId: "" });
+    setShowCreate(false);
+    setVersion((v) => v + 1);
+  }
+
+  function cancelCreate() {
+    setShowCreate(false);
+    setCreateDraft({ title: "", dueText: "", priority: "medium", type: "follow_up", supplierId: "" });
+  }
+
   const groupOrder = groupBy === "status" ? ["待处理", "已完成"] : Object.keys(grouped).sort();
 
   return (
     <div className="space-y-5" data-version={version}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold">待办提醒</h1>
-        <input
-          className="w-full rounded-md border border-line px-3 py-2 text-sm sm:w-72"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索待办、时间、优先级、状态"
-          value={query}
-        />
+        <div className="flex items-center gap-3">
+          <button
+            className="inline-flex items-center gap-1.5 rounded-xl bg-action px-4 py-2 text-sm font-semibold text-white shadow-subtle hover:shadow-card transition-all"
+            onClick={() => setShowCreate(true)}
+            type="button"
+          >
+            <Plus className="h-4 w-4" />
+            新建待办
+          </button>
+          <input
+            className="w-full rounded-md border border-line px-3 py-2 text-sm sm:w-72"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索待办、时间、优先级、状态"
+            value={query}
+          />
+        </div>
       </div>
+
+      {/* 新建待办弹窗 */}
+      {showCreate ? (
+        <div className="rounded-3xl border border-line bg-surface p-5 shadow-card">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-semibold text-ink">新建待办</h2>
+            <button className="rounded-md p-1 text-muted hover:text-ink" onClick={cancelCreate} type="button">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            <input
+              className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-action/20 focus:border-action"
+              onChange={(e) => setCreateDraft({ ...createDraft, title: e.target.value })}
+              placeholder="待办标题，例如：找京东防油贴新品货源"
+              value={createDraft.title}
+            />
+            <div className="flex flex-wrap gap-3">
+              <select
+                className="rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                onChange={(e) => setCreateDraft({ ...createDraft, priority: e.target.value as "high" | "medium" | "low" })}
+                value={createDraft.priority}
+              >
+                <option value="high">高优先级</option>
+                <option value="medium">中优先级</option>
+                <option value="low">低优先级</option>
+              </select>
+              <input
+                className="rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                onChange={(e) => setCreateDraft({ ...createDraft, dueText: e.target.value })}
+                placeholder="截止时间，如：本周五"
+                value={createDraft.dueText}
+              />
+              <select
+                className="rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                onChange={(e) => setCreateDraft({ ...createDraft, type: e.target.value })}
+                value={createDraft.type}
+              >
+                <option value="follow_up">跟进</option>
+                <option value="confirm_quote">确认报价</option>
+                <option value="follow_sample">跟踪样品</option>
+                <option value="confirm_moq">确认MOQ</option>
+                <option value="confirm_lead_time">确认交期</option>
+                <option value="supplement_product_knowledge">补充产品知识</option>
+                <option value="review_supplier">复盘供应商</option>
+              </select>
+              <select
+                className="rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                onChange={(e) => setCreateDraft({ ...createDraft, supplierId: e.target.value })}
+                value={createDraft.supplierId}
+              >
+                <option value="">不关联供应商</option>
+                {data.suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button className="rounded-xl bg-action px-4 py-2 text-sm font-semibold text-white" onClick={saveCreate} type="button">保存</button>
+              <button className="rounded-xl border border-line px-4 py-2 text-sm text-muted hover:text-ink" onClick={cancelCreate} type="button">取消</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* 筛选与排序工具栏 */}
       {tasks.length > 0 ? (

@@ -228,7 +228,7 @@ function inferTasksFromChat(rawText: string): DraftExtraction["tasks"] {
   const actionableLines = rawText
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && /(?:需要)?(?:跟踪|跟进)|拿样测试|小批量入仓|到货情况|发货情况|付款情况|货源情况/.test(line));
+    .filter((line) => line && /(?:需要)?(?:跟踪|跟进)|拿样测试|小批量入仓|到货情况|发货情况|付款情况|货源情况|找货|待找/.test(line));
   for (const line of actionableLines) {
     const title = line.replace(/[。；;]+$/, "");
     if (tasks.some((task) => task.title.includes(title) || title.includes(task.title.replace(/^跟踪/, "")))) continue;
