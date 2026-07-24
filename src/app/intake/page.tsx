@@ -75,6 +75,14 @@ export default function IntakePage() {
   }
 
   async function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    // 从 Excel 复制时，剪贴板会同时包含文本和图片
+    // 优先使用文本（制表符分隔的表格数据），只有纯图片时才作为图片处理
+    const textData = event.clipboardData.getData("text/plain");
+    if (textData && textData.trim().length > 0) {
+      // 有文本内容，让浏览器正常粘贴文本，不拦截
+      return;
+    }
+    // 没有文本，检查是否是图片
     const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
     if (files.length > 0) {
       event.preventDefault();
