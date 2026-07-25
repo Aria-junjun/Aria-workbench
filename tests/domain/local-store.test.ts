@@ -844,7 +844,7 @@ function draft(name: string) {
   return {
     supplier: { name, categories: ["包装"], riskTags: [], location: "义乌", supplierType: "factory" as const },
     communication: { summary: "供应商报价", promises: ["七天交货"], questions: [], risks: [], nextActions: ["确认运费"] },
-    offers: [{ name: "包装袋货盘", quotedPrice: "10元" }],
+    offers: [{ name: "包装袋货盘", quotedPrice: "10元", skus: [] }],
     productKnowledge: [],
     tasks: [{ title: "确认运费", priority: "high" as const, type: "confirm_quote" as const }],
     knowledgeCards: [],

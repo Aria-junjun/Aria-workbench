@@ -27,6 +27,19 @@ export const CommunicationDraftSchema = z.object({
   nextActions: z.array(z.string()).default([])
 });
 
+export const OfferSkuDraftSchema = z.object({
+  specName: z.string().min(1),
+  specCode: z.string().optional(),
+  width: z.string().optional(),
+  length: z.string().optional(),
+  thickness: z.string().optional(),
+  unitPrice: z.number().optional(),
+  unitPriceStr: z.string().optional(),
+  pricingUnit: z.string().optional(),
+  moq: z.string().optional(),
+  notes: z.string().optional()
+});
+
 export const OfferDraftSchema = z.object({
   name: z.string().min(1),
   category: z.string().optional(),
@@ -34,6 +47,10 @@ export const OfferDraftSchema = z.object({
   resourceUrl: z.string().optional(),
   quotedPrice: z.string().optional(),
   priceDetails: z.string().optional(),
+  skus: z.array(OfferSkuDraftSchema).default([]),
+  skuCount: z.number().optional(),
+  minPrice: z.number().optional(),
+  maxPrice: z.number().optional(),
   untaxedUnitPrice: z.string().optional(),
   untaxedPlateFee: z.string().optional(),
   taxedUnitPrice: z.string().optional(),

@@ -41,6 +41,25 @@ export type LocalSupplier = {
   createdAt: string;
 };
 
+export type OfferSku = {
+  id: string;
+  specName: string;
+  specCode?: string;
+  width?: string;
+  length?: string;
+  thickness?: string;
+  unitPrice?: number;
+  unitPriceStr?: string;
+  pricingUnit?: string;
+  moq?: string;
+  notes?: string;
+  priceHistory?: {
+    date: string;
+    price: number;
+    source?: string;
+  }[];
+};
+
 export type LocalOffer = {
   id: string;
   pinned?: boolean;
@@ -53,6 +72,10 @@ export type LocalOffer = {
   resourceUrl?: string;
   quotedPrice?: string;
   priceDetails?: string;
+  skus?: OfferSku[];
+  skuCount?: number;
+  minPrice?: number;
+  maxPrice?: number;
   untaxedUnitPrice?: string;
   untaxedPlateFee?: string;
   taxedUnitPrice?: string;
@@ -308,6 +331,23 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
         resourceUrl: offer.resourceUrl,
         quotedPrice: offer.quotedPrice,
         priceDetails: offer.priceDetails,
+        skus: offer.skus?.map((sku, idx) => ({
+          id: crypto.randomUUID(),
+          specName: sku.specName,
+          specCode: sku.specCode,
+          width: sku.width,
+          length: sku.length,
+          thickness: sku.thickness,
+          unitPrice: sku.unitPrice,
+          unitPriceStr: sku.unitPriceStr,
+          pricingUnit: sku.pricingUnit,
+          moq: sku.moq,
+          notes: sku.notes,
+          priceHistory: []
+        })),
+        skuCount: offer.skuCount,
+        minPrice: offer.minPrice,
+        maxPrice: offer.maxPrice,
         untaxedUnitPrice: offer.untaxedUnitPrice,
         untaxedPlateFee: offer.untaxedPlateFee,
         taxedUnitPrice: offer.taxedUnitPrice,

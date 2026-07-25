@@ -220,7 +220,7 @@ function EditableInfo({ label, value, multiline = false, onChange }: { label: st
 }
 
 type Offer = DraftExtraction["offers"][number];
-const editableOfferFields: Array<{ key: keyof Offer; label: string; multiline?: boolean }> = [
+const editableOfferFields: Array<{ key: string; label: string; multiline?: boolean }> = [
   { key: "name", label: "名称" }, { key: "category", label: "品类" },
   { key: "quotedPrice", label: "报价" }, { key: "priceDetails", label: "报价明细", multiline: true },
   { key: "untaxedUnitPrice", label: "未税单价" }, { key: "untaxedPlateFee", label: "未税版费" },
@@ -235,7 +235,7 @@ const editableOfferFields: Array<{ key: keyof Offer; label: string; multiline?: 
 ];
 
 function OfferFields({ offer, onChange }: { offer: Offer; onChange: (patch: Partial<Offer>) => void }) {
-  return <>{editableOfferFields.map((field) => <EditableInfo key={field.key} label={field.label} multiline={field.multiline} value={offer[field.key]} onChange={(value) => onChange({ [field.key]: value })} />)}</>;
+  return <>{editableOfferFields.map((field) => <EditableInfo key={field.key} label={field.label} multiline={field.multiline} value={offer[field.key as keyof Offer] as string | undefined} onChange={(value) => onChange({ [field.key]: value } as Partial<Offer>)} />)}</>;
 }
 
 function splitEditedList(value: string) {

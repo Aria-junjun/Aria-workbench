@@ -18,7 +18,7 @@ describe("buildConfirmedRecords", () => {
         risks: ["交期待确认"],
         nextActions: ["明天确认包装"]
       },
-      offers: [{ name: "白卡纸包装盒", quotedPrice: "12.5 元", moq: "1000" }],
+      offers: [{ name: "白卡纸包装盒", quotedPrice: "12.5 元", moq: "1000", skus: [] }],
       productKnowledge: [{ name: "包装盒", materials: "白卡纸" }],
       tasks: [{ title: "确认包装方式", priority: "medium", type: "confirm_quote", dueText: "明天" }],
       knowledgeCards: [],

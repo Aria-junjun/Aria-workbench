@@ -4,7 +4,19 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Info, SectionActions, TextField } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, loadLocalWorkbenchData, updateLocalItem, type LocalOffer } from "@/features/workbench/local-store";
+import { deleteLocalItem, loadLocalWorkbenchData, updateLocalItem, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
+
+/** 计算价格区间展示文本 */
+function formatPriceRange(offer: LocalOffer): string | null {
+  if (offer.minPrice != null && offer.maxPrice != null) {
+    const min = Number(offer.minPrice);
+    const max = Number(offer.maxPrice);
+    if (!Number.isNaN(min) && !Number.isNaN(max)) {
+      return min === max ? `¥${min.toFixed(2)}` : `¥${min.toFixed(2)} - ¥${max.toFixed(2)}`;
+    }
+  }
+  return null;
+}
 
 export default function OfferDetailPage() {
   const router = useRouter();
@@ -40,7 +52,15 @@ export default function OfferDetailPage() {
       <Link className="text-sm text-action" href="/offers">返回货盘库</Link>
       <section className="rounded-lg border border-line bg-white p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <h1 className="text-2xl font-semibold">{offer.name}</h1>
+          <div>
+            <h1 className="text-2xl font-semibold">{offer.name}</h1>
+            {(() => {
+              const range = formatPriceRange(offer);
+              return range ? (
+                <div className="mt-1 text-lg font-medium text-action">{range}{offer.skuCount ? ` (${offer.skuCount}个规格)` : ""}</div>
+              ) : null;
+            })()}
+          </div>
           <SectionActions editing={editing} onCancel={() => { setDraft(offer); setEditing(false); }} onDelete={remove} onEdit={() => setEditing(true)} onSave={save} />
         </div>
 
@@ -53,6 +73,9 @@ export default function OfferDetailPage() {
             <TextField label="资料链接" onChange={(value) => setDraft({ ...draft, resourceUrl: value })} value={draft.resourceUrl || ""} />
             <TextField label="报价" onChange={(value) => setDraft({ ...draft, quotedPrice: value })} value={draft.quotedPrice || ""} />
             <TextField label="报价明细" multiline onChange={(value) => setDraft({ ...draft, priceDetails: value })} value={draft.priceDetails || ""} />
+
+            {/* 规格明细（SKU）— 编辑模式下只读展示 */}
+            {offer.skus && offer.skus.length > 0 && <SkuTable skus={offer.skus} editing={editing} />}
             <TextField label="未税单价" onChange={(value) => setDraft({ ...draft, untaxedUnitPrice: value })} value={draft.untaxedUnitPrice || ""} />
             <TextField label="未税版费" onChange={(value) => setDraft({ ...draft, untaxedPlateFee: value })} value={draft.untaxedPlateFee || ""} />
             <TextField label="含税单价" onChange={(value) => setDraft({ ...draft, taxedUnitPrice: value })} value={draft.taxedUnitPrice || ""} />
@@ -87,8 +110,14 @@ export default function OfferDetailPage() {
             <Info label="品类" value={offer.category} />
             <LinkInfo label="商品链接" value={offer.productUrl} />
             <LinkInfo label="资料链接" value={offer.resourceUrl} />
-            <Info label="报价" value={offer.quotedPrice} />
+            {(() => {
+              const range = formatPriceRange(offer);
+              return range ? <Info label="价格区间" value={range} /> : <Info label="报价" value={offer.quotedPrice} />;
+            })()}
             <Info label="报价明细" value={offer.priceDetails} />
+
+            {/* 规格明细（SKU） */}
+            {offer.skus && offer.skus.length > 0 && <SkuTable skus={offer.skus} editing={editing} />}
             <Info label="未税单价" value={offer.untaxedUnitPrice} />
             <Info label="未税版费" value={offer.untaxedPlateFee} />
             <Info label="含税单价" value={offer.taxedUnitPrice} />
@@ -164,6 +193,58 @@ export default function OfferDetailPage() {
           </div>
         ) : <div className="mt-3 text-sm text-slate-600">暂无关联待办。</div>}
       </section>
+    </div>
+  );
+}
+
+/** SKU 规格明细表格 */
+function SkuTable({ skus, editing }: { skus: OfferSku[]; editing: boolean }) {
+  const showScroll = skus.length > 10;
+
+  return (
+    <div className="sm:col-span-2 space-y-2">
+      <h3 className="text-sm font-semibold text-slate-700">
+        规格明细（共 {skus.length} 个）
+      </h3>
+      {editing && (
+        <p className="text-xs text-muted">
+          规格明细由报价单导入自动生成，暂不支持手动编辑。
+        </p>
+      )}
+      <div
+        className={`bg-white border border-line rounded-2xl overflow-hidden ${
+          showScroll ? "max-h-80 overflow-y-auto" : ""
+        }`}
+      >
+        <table className="w-full text-sm">
+          <thead className="sticky top-0">
+            <tr className="bg-paper-warm text-xs text-slate-600">
+              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">规格名</th>
+              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">规格编码</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">单价</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">宽度</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">厚度</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">MOQ</th>
+              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">备注</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {skus.map((sku) => (
+              <tr key={sku.id} className="hover:bg-action-soft/30 transition-colors">
+                <td className="px-3 py-2 whitespace-nowrap">{sku.specName || "-"}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-muted">{sku.specCode || "-"}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-right font-medium text-action">
+                  {sku.unitPriceStr || (sku.unitPrice != null ? `¥${sku.unitPrice.toFixed(2)}` : "-")}
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-right">{sku.width || "-"}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-right">{sku.thickness || "-"}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-right">{sku.moq || "-"}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-muted max-w-[200px] truncate">{sku.notes || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

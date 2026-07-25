@@ -361,6 +361,25 @@ MOQ：
               }
               value={rawText}
             />
+            {/* 支持的输入格式提示 */}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-paper-warm px-2 py-1 text-[11px] text-muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                支持直接粘贴 Excel 表格
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-lg bg-paper-warm px-2 py-1 text-[11px] text-muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                支持微信/聊天报价粘贴
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-lg bg-paper-warm px-2 py-1 text-[11px] text-muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                支持截图 OCR 后的文字
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-lg bg-paper-warm px-2 py-1 text-[11px] text-muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
+                支持表格+描述文字混合
+              </span>
+            </div>
           </div>
 
           {/* 图片上传区 */}
