@@ -405,17 +405,39 @@
       "name": "防撞条",
       "category": "防撞条",
       "productUrl": "https://www.1688.com/factory/b2b-2200779801726a8ae1.html",
-      "quotedPrice": "2米：3.5元，邮费2.5元",
+      "quotedPrice": "¥3.50 - ¥3.50",
       "priceDetails": "2米：3.5元，邮费2.5元",
-      "dimensions": "2米",
-      "pricingUnit": "元/套",
-      "keySpecs": "8厘米×2米",
+      "dimensions": "8厘米宽",
+      "pricingUnit": "元/卷",
+      "keySpecs": "2米",
       "materialGrade": "专业纳米胶；环保易清理",
-      "freightIncluded": "不含运费；各规格邮费见报价明细",
+      "freightIncluded": "2米邮费2.5元",
       "priceAdjustmentRule": "若后期未起量，代发成本上浮10%",
       "sampleStatus": "支持售后退货退款",
       "risks": "售后每单处理时效长",
-      "createdAt": "2026-07-13T03:57:45.073Z"
+      "createdAt": "2026-07-13T03:57:45.073Z",
+      "skus": [
+        {
+          "id": "8a1a3658-0a95-4dc0-88c5-7f0291dbe7cd",
+          "specName": "2米",
+          "specCode": "2m",
+          "length": "2米",
+          "unitPrice": 3.5,
+          "unitPriceStr": "3.5元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2.5元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 3.5,
+              "source": "报价单导入"
+            }
+          ]
+        }
+      ],
+      "skuCount": 1,
+      "minPrice": 3.5,
+      "maxPrice": 3.5
     },
     {
       "id": "13d8cb9a-8b04-4c46-9baa-e947107847c9",
@@ -425,15 +447,71 @@
       "name": "防撞条",
       "category": "防撞条",
       "productUrl": "https://detail.1688.com/offer/563768987712.html?_t=1776926750863&spm=a2615.7691456/2506.co_0_0_wangpu_score_0_0_0_0_0_0_0000_0.0",
-      "quotedPrice": "2米：3.5元，邮费2元起；5米：8.75元，邮费2元起；10米：17.5元，邮费2元起",
+      "quotedPrice": "¥3.50 - ¥17.50",
       "priceDetails": "2米：3.5元，邮费2元起；5米：8.75元，邮费2元起；10米：17.5元，邮费2元起",
-      "dimensions": "2米、5米、10米",
+      "dimensions": "8厘米宽",
       "pricingUnit": "元/卷",
-      "keySpecs": "8厘米×2米",
-      "freightIncluded": "不含运费；邮费2元起",
+      "keySpecs": "2米、5米、10米",
+      "freightIncluded": "2米邮费2元；5米邮费2元；10米邮费2元",
       "sampleStatus": "支持售后退货退款",
       "notes": "快递，包裹有品牌标识，合格证",
-      "createdAt": "2026-07-13T03:49:20.724Z"
+      "createdAt": "2026-07-13T03:49:20.724Z",
+      "skus": [
+        {
+          "id": "0f3502e2-8403-4820-9288-0dd6e3db631a",
+          "specName": "2米",
+          "specCode": "2m",
+          "length": "2米",
+          "unitPrice": 3.5,
+          "unitPriceStr": "3.5元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 3.5,
+              "source": "报价单导入"
+            }
+          ]
+        },
+        {
+          "id": "429b0ff7-6c35-4ff8-a2d1-890f5eba8b92",
+          "specName": "5米",
+          "specCode": "5m",
+          "length": "5米",
+          "unitPrice": 8.75,
+          "unitPriceStr": "8.75元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 8.75,
+              "source": "报价单导入"
+            }
+          ]
+        },
+        {
+          "id": "9befe98d-211f-4e29-b873-bb885e990f63",
+          "specName": "10米",
+          "specCode": "10m",
+          "length": "10米",
+          "unitPrice": 17.5,
+          "unitPriceStr": "17.5元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 17.5,
+              "source": "报价单导入"
+            }
+          ]
+        }
+      ],
+      "skuCount": 3,
+      "minPrice": 3.5,
+      "maxPrice": 17.5
     },
     {
       "id": "8ff28462-307c-458d-9062-3d9e3f639896",
@@ -443,15 +521,72 @@
       "name": "防撞条/",
       "category": "防撞条",
       "productUrl": "https://detail.1688.com/offer/903616430319.html?spm=a360q.7751291.0.0.283629a838jV3J&sk=common",
-      "quotedPrice": "2米：3.5元，邮费2元；5米：8.75元，邮费2.2元；10米：17.5元，邮费2.5元",
+      "quotedPrice": "¥3.50 - ¥17.50",
       "priceDetails": "2米：3.5元，邮费2元；5米：8.75元，邮费2.2元；10米：17.5元，邮费2.5元",
-      "dimensions": "2米、5米、10米",
+      "dimensions": "8厘米宽",
       "pricingUnit": "元/卷",
-      "freightIncluded": "不含运费；各规格邮费见报价明细",
+      "freightIncluded": "2米邮费2元；5米邮费2.2元；10米邮费2.5元",
       "packaging": "简易包装",
       "risks": "不处理普通退货退款；无合格证；品质中下",
       "notes": "快递圆通，申通，邮政随机；通用标识；简易包装；只处理商家原因的售后",
-      "createdAt": "2026-07-13T03:41:06.495Z"
+      "createdAt": "2026-07-13T03:41:06.495Z",
+      "skus": [
+        {
+          "id": "25f3786e-73da-4e39-82d2-13c573b9d947",
+          "specName": "2米",
+          "specCode": "2m",
+          "length": "2米",
+          "unitPrice": 3.5,
+          "unitPriceStr": "3.5元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 3.5,
+              "source": "报价单导入"
+            }
+          ]
+        },
+        {
+          "id": "5d31be65-385a-425b-953b-3ffcf4ecd359",
+          "specName": "5米",
+          "specCode": "5m",
+          "length": "5米",
+          "unitPrice": 8.75,
+          "unitPriceStr": "8.75元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2.2元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 8.75,
+              "source": "报价单导入"
+            }
+          ]
+        },
+        {
+          "id": "86cb42f6-0930-48a1-9e07-9794955ac445",
+          "specName": "10米",
+          "specCode": "10m",
+          "length": "10米",
+          "unitPrice": 17.5,
+          "unitPriceStr": "17.5元",
+          "pricingUnit": "元/卷",
+          "notes": "邮费2.5元",
+          "priceHistory": [
+            {
+              "date": "2026-07-27",
+              "price": 17.5,
+              "source": "报价单导入"
+            }
+          ]
+        }
+      ],
+      "skuCount": 3,
+      "minPrice": 3.5,
+      "maxPrice": 17.5,
+      "keySpecs": "2米、5米、10米"
     },
     {
       "id": "f8dbe3fc-d67d-48a2-8cfe-c9c4841c6f70",

@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalOffer } from "@/features/workbench/local-store";
+import { loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
 import {
   ArrowDownUp,
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronDown,
   ChevronRight,
   Package,
   Pencil,
@@ -225,6 +226,7 @@ function QuotesCompareContent() {
   const offerIdsParam = searchParams.get("offerIds") || "";
   const offerIds = offerIdsParam.split(",").filter(Boolean);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [skuExpanded, setSkuExpanded] = useState(true);
 
   const data = loadLocalWorkbenchData();
   const offers = offerIds
@@ -355,6 +357,10 @@ function QuotesCompareContent() {
       </div>
 
       {/* 分组对比表 */}
+
+      {/* SKU 规格明细对比 */}
+      <SkuCompareSection expanded={skuExpanded} offers={offers} onToggle={() => setSkuExpanded(!skuExpanded)} />
+
       {compareGroups.map((group) => (
         <section className="rounded-3xl border border-line bg-surface shadow-card overflow-hidden" key={group.title}>
           {/* 组标题 */}
@@ -436,5 +442,120 @@ function QuotesCompareContent() {
         </Link>
       </div>
     </div>
+  );
+}
+
+/* ---------- SKU 规格明细对比区域 ---------- */
+
+function SkuCompareSection({
+  offers,
+  expanded,
+  onToggle
+}: {
+  offers: LocalOffer[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const hasSkus = offers.some((o) => o.skus && o.skus.length > 0);
+  if (!hasSkus) return null;
+
+  // 收集所有货盘的全部规格名（去重 + 保持顺序），按名称匹配而非按索引对齐
+  const allSpecNames: string[] = [];
+  const seen = new Set<string>();
+  for (const offer of offers) {
+    for (const sku of offer.skus ?? []) {
+      const name = sku.specName.trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        allSpecNames.push(name);
+      }
+    }
+  }
+
+  // 为每个货盘建立 specName → sku 的快速查找表
+  const skuMapByOffer = offers.map((offer) => {
+    const map = new Map<string, OfferSku>();
+    for (const sku of offer.skus ?? []) {
+      if (sku.specName) map.set(sku.specName.trim(), sku);
+    }
+    return map;
+  });
+
+  return (
+    <section className="rounded-3xl border border-line bg-surface shadow-card overflow-hidden">
+      <button
+        className="flex w-full items-center gap-2 border-b border-line bg-paper-warm px-5 py-3 text-left"
+        onClick={onToggle}
+        type="button"
+      >
+        <Package className="h-4 w-4 text-action" />
+        <h2 className="font-semibold">规格明细对比</h2>
+        <span className="text-xs text-muted">共 {allSpecNames.length} 个规格</span>
+        <span className="ml-auto text-xs text-muted">{expanded ? "收起" : "展开"}</span>
+        {expanded ? <ChevronDown className="h-4 w-4 text-muted" /> : <ChevronRight className="h-4 w-4 text-muted" />}
+      </button>
+
+      {expanded && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-line bg-surface">
+                <th className="sticky left-0 z-10 min-w-[140px] border-r border-line bg-paper-warm px-3 py-2 text-left font-medium text-muted">
+                  规格
+                </th>
+                {offers.map((offer) => (
+                  <th className="min-w-[100px] border-r border-line px-3 py-2 text-left font-medium" key={offer.id}>
+                    <span className="text-action">{offer.supplierName || offer.name}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {allSpecNames.map((specName) => {
+                // 按名称查找每个货盘的 SKU（skuMapByOffer 是数组，索引与 offers 对齐）
+                const matchedSkus = offers.map((_, idx) => skuMapByOffer[idx]?.get(specName));
+                const prices = matchedSkus.map((sku) => sku?.unitPrice);
+                const validPrices = prices.filter((p): p is number => p != null && !isNaN(p));
+                const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+                const maxPrice = validPrices.length > 0 ? Math.max(...validPrices) : null;
+                const hasMatch = matchedSkus.some(Boolean);
+
+                return (
+                  <tr className={`border-b border-line last:border-0 hover:bg-action-soft/20 transition-colors ${!hasMatch ? "opacity-40" : ""}`} key={specName}>
+                    <td className="sticky left-0 z-10 border-r border-line bg-white px-3 py-2 font-medium text-slate-700 whitespace-nowrap">
+                      {specName}
+                    </td>
+                    {offers.map((offer, offerIdx) => {
+                      const sku = matchedSkus[offerIdx];
+                      const price = sku?.unitPrice;
+                      const isBest = price != null && minPrice != null && maxPrice != null && price === minPrice && validPrices.length >= 2 && minPrice !== maxPrice;
+
+                      return (
+                        <td className={`border-r border-line px-3 py-2 whitespace-nowrap ${isBest ? "bg-success-soft/30" : ""}`} key={offer.id}>
+                          {sku ? (
+                            <div className="flex items-center gap-1">
+                              {isBest ? (
+                                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-success text-white">
+                                  <Check className="h-2 w-2" />
+                                </span>
+                              ) : null}
+                              <span className={price != null ? "font-medium" : "text-muted"}>
+                                {sku.unitPriceStr || (price != null ? `¥${price.toFixed(2)}` : "—")}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

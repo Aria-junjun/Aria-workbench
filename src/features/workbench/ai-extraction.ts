@@ -88,6 +88,17 @@ export function buildFallbackExtraction(
     });
   }
 
+  const quoteSheet = parseSingleSupplierQuoteSheet(rawText, sourceUrl);
+  if (quoteSheet) {
+    return DraftExtractionSchema.parse({
+      ...quoteSheet,
+      uncertaintyNotes: [
+        ...quoteSheet.uncertaintyNotes,
+        reason === "missing_key" ? "未配置 API，当前解析的是报价单表格文本。" : "AI API 未完成整理，当前解析的是报价单表格文本。"
+      ]
+    });
+  }
+
   const comparisonTable = parseComparisonTable(rawText, sourceUrl);
   if (comparisonTable) {
     return DraftExtractionSchema.parse({
@@ -144,13 +155,14 @@ export function buildFallbackExtraction(
       nextActions: rawText.includes("明天") || rawText.includes("跟进") ? ["继续跟进本次沟通事项"] : []
     },
     offers: inlineBrief
-      ? [inlineBrief.offer]
+      ? [{ ...inlineBrief.offer, supplierName: resolvedSupplierName }]
       : plainQuote?.offers?.length
-      ? plainQuote.offers
+      ? plainQuote.offers.map((o) => ({ ...o, supplierName: o.supplierName ?? resolvedSupplierName }))
       : resolvedPriceDetails || moq || leadTime || plainQuote?.offerName
         ? [
             {
               name: resolvedOfferName,
+              supplierName: resolvedSupplierName,
               quotedPrice: resolvedPriceDetails,
               priceDetails: plainQuote?.priceDetails,
               moq: moq ?? plainQuote?.moq,
@@ -818,6 +830,304 @@ function matchFirst(text: string, patterns: RegExp[]) {
  * 保护膜45-10 (小纸管)\t0.72\t0.75\t0.78
  */
 
+/* ---------- 单供应商报价单解析器 ---------- */
+/* 处理"名称 | 规格 | 单价 | 单价（含税）"格式的报价单
+   特点：单供应商、多产品、多规格，含未税和含税两列价格
+   兼容：合并单元格（产品名只在首行出现）、OCR单空格分隔、制表符分隔 */
+
+function parseSingleSupplierQuoteSheet(rawText: string, sourceUrl?: string): DraftExtraction | null {
+  const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 4) return null;
+
+  // 智能分割：制表符优先，其次2+空格，最后单空格
+  const splitLine = (line: string): string[] => {
+    if (line.includes("\t")) {
+      return line.split(/\t+/).map((c) => c.trim()).filter(Boolean);
+    }
+    const twoSpace = line.split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
+    if (twoSpace.length >= 3) return twoSpace;
+    // 单空格分割：确保最后一列是数字
+    const oneSpace = line.split(/\s+/).map((c) => c.trim()).filter(Boolean);
+    return oneSpace;
+  };
+
+  // 寻找表头行：包含"名称/品名" + "规格" + "单价"
+  let headerLineIndex = -1;
+  let headerCells: string[] = [];
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    const cells = splitLine(lines[i]);
+    const joined = cells.join(" ");
+    if (/(?:名称|品名|产品名|商品名)/.test(joined) && /规格/.test(joined) && /单价/.test(joined)) {
+      headerLineIndex = i;
+      headerCells = cells;
+      break;
+    }
+    // 也匹配没有"名称"但有"规格"+"单价"的情况
+    if (/规格/.test(joined) && /单价/.test(joined) && /含税/.test(joined)) {
+      headerLineIndex = i;
+      headerCells = cells;
+      break;
+    }
+  }
+
+  // 如果没找到明确表头，尝试检测第一行是否像表头
+  if (headerLineIndex < 0) {
+    const firstCells = splitLine(lines[0]);
+    if (firstCells.length >= 3 && /(?:名称|品名|规格|单价)/.test(firstCells.join(" "))) {
+      headerLineIndex = 0;
+      headerCells = firstCells;
+    }
+  }
+
+  if (headerLineIndex < 0) return null;
+
+  // 确定列索引：名称列、规格列、单价列、含税单价列
+  let nameColIdx = -1;
+  let specColIdx = -1;
+  let priceColIdx = -1;
+  let taxedPriceColIdx = -1;
+
+  for (let i = 0; i < headerCells.length; i++) {
+    const h = headerCells[i];
+    if (/(?:名称|品名|产品名|商品名)/.test(h) && nameColIdx < 0) {
+      nameColIdx = i;
+    } else if (/规格/.test(h) && specColIdx < 0) {
+      specColIdx = i;
+    } else if (/含税/.test(h) && /单价|价格/.test(h) && taxedPriceColIdx < 0) {
+      taxedPriceColIdx = i;
+    } else if (/(?:单价|价格)/.test(h) && priceColIdx < 0) {
+      priceColIdx = i;
+    }
+  }
+
+  // 必须有规格列和至少一个价格列
+  if (specColIdx < 0 || (priceColIdx < 0 && taxedPriceColIdx < 0)) return null;
+
+  // 如果没有明确的名称列，默认第0列为名称
+  if (nameColIdx < 0) nameColIdx = 0;
+
+  // 解析数据行
+  type ParsedRow = {
+    productName: string;
+    spec: string;
+    unitPrice?: number;
+    unitPriceStr?: string;
+    taxedPrice?: number;
+    taxedPriceStr?: string;
+  };
+  const dataRows: ParsedRow[] = [];
+  let lastProductName = "";
+
+  for (let i = headerLineIndex + 1; i < lines.length; i++) {
+    let cells = splitLine(lines[i]);
+    if (cells.length < 2) continue;
+
+    // 跳过描述性文字行（非表格数据）
+    const firstCell = cells[0] || "";
+    // 如果第一列包含报价单/需要整理等描述文字，停止解析表格
+    if (/报价单|需要整理|单价含|供应商|厂家/.test(firstCell) && cells.length < 3) break;
+
+    // 合并单元格处理：如果行列数比表头少1，且第一列像规格（数字开头），说明名称列缺失
+    const headerColCount = headerCells.length;
+    if (cells.length === headerColCount - 1 && /^\d/.test(cells[0])) {
+      // 在开头插入空字符串，模拟缺失的名称列
+      cells = ["", ...cells];
+    }
+
+    // 提取产品名：如果名称列有内容则用之，否则继承上一行（合并单元格向下填充）
+    let productName = cells[nameColIdx] || "";
+    // 判断该格是否是产品名（而非规格或数字）
+    if (productName && !/^\d/.test(productName) && !/^\d+\*\d+/.test(productName)) {
+      lastProductName = productName;
+    } else {
+      productName = lastProductName;
+    }
+
+    // 提取规格
+    let spec = cells[specColIdx] || "";
+
+    // 规格应该像 "30*80*5" 或 "40-1" 这样的格式
+    // 如果spec不像规格，跳过这行
+    if (!spec || !/\d/.test(spec)) continue;
+
+    // 提取价格
+    let unitPrice: number | undefined;
+    let unitPriceStr: string | undefined;
+    let taxedPrice: number | undefined;
+    let taxedPriceStr: string | undefined;
+
+    if (priceColIdx >= 0 && cells[priceColIdx]) {
+      const p = parseFloat(cells[priceColIdx]);
+      if (!isNaN(p)) {
+        unitPrice = p;
+        unitPriceStr = `${cells[priceColIdx]}元`;
+      }
+    }
+    if (taxedPriceColIdx >= 0 && cells[taxedPriceColIdx]) {
+      const p = parseFloat(cells[taxedPriceColIdx]);
+      if (!isNaN(p)) {
+        taxedPrice = p;
+        taxedPriceStr = `${cells[taxedPriceColIdx]}元`;
+      }
+    }
+
+    // 如果没有明确的价格列索引，尝试从末尾列提取数字
+    if (unitPrice == null && taxedPrice == null) {
+      // 找最后两列数字
+      const numCells = cells.map((c, idx) => ({ idx, val: parseFloat(c), raw: c }))
+        .filter((c) => !isNaN(c.val) && /^\d+[.\d]*$/.test(c.raw));
+      if (numCells.length >= 2) {
+        // 倒数第二个是未税，最后一个是含税
+        unitPrice = numCells[numCells.length - 2].val;
+        unitPriceStr = `${numCells[numCells.length - 2].raw}元`;
+        taxedPrice = numCells[numCells.length - 1].val;
+        taxedPriceStr = `${numCells[numCells.length - 1].raw}元`;
+      } else if (numCells.length === 1) {
+        unitPrice = numCells[0].val;
+        unitPriceStr = `${numCells[0].raw}元`;
+      }
+    }
+
+    if (unitPrice == null && taxedPrice == null) continue;
+
+    dataRows.push({ productName, spec, unitPrice, unitPriceStr, taxedPrice, taxedPriceStr });
+  }
+
+  if (dataRows.length === 0) return null;
+
+  // 从描述文字提取补充信息（供应商名等）
+  const descInfo = extractDescriptionInfo(rawText);
+  const supplierName = descInfo.supplierName;
+
+  // 按产品名分组
+  const productGroups = new Map<string, ParsedRow[]>();
+  for (const row of dataRows) {
+    const name = row.productName || "未命名产品";
+    if (!productGroups.has(name)) {
+      productGroups.set(name, []);
+    }
+    productGroups.get(name)!.push(row);
+  }
+
+  const now = new Date().toISOString().split("T")[0];
+
+  // 为每个产品生成一个货盘
+  const offers = Array.from(productGroups.entries()).map(([productName, rows]) => {
+    const skus = rows.map((row) => {
+      const specName = row.spec;
+      return {
+        specName,
+        specCode: extractSpecCode(specName) || undefined,
+        width: extractDimensionsFromSpec(specName),
+        thickness: extractThicknessFromSpec(specName),
+        unitPrice: row.unitPrice ?? row.taxedPrice,
+        unitPriceStr: row.unitPriceStr ?? row.taxedPriceStr,
+        pricingUnit: "元",
+        moq: undefined,
+        notes: row.taxedPrice != null && row.unitPrice != null
+          ? `含税价：${row.taxedPriceStr}`
+          : undefined,
+        priceHistory: [{ date: now, price: row.unitPrice ?? row.taxedPrice!, source: "报价单导入" }]
+      };
+    });
+
+    const validPrices = skus.map((s) => s.unitPrice!).filter((p) => !isNaN(p));
+    const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : undefined;
+    const maxPrice = validPrices.length > 0 ? Math.max(...validPrices) : undefined;
+    const category = descInfo.category || inferCategoryFromProduct(productName);
+
+    return {
+      name: `${productName}`,
+      supplierName,
+      category,
+      productUrl: sourceUrl || descInfo.sourceUrl,
+      quotedPrice: validPrices.length > 0 ? `¥${minPrice?.toFixed(2)} - ¥${maxPrice?.toFixed(2)}` : undefined,
+      priceDetails: rows.map((r) => `${r.spec}\t${r.unitPriceStr ?? "—"}\t${r.taxedPriceStr ?? "—"}`).join("\n"),
+      skus,
+      skuCount: skus.length,
+      minPrice,
+      maxPrice,
+      untaxedUnitPrice: rows[0]?.unitPriceStr,
+      taxedUnitPrice: rows[0]?.taxedPriceStr,
+      taxFreightTerms: descInfo.freightTax ? "单价含税运" : undefined,
+      keySpecs: rows.map((r) => r.spec).join("、"),
+      dimensions: rows[0]?.spec,
+      freightIncluded: descInfo.freightTax ? "单价含税运" : descInfo.freeShipping ? "包邮" : undefined,
+      moq: descInfo.moq,
+      leadTime: descInfo.leadTime,
+      notes: [
+        `共 ${skus.length} 个规格`,
+        descInfo.thickness ? `产品厚度：${descInfo.thickness}` : undefined
+      ].filter(Boolean).join("；") || undefined
+    };
+  });
+
+  const allPrices = dataRows.map((r) => r.unitPrice ?? r.taxedPrice).filter((p): p is number => p != null && !isNaN(p));
+  const productNames = Array.from(productGroups.keys());
+
+  const supplier = supplierName
+    ? {
+        name: supplierName,
+        sourceUrl: sourceUrl || descInfo.sourceUrl,
+        categories: productNames.length > 0 ? [inferCategoryFromProduct(productNames[0])] : [],
+        supplierType: "unknown" as const,
+        riskTags: [],
+        notes: `报价产品：${productNames.join("、")}`
+      }
+    : undefined;
+
+  return {
+    supplier,
+    communication: {
+      summary: supplierName
+        ? `${supplierName} 报价单，共 ${productNames.length} 个产品、${dataRows.length} 个规格。${descInfo.freightTax ? "报价含税运。" : ""}`
+        : `报价单，共 ${productNames.length} 个产品、${dataRows.length} 个规格。${descInfo.freightTax ? "报价含税运。" : ""}请补充供应商名称。`,
+      promises: descInfo.freightTax ? ["报价含税运"] : descInfo.freeShipping ? ["包邮"] : [],
+      questions: [],
+      risks: [],
+      nextActions: ["确认 MOQ 和交期", "确认样品情况", "核对各规格价格"]
+    },
+    offers,
+    productKnowledge: [],
+    tasks: [
+      {
+        title: supplierName
+          ? `整理${supplierName}报价单，确认 MOQ 和交期`
+          : `整理报价单，确认供应商名称、MOQ 和交期`,
+        priority: "high",
+        type: "confirm_quote"
+      }
+    ],
+    knowledgeCards: [],
+    uncertaintyNotes: [
+      "报价单表格自动解析，供应商名称、MOQ、交期、样品情况需人工确认。",
+      ...(supplierName ? [] : ["未识别到供应商名称，请在录入时补充说明。"]),
+      ...(descInfo.freightTax || descInfo.freeShipping ? [] : ["运费和开票情况未明确，需确认。"])
+    ]
+  };
+}
+
+/** 从规格中提取尺寸信息，如 "30*80*5" → "30cm" */
+function extractDimensionsFromSpec(spec: string): string | undefined {
+  const match = spec.match(/(\d+)\s*[*×xX]\s*(\d+)\s*[*×xX]?\s*(\d+)?/);
+  if (match) {
+    return `${match[1]}×${match[2]}${match[3] ? `×${match[3]}` : ""}`;
+  }
+  return undefined;
+}
+
+/** 从规格中提取厚度，如 "30*80*5" → "5丝" */
+function extractThicknessFromSpec(spec: string): string | undefined {
+  const match = spec.match(/\d+\s*[*×xX]\s*\d+\s*[*×xX]\s*(\d+)/);
+  if (match) {
+    return `${match[1]}丝`;
+  }
+  // 也支持 "保护膜40-1" 中的 "1"
+  const dashMatch = spec.match(/-(\d+)/);
+  if (dashMatch) return `${dashMatch[1]}丝`;
+  return undefined;
+}
+
 function parseComparisonTable(rawText: string, sourceUrl?: string): DraftExtraction | null {
   const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length < 3) return null;
@@ -925,6 +1235,7 @@ function parseComparisonTable(rawText: string, sourceUrl?: string): DraftExtract
 
     return {
       name: supplierColumns.length === 1 ? `${productName} - ${col.name}` : `${col.name} - ${category}`,
+      supplierName: col.name,
       category,
       productUrl: sourceUrl || descInfo.sourceUrl,
       quotedPrice: skus.length > 0 ? `¥${minPrice?.toFixed(2)} - ¥${maxPrice?.toFixed(2)}` : undefined,
@@ -1018,7 +1329,12 @@ function extractDescriptionInfo(rawText: string): DescInfo {
 
   // 供应商名称：多种常见写法
   const supplierPatterns = [
-    /([\u4e00-\u9fa5]{2,8}(?:\/[\u4e00-\u9fa5]{2,8})?)\s+(?:透明|静电|防油|卡通)?[^，,。\n]{0,8}报价单/,
+    // "温州域德/橙萤 透明静电墙贴报价单" → "温州域德/橙萤"
+    /([\u4e00-\u9fa5]{2,8}(?:\/[\u4e00-\u9fa5]{2,8})?)\s+(?:透明|静电|防油|卡通|新款|断点式|撕拉线|白板)?[^，,。\n]{0,12}报价单/,
+    // "这是温州域德的报价单" / "温州域德的报价单" → "温州域德"
+    /(?:这是|这是供应商)?([\u4e00-\u9fa5]{2,8}(?:\/[\u4e00-\u9fa5]{2,8})?)的?报价单/,
+    // "温州域德/橙萤 新款断点式白板贴报价单" → "温州域德/橙萤"
+    /([\u4e00-\u9fa5]{2,4}(?:市|省)?[\u4e00-\u9fa5]{2,6}(?:\/[\u4e00-\u9fa5]{2,6})?)\s+/,
     /供应商[:：]\s*([^\n，,。]+)/,
     /厂家[:：]\s*([^\n，,。]+)/,
     /^([^\n]{2,20}?(?:有限公司|有限责任公司|包装厂|纸品厂|塑料厂|印刷厂|制品厂))/
@@ -1031,10 +1347,12 @@ function extractDescriptionInfo(rawText: string): DescInfo {
     }
   }
 
-  // 产品名称
+  // 产品名称：扩展更多产品类型
   const productPatterns = [
-    /((?:透明|静电|防油|卡通|无痕|强力|纳米|亚克力)[\u4e00-\u9fa5]{1,6}(?:墙贴|膜|贴|胶带|标识|门牌|标签))/,
-    /((?:保护膜|气泡膜|静电膜|防油贴|标识贴|门牌贴|卡通贴)[\u4e00-\u9fa5]{0,4})/,
+    // "新款断点式白板贴报价单" → "断点式白板贴"
+    /(?:新款|老款|升级款|加强版)?((?:断点式|撕拉线|免打孔|可水洗|纳米)?(?:白板贴|白板膜|黑板贴|静电白板)[\u4e00-\u9fa5]{0,4})/,
+    /((?:透明|静电|防油|卡通|无痕|强力|纳米|亚克力|撕拉线|断点式)[\u4e00-\u9fa5]{1,6}(?:墙贴|膜|贴|胶带|标识|门牌|标签|白板贴|黑板贴))/,
+    /((?:保护膜|气泡膜|静电膜|防油贴|标识贴|门牌贴|卡通贴|白板贴|黑板贴|撕拉线)[\u4e00-\u9fa5]{0,4})/,
     /产品[:：]\s*([^\n，,。]+)/,
     /品名[:：]\s*([^\n，,。]+)/
   ];
@@ -1046,9 +1364,10 @@ function extractDescriptionInfo(rawText: string): DescInfo {
     }
   }
 
-  // 产品类别推断
+  // 产品类别推断：扩展更多类别
   if (info.productName || rawText) {
-    if (/保护膜|静电|墙贴|贴膜/.test(rawText)) info.category = "保护膜/静电墙贴";
+    if (/白板贴|白板膜|黑板贴|断点式|撕拉线/.test(rawText)) info.category = "白板贴/静电白板";
+    else if (/保护膜|静电|墙贴|贴膜/.test(rawText)) info.category = "保护膜/静电墙贴";
     else if (/防油贴|防油膜/.test(rawText)) info.category = "防油贴/厨房防油膜";
     else if (/袋|包装/.test(rawText)) info.category = "包装袋";
     else if (/盒/.test(rawText)) info.category = "包装盒";
@@ -1239,6 +1558,7 @@ function parseOcrTable(rawText: string, sourceUrl?: string): DraftExtraction | n
 
     return {
       name: isSingleSupplier ? `${productName} - ${col.name}` : `${col.name} - ${category}`,
+      supplierName: col.name,
       category,
       productUrl: sourceUrl || descInfo.sourceUrl,
       quotedPrice: skus.length > 0 ? `¥${minPrice?.toFixed(2)} - ¥${maxPrice?.toFixed(2)}` : undefined,
@@ -1309,6 +1629,7 @@ function parseOcrTable(rawText: string, sourceUrl?: string): DraftExtraction | n
 }
 
 function inferCategoryFromProduct(productName: string): string {
+  if (/白板|黑板|撕拉线|断点式/.test(productName)) return "白板贴/静电白板";
   if (/保护膜|静电|墙贴|贴膜/.test(productName)) return "保护膜/静电墙贴";
   if (/防油贴|防油膜/.test(productName)) return "防油贴/厨房防油膜";
   if (/袋|包装/.test(productName)) return "包装袋";

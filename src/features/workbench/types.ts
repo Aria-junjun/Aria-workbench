@@ -31,6 +31,7 @@ export type CommunicationDraft = {
 
 export type OfferDraft = {
   name: string;
+  supplierName?: string;
   category?: string;
   quotedPrice?: string;
   moq?: string;

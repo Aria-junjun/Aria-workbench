@@ -289,29 +289,80 @@ export function loadLocalWorkbenchData(): LocalWorkbenchData {
 export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
   const current = loadLocalWorkbenchData();
   const now = new Date().toISOString();
-  const supplierName = extraction.supplier?.name;
-  const existingSupplier = extraction.supplier
-    ? current.suppliers.find((supplier) => normalizeText(supplier.name) === normalizeText(extraction.supplier!.name))
-    : undefined;
-  const supplierId = extraction.supplier ? existingSupplier?.id ?? crypto.randomUUID() : undefined;
   const communicationId = crypto.randomUUID();
-  const supplier = extraction.supplier
-    ? mergeSupplier(existingSupplier, extraction.supplier, supplierId!, now)
-    : undefined;
+
+  // ===== 多供应商收集与匹配 =====
+  // 从 extraction.supplier 和 offers.supplierName 收集所有不同的供应商名
+  const allSupplierNames = new Set<string>();
+  if (extraction.supplier?.name) {
+    allSupplierNames.add(extraction.supplier.name);
+  }
+  for (const offer of extraction.offers) {
+    if (offer.supplierName) {
+      allSupplierNames.add(offer.supplierName);
+    }
+  }
+
+  // 为每个供应商名匹配/创建，处理同名别名合并
+  const supplierByName = new Map<string, { id: string; supplier: LocalSupplier }>();
+  const supplierById = new Map<string, LocalSupplier>();
+
+  for (const name of allSupplierNames) {
+    const existing = findMatchingSupplier(current.suppliers, name);
+    const id = existing?.id ?? crypto.randomUUID();
+
+    // 如果已通过其他名字匹配到同一个已有供应商，复用
+    if (existing && supplierById.has(existing.id)) {
+      supplierByName.set(name, { id: existing.id, supplier: supplierById.get(existing.id)! });
+      continue;
+    }
+
+    // 主供应商用 extraction.supplier 的详细信息，非主供应商用最小信息
+    const isPrimary = extraction.supplier && name === extraction.supplier.name;
+    const draftSupplier = isPrimary
+      ? extraction.supplier
+      : { name, categories: [] as string[], supplierType: "unknown" as const, riskTags: [] as string[] };
+    const supplier = mergeSupplier(existing, draftSupplier, id, now);
+    supplierByName.set(name, { id, supplier });
+    supplierById.set(id, supplier);
+  }
+
+  // 主供应商（用于 communication 和 tasks 关联）
+  const primaryName = extraction.supplier?.name;
+  const primaryEntry = primaryName ? supplierByName.get(primaryName) : undefined;
+  const primarySupplierId = primaryEntry?.id;
+  const primarySupplierName = primaryEntry?.supplier.name;
+
+  // 合并所有供应商到 current.suppliers
+  const allNewSuppliers = Array.from(supplierById.values());
+  const newSupplierIds = new Set(allNewSuppliers.map((s) => s.id));
+  const updatedSuppliers = [
+    ...allNewSuppliers,
+    ...current.suppliers.filter((s) => !newSupplierIds.has(s.id))
+  ];
+
+  // tasks 关联到主供应商
   const newTasks = extraction.tasks
-    .filter((task) => !current.tasks.some((saved) => saved.status === "open" && saved.supplierId === supplierId && normalizeText(saved.title) === normalizeText(task.title)))
+    .filter((task) => !current.tasks.some((saved) => saved.status === "open" && saved.supplierId === primarySupplierId && normalizeText(saved.title) === normalizeText(task.title)))
     .map((task) => ({
-      id: crypto.randomUUID(), supplierId, supplierName, communicationId,
-      title: task.title, dueText: task.dueText, priority: task.priority, type: task.type,
-      status: "open" as const, createdAt: now
+      id: crypto.randomUUID(),
+      supplierId: primarySupplierId,
+      supplierName: primarySupplierName,
+      communicationId,
+      title: task.title,
+      dueText: task.dueText,
+      priority: task.priority,
+      type: task.type,
+      status: "open" as const,
+      createdAt: now
     }));
 
   const next: LocalWorkbenchData = {
-    suppliers: supplier
-      ? [supplier, ...current.suppliers.filter((item) => item.id !== supplier.id)]
-      : current.suppliers,
+    suppliers: updatedSuppliers,
     communications: [{
-      id: communicationId, supplierId, supplierName,
+      id: communicationId,
+      supplierId: primarySupplierId,
+      supplierName: primarySupplierName,
       summary: extraction.communication.summary,
       promises: extraction.communication.promises,
       questions: extraction.communication.questions,
@@ -320,11 +371,16 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
       createdAt: now
     }, ...current.communications],
     offers: [
-      ...extraction.offers.map((offer) => ({
+      ...extraction.offers.map((offer) => {
+        const offerSupplierName = offer.supplierName || primaryName;
+        const entry = offerSupplierName ? supplierByName.get(offerSupplierName) : undefined;
+        const offerSupplierId = entry?.id ?? primarySupplierId;
+        const resolvedName = entry?.supplier.name || offerSupplierName || primarySupplierName;
+        return {
         id: crypto.randomUUID(),
-        supplierId,
+        supplierId: offerSupplierId,
         communicationId,
-        supplierName,
+        supplierName: resolvedName,
         name: offer.name,
         category: offer.category,
         productUrl: offer.productUrl,
@@ -376,7 +432,8 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
         risks: offer.risks,
         notes: offer.notes,
         createdAt: now
-      })),
+        };
+      }),
       ...current.offers
     ],
     products: current.products,
@@ -888,6 +945,107 @@ export function togglePinned(collection: "suppliers" | "offers" | "products" | "
   });
 }
 
+/** 检测重复供应商：按名称相似度找出一对一重复 */
+export function findDuplicateSuppliers(): { target: LocalSupplier; source: LocalSupplier; reason: string }[] {
+  const data = loadLocalWorkbenchData();
+  const { suppliers } = data;
+  const duplicates: { target: LocalSupplier; source: LocalSupplier; reason: string }[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < suppliers.length; i++) {
+    for (let j = i + 1; j < suppliers.length; j++) {
+      const a = suppliers[i];
+      const b = suppliers[j];
+      const pairKey = [a.id, b.id].sort().join("|");
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+
+      const aNorm = normalizeText(a.name);
+      const bNorm = normalizeText(b.name);
+
+      if (aNorm === bNorm) {
+        duplicates.push({ target: a, source: b, reason: "完全同名" });
+        continue;
+      }
+
+      // 包含关系
+      if (aNorm.length > 1 && bNorm.length > 1 && (aNorm.includes(bNorm) || bNorm.includes(aNorm))) {
+        duplicates.push({ target: a, source: b, reason: "名称包含关系" });
+        continue;
+      }
+
+      // 斜杠别名匹配
+      const aParts = aNorm.split(/[/／|、，,]/).map((p) => p.trim()).filter(Boolean);
+      const bParts = bNorm.split(/[/／|、，,]/).map((p) => p.trim()).filter(Boolean);
+      if (aParts.length > 1 || bParts.length > 1) {
+        const hasMatch = aParts.some((ap) => bParts.some((bp) => ap === bp || (ap.length > 1 && bp.length > 1 && (ap.includes(bp) || bp.includes(ap)))));
+        if (hasMatch) {
+          duplicates.push({ target: a, source: b, reason: "别名/简称匹配" });
+          continue;
+        }
+      }
+    }
+  }
+
+  return duplicates;
+}
+
+/** 合并两个供应商：source 的所有数据迁移到 target，然后删除 source */
+export function mergeSuppliers(targetId: string, sourceId: string): LocalWorkbenchData {
+  const data = loadLocalWorkbenchData();
+  const target = data.suppliers.find((s) => s.id === targetId);
+  const source = data.suppliers.find((s) => s.id === sourceId);
+  if (!target || !source) return data;
+
+  // 合并品类
+  const mergedCategories = Array.from(new Set([...target.categories, ...source.categories]));
+
+  // 更新 target：保留非空值，优先选有意义的
+  const updatedTarget: LocalSupplier = {
+    ...target,
+    categories: mergedCategories,
+    location: target.location || source.location,
+    contactName: target.contactName || source.contactName,
+    contactMethod: target.contactMethod || source.contactMethod,
+    storeUrl: target.storeUrl || source.storeUrl,
+    sourcePlatform: target.sourcePlatform || source.sourcePlatform,
+    supplierType: target.supplierType && target.supplierType !== "unknown" ? target.supplierType : source.supplierType,
+    cooperationLevel: target.cooperationLevel || source.cooperationLevel,
+    riskTags: Array.from(new Set([...target.riskTags, ...source.riskTags])),
+    notes: [target.notes, source.notes].filter(Boolean).join("；"),
+    pinned: target.pinned || source.pinned
+  };
+
+  // 迁移所有关联数据：offer / communication / task
+  const updatedOffers = data.offers.map((o) =>
+    o.supplierId === sourceId || o.supplierName === source.name
+      ? { ...o, supplierId: targetId, supplierName: updatedTarget.name }
+      : o
+  );
+  const updatedComms = data.communications.map((c) =>
+    c.supplierId === sourceId ? { ...c, supplierId: targetId, supplierName: updatedTarget.name } : c
+  );
+  const updatedTasks = data.tasks.map((t) =>
+    t.supplierId === sourceId ? { ...t, supplierId: targetId, supplierName: updatedTarget.name } : t
+  );
+
+  const updatedSuppliers = [
+    updatedTarget,
+    ...data.suppliers.filter((s) => s.id !== targetId && s.id !== sourceId)
+  ];
+
+  const result: LocalWorkbenchData = {
+    ...data,
+    suppliers: updatedSuppliers,
+    offers: updatedOffers,
+    communications: updatedComms,
+    tasks: updatedTasks
+  };
+
+  saveLocalWorkbenchData(result);
+  return result;
+}
+
 export function sortPinnedFirst<T extends { pinned?: boolean; createdAt: string }>(items: T[]) {
   return [...items].sort((a, b) => {
     if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
@@ -1077,6 +1235,44 @@ function mergeDecisionActions(contributions: ToolContribution[]) {
 
 function normalizeText(value: string) {
   return value.trim().toLocaleLowerCase();
+}
+
+/**
+ * 供应商模糊匹配：支持同名、包含关系、斜杠分隔的别名匹配
+ * 例如 "温州域德/橙萤" 能匹配到已存在的 "温州域德" 或 "橙萤"
+ */
+function findMatchingSupplier(suppliers: LocalSupplier[], incomingName: string): LocalSupplier | undefined {
+  const incoming = normalizeText(incomingName);
+  // 精确匹配
+  let match = suppliers.find((s) => normalizeText(s.name) === incoming);
+  if (match) return match;
+
+  // 拆分斜杠别名，检查是否有任一别名匹配
+  const incomingParts = incoming.split(/[/／|、，,]/).map((p) => p.trim()).filter(Boolean);
+  if (incomingParts.length > 1) {
+    // 输入"温州域德/橙萤"，检查已有供应商是否包含任一部分
+    match = suppliers.find((s) => {
+      const existing = normalizeText(s.name);
+      return incomingParts.some((part) => existing === part || existing.includes(part) || part.includes(existing));
+    });
+    if (match) return match;
+
+    // 反向：已有供应商也是"xxx/yyy"格式，检查是否有交集
+    match = suppliers.find((s) => {
+      const existingParts = normalizeText(s.name).split(/[/／|、，,]/).map((p) => p.trim()).filter(Boolean);
+      return existingParts.some((ep) => incomingParts.some((ip) => ep === ip || ep.includes(ip) || ip.includes(ep)));
+    });
+    if (match) return match;
+  }
+
+  // 包含关系匹配："温州域德" 匹配 "温州域德/橙萤"
+  match = suppliers.find((s) => {
+    const existing = normalizeText(s.name);
+    return existing.includes(incoming) || incoming.includes(existing);
+  });
+  if (match) return match;
+
+  return undefined;
 }
 
 /** 从价格字符串中提取数值（元） */

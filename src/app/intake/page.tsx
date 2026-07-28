@@ -282,13 +282,28 @@ MOQ：
             : "border-line bg-paper-warm"
       }`}>
         <Sparkles className={`h-4 w-4 shrink-0 ${aiEnabled === true ? "text-success" : aiEnabled === false ? "text-warning" : "text-muted"}`} />
-        <span className="text-sm">
-          {aiEnabled === true
-            ? "AI 识图整理已开启：上传或粘贴截图后，系统会自动提取供应商、货盘和待办信息。"
-            : aiEnabled === false
-              ? "当前是本地兜底模式：可以上传和归档图片，但不会识别图片内容。配置 OpenAI Key 后会开启 AI 识图。"
-              : "正在检测 AI 服务状态..."}
-        </span>
+        <div className="flex-1">
+          <span className="text-sm block">
+            {aiEnabled === true
+              ? "AI 识图整理已开启：上传或粘贴截图后，系统会自动提取供应商、货盘和待办信息。"
+              : aiEnabled === false
+                ? "当前是本地兜底模式：可以上传和归档图片，但不会识别图片内容。配置 OpenAI Key 后会开启 AI 识图。"
+                : "正在检测 AI 服务状态..."}
+          </span>
+          {aiEnabled === false ? (
+            <div className="mt-2 space-y-1.5">
+              <span className="text-xs text-muted block font-medium">图片表格无法直接识别，请先转为文字：</span>
+              <ol className="text-xs text-muted space-y-1 pl-4 list-decimal">
+                <li>微信截图 → 截图后点「提取文字」→ 复制文字 → 粘贴到下方输入框</li>
+                <li>QQ截图 → 截图后点「屏幕识图」→ 复制文字 → 粘贴到下方输入框</li>
+                <li>或用在线OCR（如 pearocr.com）上传图片 → 提取文字 → 粘贴到下方输入框</li>
+              </ol>
+              <span className="text-xs text-muted block mt-1.5">
+                粘贴文字后系统会自动识别供应商、规格和报价。如需直接上传图片自动识别，请在「设置」中配置 OpenAI Key。
+              </span>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {/* 三种录入方式卡片 */}

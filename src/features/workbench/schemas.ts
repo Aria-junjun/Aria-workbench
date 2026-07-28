@@ -42,6 +42,7 @@ export const OfferSkuDraftSchema = z.object({
 
 export const OfferDraftSchema = z.object({
   name: z.string().min(1),
+  supplierName: z.string().optional(),
   category: z.string().optional(),
   productUrl: z.string().optional(),
   resourceUrl: z.string().optional(),

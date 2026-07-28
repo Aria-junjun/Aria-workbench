@@ -89,3 +89,22 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
+
+/* Hide browser default disclosure triangles on details/summary */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details > summary::marker {
+  display: none;
+}
+
+/* Remove default select arrow to avoid visual clutter */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: none;
+}

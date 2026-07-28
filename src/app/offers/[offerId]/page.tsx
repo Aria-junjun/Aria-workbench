@@ -36,7 +36,20 @@ export default function OfferDetailPage() {
 
   function save() {
     if (!draft) return;
-    updateLocalItem("offers", draft.id, draft);
+    // 保存前根据 SKU 自动重算价格区间和规格数
+    const validSkus = (draft.skus ?? []).filter((s) => s.unitPrice != null && !isNaN(s.unitPrice));
+    const prices = validSkus.map((s) => s.unitPrice!);
+    const recalculated: LocalOffer = {
+      ...draft,
+      skuCount: draft.skus?.length ?? 0,
+      minPrice: prices.length > 0 ? Math.min(...prices) : undefined,
+      maxPrice: prices.length > 0 ? Math.max(...prices) : undefined,
+      quotedPrice: prices.length > 0
+        ? `¥${Math.min(...prices).toFixed(2)} - ¥${Math.max(...prices).toFixed(2)}`
+        : draft.quotedPrice
+    };
+    updateLocalItem("offers", recalculated.id, recalculated);
+    setDraft(recalculated);
     setEditing(false);
   }
 
@@ -55,9 +68,9 @@ export default function OfferDetailPage() {
           <div>
             <h1 className="text-2xl font-semibold">{offer.name}</h1>
             {(() => {
-              const range = formatPriceRange(offer);
+              const range = formatPriceRange(draft);
               return range ? (
-                <div className="mt-1 text-lg font-medium text-action">{range}{offer.skuCount ? ` (${offer.skuCount}个规格)` : ""}</div>
+                <div className="mt-1 text-lg font-medium text-action">{range}{(draft.skus?.length ?? draft.skuCount) ? ` (${draft.skus?.length ?? draft.skuCount}个规格)` : ""}</div>
               ) : null;
             })()}
           </div>
@@ -74,8 +87,14 @@ export default function OfferDetailPage() {
             <TextField label="报价" onChange={(value) => setDraft({ ...draft, quotedPrice: value })} value={draft.quotedPrice || ""} />
             <TextField label="报价明细" multiline onChange={(value) => setDraft({ ...draft, priceDetails: value })} value={draft.priceDetails || ""} />
 
-            {/* 规格明细（SKU）— 编辑模式下只读展示 */}
-            {offer.skus && offer.skus.length > 0 && <SkuTable skus={offer.skus} editing={editing} />}
+            {/* 规格明细（SKU）— 编辑模式下可直接修改 */}
+            {draft.skus && draft.skus.length > 0 && (
+              <SkuTable
+                editing={editing}
+                skus={draft.skus}
+                onChange={(nextSkus) => setDraft({ ...draft, skus: nextSkus })}
+              />
+            )}
             <TextField label="未税单价" onChange={(value) => setDraft({ ...draft, untaxedUnitPrice: value })} value={draft.untaxedUnitPrice || ""} />
             <TextField label="未税版费" onChange={(value) => setDraft({ ...draft, untaxedPlateFee: value })} value={draft.untaxedPlateFee || ""} />
             <TextField label="含税单价" onChange={(value) => setDraft({ ...draft, taxedUnitPrice: value })} value={draft.taxedUnitPrice || ""} />
@@ -117,7 +136,13 @@ export default function OfferDetailPage() {
             <Info label="报价明细" value={offer.priceDetails} />
 
             {/* 规格明细（SKU） */}
-            {offer.skus && offer.skus.length > 0 && <SkuTable skus={offer.skus} editing={editing} />}
+            {offer.skus && offer.skus.length > 0 && (
+              <SkuTable
+                editing={editing}
+                skus={offer.skus}
+                onChange={() => {}}
+              />
+            )}
             <Info label="未税单价" value={offer.untaxedUnitPrice} />
             <Info label="未税版费" value={offer.untaxedPlateFee} />
             <Info label="含税单价" value={offer.taxedUnitPrice} />
@@ -197,49 +222,217 @@ export default function OfferDetailPage() {
   );
 }
 
-/** SKU 规格明细表格 */
-function SkuTable({ skus, editing }: { skus: OfferSku[]; editing: boolean }) {
+/** SKU 规格明细表格 — 支持展示全部字段和编辑 */
+function SkuTable({
+  skus,
+  editing,
+  onChange
+}: {
+  skus: OfferSku[];
+  editing: boolean;
+  onChange: (next: OfferSku[]) => void;
+}) {
   const showScroll = skus.length > 10;
+
+  function updateSku(index: number, patch: Partial<OfferSku>) {
+    const next = skus.map((s, i) => (i === index ? { ...s, ...patch } : s));
+    onChange(next);
+  }
+
+  function removeSku(index: number) {
+    const next = skus.filter((_, i) => i !== index);
+    onChange(next);
+  }
+
+  function addSku() {
+    const next: OfferSku[] = [
+      ...skus,
+      {
+        id: crypto.randomUUID(),
+        specName: "",
+        specCode: "",
+        width: "",
+        length: "",
+        thickness: "",
+        unitPrice: undefined,
+        unitPriceStr: "",
+        pricingUnit: "",
+        moq: "",
+        notes: "",
+        priceHistory: []
+      }
+    ];
+    onChange(next);
+  }
+
+  const th = "px-3 py-2 text-left font-medium whitespace-nowrap text-xs text-slate-600";
+  const td = "px-3 py-1.5 whitespace-nowrap";
 
   return (
     <div className="sm:col-span-2 space-y-2">
-      <h3 className="text-sm font-semibold text-slate-700">
-        规格明细（共 {skus.length} 个）
-      </h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-700">
+          规格明细（共 {skus.length} 个）
+        </h3>
+        {editing && (
+          <button
+            className="text-xs rounded-lg bg-action-soft px-3 py-1.5 text-action font-medium hover:bg-action-soft/70 transition-colors"
+            onClick={addSku}
+            type="button"
+          >
+            + 添加规格
+          </button>
+        )}
+      </div>
       {editing && (
         <p className="text-xs text-muted">
-          规格明细由报价单导入自动生成，暂不支持手动编辑。
+          可直接修改下方表格中的字段，空值会显示为"—"占位，方便后续补充。
         </p>
       )}
       <div
         className={`bg-white border border-line rounded-2xl overflow-hidden ${
-          showScroll ? "max-h-80 overflow-y-auto" : ""
+          showScroll ? "max-h-96 overflow-y-auto" : ""
         }`}
       >
         <table className="w-full text-sm">
-          <thead className="sticky top-0">
-            <tr className="bg-paper-warm text-xs text-slate-600">
-              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">规格名</th>
-              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">规格编码</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">单价</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">宽度</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">厚度</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">MOQ</th>
-              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">备注</th>
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-paper-warm">
+              <th className={th}>规格名</th>
+              <th className={th}>规格编码</th>
+              <th className={`${th} text-right`}>单价</th>
+              <th className={th}>计价单位</th>
+              <th className={th}>宽度</th>
+              <th className={th}>长度</th>
+              <th className={th}>厚度</th>
+              <th className={th}>MOQ</th>
+              <th className={th}>备注</th>
+              {editing && <th className={th}>操作</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {skus.map((sku) => (
+            {skus.map((sku, idx) => (
               <tr key={sku.id} className="hover:bg-action-soft/30 transition-colors">
-                <td className="px-3 py-2 whitespace-nowrap">{sku.specName || "-"}</td>
-                <td className="px-3 py-2 whitespace-nowrap text-muted">{sku.specCode || "-"}</td>
-                <td className="px-3 py-2 whitespace-nowrap text-right font-medium text-action">
-                  {sku.unitPriceStr || (sku.unitPrice != null ? `¥${sku.unitPrice.toFixed(2)}` : "-")}
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-full rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { specName: e.target.value })}
+                      value={sku.specName}
+                    />
+                  ) : (
+                    sku.specName || "—"
+                  )}
                 </td>
-                <td className="px-3 py-2 whitespace-nowrap text-right">{sku.width || "-"}</td>
-                <td className="px-3 py-2 whitespace-nowrap text-right">{sku.thickness || "-"}</td>
-                <td className="px-3 py-2 whitespace-nowrap text-right">{sku.moq || "-"}</td>
-                <td className="px-3 py-2 whitespace-nowrap text-muted max-w-[200px] truncate">{sku.notes || "-"}</td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-20 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { specCode: e.target.value })}
+                      value={sku.specCode || ""}
+                    />
+                  ) : (
+                    <span className="text-muted">{sku.specCode || "—"}</span>
+                  )}
+                </td>
+                <td className={`${td} text-right`}>
+                  {editing ? (
+                    <div className="flex items-center gap-1 justify-end">
+                      <input
+                        className="w-20 rounded-lg border border-line bg-white px-2 py-1 text-sm text-right focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const num = parseFloat(val);
+                          updateSku(idx, {
+                            unitPriceStr: val,
+                            unitPrice: isNaN(num) ? undefined : num
+                          });
+                        }}
+                        value={sku.unitPriceStr || ""}
+                      />
+                    </div>
+                  ) : (
+                    <span className="font-medium text-action">
+                      {sku.unitPriceStr || (sku.unitPrice != null ? `¥${sku.unitPrice.toFixed(2)}` : "—")}
+                    </span>
+                  )}
+                </td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-16 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { pricingUnit: e.target.value })}
+                      value={sku.pricingUnit || ""}
+                    />
+                  ) : (
+                    <span className="text-muted">{sku.pricingUnit || "—"}</span>
+                  )}
+                </td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-16 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { width: e.target.value })}
+                      value={sku.width || ""}
+                    />
+                  ) : (
+                    sku.width || "—"
+                  )}
+                </td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-16 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { length: e.target.value })}
+                      value={sku.length || ""}
+                    />
+                  ) : (
+                    sku.length || "—"
+                  )}
+                </td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-16 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { thickness: e.target.value })}
+                      value={sku.thickness || ""}
+                    />
+                  ) : (
+                    sku.thickness || "—"
+                  )}
+                </td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-16 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { moq: e.target.value })}
+                      value={sku.moq || ""}
+                    />
+                  ) : (
+                    sku.moq || "—"
+                  )}
+                </td>
+                <td className={td}>
+                  {editing ? (
+                    <input
+                      className="w-28 rounded-lg border border-line bg-white px-2 py-1 text-sm focus:border-action focus:outline-none focus:ring-1 focus:ring-action/30"
+                      onChange={(e) => updateSku(idx, { notes: e.target.value })}
+                      value={sku.notes || ""}
+                    />
+                  ) : (
+                    <span className="text-muted max-w-[160px] truncate block">{sku.notes || "—"}</span>
+                  )}
+                </td>
+                {editing && (
+                  <td className={td}>
+                    <button
+                      className="text-xs text-danger hover:text-danger/70 px-2 py-1 rounded hover:bg-danger/10 transition-colors"
+                      onClick={() => removeSku(idx)}
+                      type="button"
+                    >
+                      删除
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
