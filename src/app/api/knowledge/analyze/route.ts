@@ -35,7 +35,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { caseId: _caseId, cycleId: _cycleId, ...input } = RequestSchema.parse(await request.json());
+    const body = RequestSchema.parse(await request.json());
+    const { caseId, cycleId, ...input } = body;
+    // caseId and cycleId are validated but not needed for analysis
+    void caseId;
+    void cycleId;
     return NextResponse.json(await analyzeDecisionCycle(input));
   } catch (error) {
     if (error instanceof z.ZodError) {

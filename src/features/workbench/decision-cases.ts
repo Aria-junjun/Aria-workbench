@@ -43,6 +43,7 @@ export const DecisionCaseSchema = z.object({
   cycles: z.array(DecisionCycleSchema).default([]),
   supplierIds: z.array(z.string()).default([]),
   offerIds: z.array(z.string()).default([]),
+  productIds: z.array(z.string()).default([]),
   createdAt: z.string(),
   updatedAt: z.string()
 });

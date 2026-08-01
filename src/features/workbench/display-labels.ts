@@ -21,6 +21,13 @@ const taskTypeLabels: Record<string, string> = {
   knowledge_action: "知识应用"
 };
 
+const reviewOutcomeLabels: Record<string, string> = {
+  success: "成功",
+  partial: "部分达成",
+  failure: "失败",
+  cancelled: "取消"
+};
+
 export function labelSupplierType(value?: string) {
   return value ? supplierTypeLabels[value] ?? value : "未记录";
 }
@@ -31,4 +38,8 @@ export function labelPriority(value?: string) {
 
 export function labelTaskType(value?: string) {
   return value ? taskTypeLabels[value] ?? value : "未记录";
+}
+
+export function labelReviewOutcome(value?: string) {
+  return value ? reviewOutcomeLabels[value] ?? value : "未复盘";
 }
