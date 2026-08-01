@@ -32,7 +32,8 @@ import {
   Lightbulb,
   CircleCheck,
   Circle,
-  Calendar
+  Calendar,
+  FolderKanban
 } from "lucide-react";
 
 const kindLabels: Record<DashboardItem["kind"], string> = {
@@ -62,7 +63,8 @@ const priorityConfig: Record<string, { label: string; bg: string; text: string; 
 const quickLinks = [
   { href: "/intake", label: "快速录入", description: "粘贴沟通、截图或报价文件", icon: Zap, color: "action" },
   { href: "/tasks", label: "待办", description: "查看需要跟进的事情", icon: CheckSquare, color: "warning" },
-  { href: "/offers", label: "报价对比", description: "选择货盘生成对比表", icon: BarChart3, color: "success" }
+  { href: "/offers", label: "报价对比", description: "选择货盘生成对比表", icon: BarChart3, color: "success" },
+  { href: "/projects", label: "品类项目", description: "按品类查看关联全貌", icon: FolderKanban, color: "action" }
 ];
 
 const colorMap: Record<string, { bg: string; text: string; soft: string; border: string }> = {
@@ -450,7 +452,7 @@ export default function DashboardPage() {
           <TrendingUp className="h-4 w-4 text-action" />
           快速操作
         </h2>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {quickLinks.map((item) => {
             const Icon = item.icon;
             const cfg = colorMap[item.color];

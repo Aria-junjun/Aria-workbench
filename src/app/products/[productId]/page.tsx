@@ -5,8 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ProductKnowledgeEditor } from "@/components/workbench/product-knowledge-editor";
 import { SectionActions } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, loadLocalWorkbenchData, saveProductKnowledge } from "@/features/workbench/local-store";
-import type { ProductKnowledgeV2 } from "@/features/workbench/product-knowledge";
+import { deleteLocalItem, loadLocalWorkbenchData, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
+import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable } from "@/features/workbench/product-knowledge";
 import { buildProductTechnologyPrompt } from "@/features/workbench/product-technology-prompt";
 
 export default function ProductDetailPage() {
@@ -76,6 +76,10 @@ export default function ProductDetailPage() {
 }
 
 function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
+  const [activeTab, setActiveTab] = useState<"product" | "research">("product");
+  const showTabs = product.researchDepth === "category" || hasCategoryResearch(product);
+  const workbenchData = loadLocalWorkbenchData();
+
   const risks = [
     ...product.risks.quality.map((value) => `质量：${value}`),
     ...product.risks.supply.map((value) => `供应：${value}`),
@@ -83,8 +87,8 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
     ...product.risks.other.map((value) => `使用/售后：${value}`)
   ];
 
-  return (
-    <div className="space-y-6">
+  const productDetail = (
+    <>
       <DetailSection title="产品与规格">
         <DetailGrid items={[
           ["目标用户", product.targetUsers],
@@ -160,6 +164,27 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
           ]} />
         </DetailSection>
       ) : null}
+      {hasRelatedSuppliersOrOffers(product) ? (
+        <DetailSection title="关联供应商与货盘">
+          <RelatedSuppliersAndOffers product={product} workbenchData={workbenchData} />
+        </DetailSection>
+      ) : null}
+    </>
+  );
+
+  if (!showTabs) {
+    return <div className="space-y-6">{productDetail}</div>;
+  }
+
+  const tabBase = "rounded-md border border-line px-3 py-2 text-sm";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-2">
+        <button className={activeTab === "product" ? `${tabBase} bg-action text-white` : tabBase} onClick={() => setActiveTab("product")} type="button">产品详情</button>
+        <button className={activeTab === "research" ? `${tabBase} bg-action text-white` : tabBase} onClick={() => setActiveTab("research")} type="button">深度调研</button>
+      </div>
+      {activeTab === "product" ? productDetail : <CategoryResearchView product={product} />}
     </div>
   );
 }
@@ -167,6 +192,56 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
 function hasTechnologyOutlook(product: ProductKnowledgeV2): boolean {
   const outlook = product.technologyOutlook;
   return Boolean(outlook && [outlook.mainstream, outlook.alternatives, outlook.emerging, outlook.replacementRisks, outlook.watchSignals].some((items) => items.length > 0));
+}
+
+function hasRelatedSuppliersOrOffers(product: ProductKnowledgeV2): boolean {
+  return (product.relatedSupplierIds?.length ?? 0) > 0 || (product.relatedOfferIds?.length ?? 0) > 0;
+}
+
+function RelatedSuppliersAndOffers({
+  product,
+  workbenchData
+}: {
+  product: ProductKnowledgeV2;
+  workbenchData: { suppliers: LocalSupplier[]; offers: LocalOffer[] };
+}) {
+  const relatedSupplierIds = product.relatedSupplierIds ?? [];
+  const relatedOfferIds = product.relatedOfferIds ?? [];
+  const relatedSuppliers = relatedSupplierIds
+    .map((id) => workbenchData.suppliers.find((s) => s.id === id))
+    .filter((s): s is LocalSupplier => Boolean(s));
+  const relatedOffers = relatedOfferIds
+    .map((id) => workbenchData.offers.find((o) => o.id === id))
+    .filter((o): o is LocalOffer => Boolean(o));
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <div className="text-sm text-slate-500">关联供应商</div>
+        {relatedSuppliers.length > 0 ? (
+          <ul className="mt-1 space-y-1">
+            {relatedSuppliers.map((supplier) => (
+              <li key={supplier.id}>
+                <Link className="text-action hover:underline" href={`/suppliers/${supplier.id}`}>{supplier.name}</Link>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-1 text-sm text-slate-500">未关联</p>}
+      </div>
+      <div>
+        <div className="text-sm text-slate-500">关联货盘</div>
+        {relatedOffers.length > 0 ? (
+          <ul className="mt-1 space-y-1">
+            {relatedOffers.map((offer) => (
+              <li key={offer.id}>
+                <Link className="text-action hover:underline" href={`/offers/${offer.id}`}>{offer.name}</Link>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-1 text-sm text-slate-500">未关联</p>}
+      </div>
+    </div>
+  );
 }
 
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -179,4 +254,214 @@ function DetailGrid({ items }: { items: Array<[string, string | undefined]> }) {
 
 function Empty() {
   return <p className="text-sm text-slate-500">未记录</p>;
+}
+
+function CategoryResearchView({ product }: { product: ProductKnowledgeV2 }) {
+  const market = product.marketOverview;
+  const competitive = product.competitiveLandscape;
+  const benchmark = product.productBenchmark;
+  const insights = product.userInsights;
+  const supply = product.supplyChainFindings;
+
+  return (
+    <>
+      <DetailSection title="行业概览">
+        {market ? (
+          <div className="space-y-4">
+            <DetailGrid items={[
+              ["市场规模", market.marketSize],
+              ["同比增长", market.yoyGrowth],
+              ["细分趋势", market.subCategoryTrend]
+            ]} />
+            <PestelTable pestel={market.pestel} />
+            <EntryBarriersTable entryBarriers={market.entryBarriers} />
+            <ResearchTableView table={market.marketSizeTable} />
+            <ResearchTableView table={market.segmentStructure} />
+          </div>
+        ) : <Empty />}
+      </DetailSection>
+      <DetailSection title="竞争格局">
+        {competitive ? (
+          <div className="space-y-4">
+            <DetailGrid items={[["CR5", competitive.cr5]]} />
+            <ResearchTableView table={competitive.topBrandRanking} />
+            <ResearchTableView table={competitive.brandRankingByCategory} />
+            <PorterFiveForcesTable porterFiveForces={competitive.porterFiveForces} />
+            <DetailGrid items={[["策略差异", competitive.strategyDifferences]]} />
+          </div>
+        ) : <Empty />}
+      </DetailSection>
+      <DetailSection title="产品对标">
+        {benchmark ? (
+          <div className="space-y-4">
+            <ResearchTableView table={benchmark.tmallProtectiveFilm} />
+            <ResearchTableView table={benchmark.tmallHangingBoard} />
+            <ResearchTableView table={benchmark.formComparison} />
+            <ResearchTableView table={benchmark.priceTiers} />
+            <DetailGrid items={[["关键发现", benchmark.keyFindings]]} />
+          </div>
+        ) : <Empty />}
+      </DetailSection>
+      <DetailSection title="用户洞察">
+        {insights ? (
+          <div className="space-y-4">
+            <ResearchTableView table={insights.personas} />
+            <ResearchTableView table={insights.coreMetrics} />
+            <StringList title="购买决策因素" items={insights.purchasePriorities} />
+            <ResearchTableView table={insights.complaints} />
+            <StringList title="好评卖点" items={insights.praisePoints} />
+          </div>
+        ) : <Empty />}
+      </DetailSection>
+      <DetailSection title="供应链寻源">
+        {supply ? (
+          <div className="space-y-4">
+            <ResearchTableView table={supply.coreMetrics} />
+            <ResearchTableView table={supply.filmSuppliers} />
+            <ResearchTableView table={supply.boardSuppliers} />
+            <ResearchTableView table={supply.priceGradientFilm} />
+            <ResearchTableView table={supply.priceGradientBoard} />
+            <DetailGrid items={[["三合一供应说明", supply.comboSupply]]} />
+            <ResearchTableView table={supply.sourcingAdvice} />
+            <StringList title="寻源执行路径步骤" items={supply.sourcingPathSteps} />
+          </div>
+        ) : <Empty />}
+      </DetailSection>
+    </>
+  );
+}
+
+function hasCategoryResearch(product: ProductKnowledgeV2): boolean {
+  const m = product.marketOverview;
+  const c = product.competitiveLandscape;
+  const b = product.productBenchmark;
+  const u = product.userInsights;
+  const s = product.supplyChainFindings;
+  if (m && (m.marketSize || m.yoyGrowth || m.subCategoryTrend || m.pestel?.length || m.entryBarriers?.length || hasTable(m.marketSizeTable) || hasTable(m.segmentStructure))) return true;
+  if (c && (c.cr5 || c.strategyDifferences || c.porterFiveForces?.length || hasTable(c.topBrandRanking) || hasTable(c.brandRankingByCategory))) return true;
+  if (b && (b.keyFindings || hasTable(b.tmallProtectiveFilm) || hasTable(b.tmallHangingBoard) || hasTable(b.formComparison) || hasTable(b.priceTiers))) return true;
+  if (u && (u.purchasePriorities?.length || u.praisePoints?.length || hasTable(u.personas) || hasTable(u.coreMetrics) || hasTable(u.complaints))) return true;
+  if (s && (s.comboSupply || s.sourcingPathSteps?.length || hasTable(s.coreMetrics) || hasTable(s.filmSuppliers) || hasTable(s.boardSuppliers) || hasTable(s.priceGradientFilm) || hasTable(s.priceGradientBoard) || hasTable(s.sourcingAdvice))) return true;
+  return false;
+}
+
+function hasTable(table: ResearchTable | undefined): boolean {
+  return Boolean(table && table.rows && table.rows.length > 0);
+}
+
+function ResearchTableView({ table }: { table: ResearchTable | undefined }) {
+  if (!table || !table.rows || table.rows.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      {table.caption ? <p className="mb-2 text-sm text-slate-500">{table.caption}</p> : null}
+      <table className="min-w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-line">
+            {table.headers.map((header, index) => (
+              <th className="py-2 pr-4" key={index}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, rowIndex) => (
+            <tr className="border-b border-line" key={rowIndex}>
+              {table.headers.map((header, colIndex) => (
+                <td className="py-2 pr-4" key={colIndex}>{row[header] || "—"}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PestelTable({ pestel }: { pestel: MarketOverview["pestel"] }) {
+  if (!pestel || pestel.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="py-2 pr-4">维度</th>
+            <th className="py-2 pr-4">关键因素</th>
+            <th className="py-2 pr-4">影响</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pestel.map((item, index) => (
+            <tr className="border-b border-line" key={index}>
+              <td className="py-2 pr-4">{item.dimension}</td>
+              <td className="py-2 pr-4">{item.factor}</td>
+              <td className="py-2 pr-4">{item.impact}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PorterFiveForcesTable({ porterFiveForces }: { porterFiveForces: CompetitiveLandscape["porterFiveForces"] }) {
+  if (!porterFiveForces || porterFiveForces.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="py-2 pr-4">竞争力量</th>
+            <th className="py-2 pr-4">强度</th>
+            <th className="py-2 pr-4">关键依据</th>
+          </tr>
+        </thead>
+        <tbody>
+          {porterFiveForces.map((item, index) => (
+            <tr className="border-b border-line" key={index}>
+              <td className="py-2 pr-4">{item.force}</td>
+              <td className="py-2 pr-4">{item.strength}</td>
+              <td className="py-2 pr-4">{item.basis}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EntryBarriersTable({ entryBarriers }: { entryBarriers: MarketOverview["entryBarriers"] }) {
+  if (!entryBarriers || entryBarriers.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="py-2 pr-4">门槛维度</th>
+            <th className="py-2 pr-4">高低</th>
+            <th className="py-2 pr-4">分析</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entryBarriers.map((item, index) => (
+            <tr className="border-b border-line" key={index}>
+              <td className="py-2 pr-4">{item.name}</td>
+              <td className="py-2 pr-4">{item.level}</td>
+              <td className="py-2 pr-4">{item.analysis}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StringList({ title, items }: { title: string; items: string[] | undefined }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="text-sm">
+      <div className="text-slate-500">{title}</div>
+      <ul className="mt-1 list-disc space-y-1 pl-5">
+        {items.map((item, index) => <li key={index}>{item}</li>)}
+      </ul>
+    </div>
+  );
 }

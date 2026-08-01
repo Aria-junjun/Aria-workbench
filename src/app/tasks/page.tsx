@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, Pin, PinOff, Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { includesQuery, loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
-import { labelPriority, labelTaskType } from "@/features/workbench/display-labels";
+import { applyTaskReviewToProduct, includesQuery, loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
+import { labelPriority, labelReviewOutcome, labelTaskType } from "@/features/workbench/display-labels";
 
 type SortField = "createdAt" | "priority";
 type SortDir = "asc" | "desc";
 type GroupBy = "none" | "status" | "supplier" | "priority";
+type ReviewOutcome = "success" | "partial" | "failure" | "cancelled";
 
 export default function TasksPage() {
   const [query, setQuery] = useState("");
@@ -29,6 +30,8 @@ export default function TasksPage() {
     type: "follow_up" as string,
     supplierId: ""
   });
+  const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
+  const [reviewDraft, setReviewDraft] = useState<{ note: string; outcome: ReviewOutcome }>({ note: "", outcome: "success" });
 
   const data = loadLocalWorkbenchData();
   const tasks = data.tasks;
@@ -87,6 +90,38 @@ export default function TasksPage() {
       tasks: data.tasks.map((task) => (task.id === taskId ? { ...task, status } : task))
     });
     setVersion((current) => current + 1);
+  }
+
+  function startReview(task: LocalTask) {
+    setReviewingTaskId(task.id);
+    setReviewDraft({
+      note: task.reviewNote || "",
+      outcome: (task.reviewOutcome as ReviewOutcome) || "success"
+    });
+  }
+
+  function submitReview(taskId: string) {
+    const now = new Date().toISOString();
+    const patch: Partial<LocalTask> = {
+      status: "done",
+      reviewNote: reviewDraft.note.trim() || undefined,
+      reviewOutcome: reviewDraft.outcome,
+      reviewedAt: now
+    };
+    saveLocalWorkbenchData({
+      ...data,
+      tasks: data.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } as LocalTask : task))
+    });
+    // 把复盘信息反哺到关联的产品知识
+    applyTaskReviewToProduct(taskId);
+    setReviewingTaskId(null);
+    setReviewDraft({ note: "", outcome: "success" });
+    setVersion((current) => current + 1);
+  }
+
+  function cancelReview() {
+    setReviewingTaskId(null);
+    setReviewDraft({ note: "", outcome: "success" });
   }
 
   function togglePin(taskId: string) {
@@ -347,6 +382,7 @@ export default function TasksPage() {
                         </div>
                       </div>
                     ) : (
+                      <>
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-1.5">
@@ -376,7 +412,7 @@ export default function TasksPage() {
                               <Check className="h-4 w-4" />
                             </button>
                           ) : (
-                            <button className="rounded-md bg-action p-2 text-sm text-white" onClick={() => updateTaskStatus(task.id, "done")} title="完成" type="button">
+                            <button className="rounded-md bg-action p-2 text-sm text-white" onClick={() => startReview(task)} title="标记完成并复盘" type="button">
                               <Check className="h-4 w-4" />
                             </button>
                           )}
@@ -391,6 +427,50 @@ export default function TasksPage() {
                           </button>
                         </div>
                       </div>
+                      {reviewingTaskId === task.id ? (
+                        <div className="mt-3 rounded-lg border border-action/30 bg-action-soft/20 p-3">
+                          <div className="mb-2 text-sm font-medium text-ink">完成复盘</div>
+                          <textarea
+                            className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-action/20 focus:border-action"
+                            onChange={(e) => setReviewDraft({ ...reviewDraft, note: e.target.value })}
+                            placeholder="实际结果 / 发现 / 教训（可选）"
+                            rows={3}
+                            value={reviewDraft.note}
+                          />
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <select
+                              className="rounded-md border border-line bg-white px-2 py-1.5 text-xs"
+                              onChange={(e) => setReviewDraft({ ...reviewDraft, outcome: e.target.value as ReviewOutcome })}
+                              value={reviewDraft.outcome}
+                            >
+                              <option value="success">成功</option>
+                              <option value="partial">部分达成</option>
+                              <option value="failure">失败</option>
+                              <option value="cancelled">取消</option>
+                            </select>
+                            <button className="rounded-md bg-action px-3 py-1.5 text-xs text-white" onClick={() => submitReview(task.id)} type="button">提交复盘</button>
+                            <button className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:text-ink" onClick={cancelReview} type="button">取消</button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {task.status === "done" && task.reviewedAt ? (
+                        <div className="mt-3 rounded-md bg-paper p-2.5 text-xs text-slate-600">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-medium text-ink">复盘</span>
+                            <span className={`inline-flex items-center rounded px-1.5 py-0.5 ${
+                              task.reviewOutcome === "success" ? "bg-success-soft text-success"
+                              : task.reviewOutcome === "partial" ? "bg-warning-soft text-warning"
+                              : task.reviewOutcome === "failure" ? "bg-danger-soft text-danger"
+                              : "bg-paper-warm text-muted"
+                            }`}>
+                              {labelReviewOutcome(task.reviewOutcome)}
+                            </span>
+                            <span className="text-muted">{new Date(task.reviewedAt).toLocaleString()}</span>
+                          </div>
+                          {task.reviewNote ? <div className="mt-1 whitespace-pre-wrap text-slate-700">{task.reviewNote}</div> : null}
+                        </div>
+                      ) : null}
+                      </>
                     )}
                   </div>
                 ))}

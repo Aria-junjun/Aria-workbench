@@ -218,6 +218,15 @@ export default function OfferDetailPage() {
           </div>
         ) : <div className="mt-3 text-sm text-slate-600">暂无关联待办。</div>}
       </section>
+
+      {offer.productId ? (
+        <section className="rounded-lg border border-line bg-white p-4">
+          <h2 className="font-semibold">关联产品知识</h2>
+          <Link className="mt-2 block rounded-md border border-line p-3 text-sm hover:border-action" href={`/products/${offer.productId}`}>
+            <div className="font-medium">{offer.productName || "查看产品知识"}</div>
+          </Link>
+        </section>
+      ) : null}
     </div>
   );
 }

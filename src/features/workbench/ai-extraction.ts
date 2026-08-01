@@ -315,6 +315,7 @@ function parseUnlabeledSupplierQuote(rawText: string) {
         .trim();
       return {
         name: name || "待命名货盘",
+        supplierName: undefined as string | undefined,
         quotedPrice: prices.join("；") || (priceStart >= 0 ? content.slice(priceStart) : undefined),
         priceDetails: content,
         untaxedUnitPrice,

@@ -8,7 +8,11 @@ import { latestDecisionCycle, type DecisionCase, type DecisionCycle, type ToolCo
 import {
   addDecisionCycle,
   loadDecisionCases,
-  updateDecisionCycleVersion
+  loadLocalWorkbenchData,
+  updateDecisionCycleVersion,
+  type LocalOffer,
+  type LocalProductKnowledge,
+  type LocalSupplier
 } from "@/features/workbench/local-store";
 import {
   ArrowDown,
@@ -19,6 +23,7 @@ import {
   CircleDot,
   Equal,
   Lightbulb,
+  Link2,
   ListChecks,
   MessageSquare,
   RotateCcw,
@@ -151,6 +156,25 @@ export default function DecisionCasePage() {
     }
     return result;
   }, [cycle]);
+
+  /* 关联资源：根据 case 中的 ID 查找供应商/货盘/产品知识 */
+  const linkedResources = useMemo(() => {
+    if (!caseItem) {
+      return { suppliers: [] as LocalSupplier[], offers: [] as LocalOffer[], products: [] as LocalProductKnowledge[] };
+    }
+    const { suppliers, offers, products } = loadLocalWorkbenchData();
+    return {
+      suppliers: caseItem.supplierIds
+        .map((id) => suppliers.find((item) => item.id === id))
+        .filter((item): item is LocalSupplier => Boolean(item)),
+      offers: caseItem.offerIds
+        .map((id) => offers.find((item) => item.id === id))
+        .filter((item): item is LocalOffer => Boolean(item)),
+      products: caseItem.productIds
+        .map((id) => products.find((item) => item.id === id))
+        .filter((item): item is LocalProductKnowledge => Boolean(item))
+    };
+  }, [caseItem]);
 
   /* 推理链中各步骤的重复关系 */
   const rawInputText = cycle?.rawInput || caseItem?.title || "";
@@ -300,6 +324,67 @@ export default function DecisionCasePage() {
           </select>
         </div>
       </section>
+
+      {/* 关联资源 — 供应商/货盘/产品知识 */}
+      {linkedResources.suppliers.length > 0 || linkedResources.offers.length > 0 || linkedResources.products.length > 0 ? (
+        <section className="rounded-3xl border border-line bg-surface p-6 shadow-card">
+          <div className="mb-4 flex items-center gap-2">
+            <Link2 className="h-5 w-5 text-action" />
+            <h2 className="font-semibold">关联资源</h2>
+            <span className="text-xs text-muted">本案例关联的供应商、货盘与产品知识</span>
+          </div>
+          <div className="space-y-4">
+            {linkedResources.suppliers.length > 0 ? (
+              <div>
+                <div className="mb-2 text-xs font-medium text-muted">供应商</div>
+                <div className="flex flex-wrap gap-2">
+                  {linkedResources.suppliers.map((supplier) => (
+                    <Link
+                      className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-action hover:text-action"
+                      href={`/suppliers/${supplier.id}`}
+                      key={supplier.id}
+                    >
+                      {supplier.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {linkedResources.offers.length > 0 ? (
+              <div>
+                <div className="mb-2 text-xs font-medium text-muted">货盘</div>
+                <div className="flex flex-wrap gap-2">
+                  {linkedResources.offers.map((offer) => (
+                    <Link
+                      className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-action hover:text-action"
+                      href={`/offers/${offer.id}`}
+                      key={offer.id}
+                    >
+                      {offer.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {linkedResources.products.length > 0 ? (
+              <div>
+                <div className="mb-2 text-xs font-medium text-muted">产品知识</div>
+                <div className="flex flex-wrap gap-2">
+                  {linkedResources.products.map((product) => (
+                    <Link
+                      className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-action hover:text-action"
+                      href={`/products/${product.id}`}
+                      key={product.id}
+                    >
+                      {product.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {/* 关键发现 — 去重后的核心问题点 */}
       <section className="rounded-3xl border border-line bg-surface p-6 shadow-card">

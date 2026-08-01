@@ -50,8 +50,8 @@ body {
   transition: background-color 0.4s ease, color 0.4s ease;
 }
 
-/* Smooth theme transitions for common properties */
-*, *::before, *::after {
+/* Smooth theme transitions for common properties - scoped to avoid performance issues */
+body, button, input, textarea, select, a, label, span, p, h1, h2, h3, h4, h5, h6, li, div[class*="bg-"], div[class*="text-"], div[class*="border-"] {
   transition-property: background-color, border-color, color, fill, stroke, box-shadow;
   transition-duration: 0.3s;
   transition-timing-function: ease;

@@ -103,6 +103,91 @@ export const ProductResearchDocumentSchema = z.object({
 
 export type ProductResearchDocument = z.infer<typeof ProductResearchDocumentSchema>;
 
+// ===== 品类调研扩展字段 =====
+// 以下 5 组字段全部可空，专门给"品类调研报告"用
+// 原有产品卡不受影响（字段全空时走原有逻辑）
+
+/** 通用表格结构（Markdown 表格解析后的标准形态） */
+export const ResearchTableSchema = z.object({
+  headers: z.array(z.string()),
+  rows: z.array(z.record(z.string(), z.string())),
+  caption: z.string().optional()
+});
+
+export type ResearchTable = z.infer<typeof ResearchTableSchema>;
+
+/** ① 行业概览 */
+export const MarketOverviewSchema = z.object({
+  marketSize: z.string().optional(),
+  yoyGrowth: z.string().optional(),
+  subCategoryTrend: z.string().optional(),
+  pestel: z.array(z.object({
+    dimension: z.string(),
+    factor: z.string(),
+    impact: z.string()
+  })).optional(),
+  entryBarriers: z.array(z.object({
+    name: z.string(),
+    level: z.string(),
+    analysis: z.string()
+  })).optional(),
+  marketSizeTable: ResearchTableSchema.optional(),
+  segmentStructure: ResearchTableSchema.optional()
+});
+
+export type MarketOverview = z.infer<typeof MarketOverviewSchema>;
+
+/** ② 竞争格局 */
+export const CompetitiveLandscapeSchema = z.object({
+  cr5: z.string().optional(),
+  topBrandRanking: ResearchTableSchema.optional(),
+  porterFiveForces: z.array(z.object({
+    force: z.string(),
+    strength: z.string(),
+    basis: z.string()
+  })).optional(),
+  strategyDifferences: z.string().optional(),
+  brandRankingByCategory: ResearchTableSchema.optional()
+});
+
+export type CompetitiveLandscape = z.infer<typeof CompetitiveLandscapeSchema>;
+
+/** ③ 产品对标 */
+export const ProductBenchmarkSchema = z.object({
+  tmallProtectiveFilm: ResearchTableSchema.optional(),
+  tmallHangingBoard: ResearchTableSchema.optional(),
+  formComparison: ResearchTableSchema.optional(),
+  priceTiers: ResearchTableSchema.optional(),
+  keyFindings: z.string().optional()
+});
+
+export type ProductBenchmark = z.infer<typeof ProductBenchmarkSchema>;
+
+/** ④ 用户洞察 */
+export const UserInsightsSchema = z.object({
+  personas: ResearchTableSchema.optional(),
+  coreMetrics: ResearchTableSchema.optional(),
+  purchasePriorities: z.array(z.string()).optional(),
+  complaints: ResearchTableSchema.optional(),
+  praisePoints: z.array(z.string()).optional()
+});
+
+export type UserInsights = z.infer<typeof UserInsightsSchema>;
+
+/** ⑤ 供应链寻源 */
+export const SupplyChainFindingsSchema = z.object({
+  coreMetrics: ResearchTableSchema.optional(),
+  filmSuppliers: ResearchTableSchema.optional(),
+  boardSuppliers: ResearchTableSchema.optional(),
+  priceGradientFilm: ResearchTableSchema.optional(),
+  priceGradientBoard: ResearchTableSchema.optional(),
+  comboSupply: z.string().optional(),
+  sourcingAdvice: ResearchTableSchema.optional(),
+  sourcingPathSteps: z.array(z.string()).optional()
+});
+
+export type SupplyChainFindings = z.infer<typeof SupplyChainFindingsSchema>;
+
 export const ProductImportIssueSchema = z.object({
   field: z.string(),
   message: z.string(),
@@ -155,6 +240,16 @@ export type ProductKnowledgeV2 = {
   legacyNotes?: string;
   createdAt: string;
   updatedAt?: string;
+  // ===== 品类调研扩展字段（全部可空） =====
+  researchDepth?: "product" | "category";
+  marketOverview?: MarketOverview;
+  competitiveLandscape?: CompetitiveLandscape;
+  productBenchmark?: ProductBenchmark;
+  userInsights?: UserInsights;
+  supplyChainFindings?: SupplyChainFindings;
+  // ===== 闭环关联字段 =====
+  relatedSupplierIds?: string[];
+  relatedOfferIds?: string[];
 } & LegacyProductKnowledgeFields;
 
 export const ProductKnowledgeV2Schema = z.object({
@@ -197,7 +292,17 @@ export const ProductKnowledgeV2Schema = z.object({
   qualityRisks: z.string().optional(),
   commonPitfalls: z.string().optional(),
   alternatives: z.string().optional(),
-  judgement: z.string().optional()
+  judgement: z.string().optional(),
+  // 品类调研扩展
+  researchDepth: z.enum(["product", "category"]).optional(),
+  marketOverview: MarketOverviewSchema.optional(),
+  competitiveLandscape: CompetitiveLandscapeSchema.optional(),
+  productBenchmark: ProductBenchmarkSchema.optional(),
+  userInsights: UserInsightsSchema.optional(),
+  supplyChainFindings: SupplyChainFindingsSchema.optional(),
+  // 闭环关联
+  relatedSupplierIds: z.array(z.string()).optional(),
+  relatedOfferIds: z.array(z.string()).optional()
 });
 
 export function calculateHardCost(items: ProductCostItem[]): { total?: number; status: "confirmed" | "pending" } {
@@ -629,7 +734,11 @@ const knownProductFields = new Set([
   "technologyOutlook", "costItems", "hardCostTotal", "hardCostStatus", "manufacturing", "optimizationOptions", "risks",
   "opportunities", "decision", "rawDocument", "importIssues", "legacyNotes", "createdAt", "updatedAt", "supplierId",
   "supplierName", "communicationId", "materials", "process", "costStructure", "keyParameters", "qualityRisks",
-  "commonPitfalls", "alternatives", "judgement"
+  "commonPitfalls", "alternatives", "judgement",
+  // 品类调研扩展字段
+  "researchDepth", "marketOverview", "competitiveLandscape", "productBenchmark", "userInsights", "supplyChainFindings",
+  // 闭环关联字段
+  "relatedSupplierIds", "relatedOfferIds"
 ]);
 
 function captureUnknownFields(candidate: Record<string, unknown>, context: NormalizationContext) {

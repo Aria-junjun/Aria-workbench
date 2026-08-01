@@ -66,6 +66,8 @@ export type LocalOffer = {
   supplierId?: string;
   communicationId?: string;
   supplierName?: string;
+  productId?: string;
+  productName?: string;
   name: string;
   category?: string;
   productUrl?: string;
@@ -128,6 +130,9 @@ export type LocalTask = {
   type?: string;
   status: "open" | "done";
   createdAt: string;
+  reviewNote?: string;        // 复盘备注
+  reviewOutcome?: string;     // 实际结果（如"成功""失败""部分达成"）
+  reviewedAt?: string;        // 复盘时间
 };
 
 export type LocalCommunication = {
@@ -319,7 +324,7 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
 
     // 主供应商用 extraction.supplier 的详细信息，非主供应商用最小信息
     const isPrimary = extraction.supplier && name === extraction.supplier.name;
-    const draftSupplier = isPrimary
+    const draftSupplier = isPrimary && extraction.supplier
       ? extraction.supplier
       : { name, categories: [] as string[], supplierType: "unknown" as const, riskTags: [] as string[] };
     const supplier = mergeSupplier(existing, draftSupplier, id, now);
@@ -522,9 +527,24 @@ export function saveProductKnowledge(product: ProductKnowledgeV2): ProductKnowle
   });
   const validated = ProductKnowledgeV2Schema.parse(normalized);
   const current = loadLocalWorkbenchData();
+  const relatedSupplierIds = validated.relatedSupplierIds ?? [];
+  const relatedOfferIds = validated.relatedOfferIds ?? [];
+  let updatedOffers = current.offers;
+  if (relatedSupplierIds.length > 0 || relatedOfferIds.length > 0) {
+    const offerIdSet = new Set(relatedOfferIds);
+    updatedOffers = current.offers.map((offer) => {
+      const matchedByOfferId = offerIdSet.has(offer.id);
+      const matchedBySupplierId = Boolean(offer.supplierId) && relatedSupplierIds.includes(offer.supplierId!);
+      if (matchedByOfferId || matchedBySupplierId) {
+        return { ...offer, productId: validated.id, productName: validated.name };
+      }
+      return offer;
+    });
+  }
   saveLocalWorkbenchData({
     ...current,
-    products: [validated, ...current.products.filter((item) => item.id !== validated.id)]
+    products: [validated, ...current.products.filter((item) => item.id !== validated.id)],
+    offers: updatedOffers
   });
   return validated;
 }
@@ -575,6 +595,70 @@ export function createTaskFromKnowledgeAction(toolId: string, action: string) {
   };
   saveLocalWorkbenchData({ ...current, tasks: [task, ...current.tasks] });
   return task;
+}
+
+/**
+ * 待办复盘反哺到产品知识：
+ * 通过 task.offerId → offer.productId 找到关联产品，根据 reviewOutcome 把 reviewNote
+ * 追加到对应字段（失败→risks.other，成功→opportunities，部分达成→optimizationOptions）。
+ * 若 task 没有 offerId、offer 没有 productId、没有 reviewNote，或结果为"取消"，静默返回。
+ */
+export function applyTaskReviewToProduct(taskId: string): void {
+  const data = loadLocalWorkbenchData();
+  const task = data.tasks.find((item) => item.id === taskId);
+  if (!task) return;
+  const reviewNote = task.reviewNote?.trim();
+  if (!reviewNote) return;
+
+  // 通过 task.offerId → offer.productId 解析关联产品
+  let productId: string | undefined;
+  if (task.offerId) {
+    const offer = data.offers.find((item) => item.id === task.offerId);
+    productId = offer?.productId;
+  }
+  if (!productId) return;
+
+  const product = data.products.find((item) => item.id === productId);
+  if (!product) return;
+
+  const outcome = task.reviewOutcome;
+  const stampedNote = `[待办复盘 · ${task.title}] ${reviewNote}`;
+
+  let updatedProduct: ProductKnowledgeV2;
+  if (outcome === "failure") {
+    updatedProduct = {
+      ...product,
+      risks: { ...product.risks, other: [...product.risks.other, stampedNote] }
+    };
+  } else if (outcome === "success") {
+    updatedProduct = {
+      ...product,
+      opportunities: [...product.opportunities, stampedNote]
+    };
+  } else if (outcome === "partial") {
+    updatedProduct = {
+      ...product,
+      optimizationOptions: [
+        ...product.optimizationOptions,
+        {
+          id: crypto.randomUUID(),
+          name: `复盘发现：${task.title}`,
+          description: reviewNote,
+          status: "candidate"
+        }
+      ]
+    };
+  } else {
+    // outcome 为 "cancelled" 或未知，不修改产品
+    return;
+  }
+
+  updatedProduct.updatedAt = new Date().toISOString();
+
+  saveLocalWorkbenchData({
+    ...data,
+    products: data.products.map((item) => (item.id === productId ? updatedProduct : item))
+  });
 }
 
 export function saveKnowledgeApplication(input: {
@@ -698,7 +782,10 @@ export function createDecisionCase(input: {
   rawInput: string;
   objective?: string;
   initialJudgement?: string;
-}) {
+  supplierIds?: string[];
+  offerIds?: string[];
+  productIds?: string[];
+}): DecisionCase {
   const title = input.title.trim();
   const rawInput = input.rawInput.trim();
   if (!title || !rawInput) throw new Error("问题名称和原始信息不能为空。");
@@ -715,6 +802,9 @@ export function createDecisionCase(input: {
     normalizedProblemKey: normalizeProblemKey(title),
     objective: input.objective?.trim() || undefined,
     cycles: [firstCycle],
+    supplierIds: input.supplierIds ?? [],
+    offerIds: input.offerIds ?? [],
+    productIds: input.productIds ?? [],
     createdAt: now,
     updatedAt: now
   });
@@ -829,6 +919,19 @@ export function updateLocalItem<C extends LocalCollectionName>(collection: C, id
     ...data,
     [collection]: data[collection].map((item) => (item.id === id ? { ...item, ...patch } : item))
   } as LocalWorkbenchData;
+  // 货盘保存后，若 offer 关联了产品，把 offer.id 去重添加到对应 product 的 relatedOfferIds
+  if (collection === "offers") {
+    const updatedOffer = next.offers.find((item) => item.id === id);
+    const productId = updatedOffer?.productId;
+    if (productId) {
+      next.products = next.products.map((product) => {
+        if (product.id !== productId) return product;
+        const existing = product.relatedOfferIds ?? [];
+        if (existing.includes(id)) return product;
+        return { ...product, relatedOfferIds: [...existing, id] };
+      });
+    }
+  }
   saveLocalWorkbenchData(next);
   return next[collection].find((item) => item.id === id);
 }

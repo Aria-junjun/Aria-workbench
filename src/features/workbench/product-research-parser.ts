@@ -1,5 +1,8 @@
 import { calculateHardCost } from "@/features/workbench/product-knowledge";
 import type {
+  CompetitiveLandscape,
+  MarketOverview,
+  ProductBenchmark,
   ProductCostItem,
   ProductImportIssue as ProductModelImportIssue,
   ProductKnowledgeV2,
@@ -8,7 +11,10 @@ import type {
   ProductProcurementQuote,
   ProductResearchDocument,
   ProductRiskSet,
-  ProductSpecification
+  ProductSpecification,
+  ResearchTable,
+  SupplyChainFindings,
+  UserInsights
 } from "@/features/workbench/product-knowledge";
 
 const STANDARD_SECTIONS = [
@@ -38,6 +44,28 @@ type TableRow = { values: MarkdownRow; cells: string[]; raw: string };
 type MarkdownTable = { headers: string[]; rows: TableRow[]; invalidRows: TableRow[] };
 type InvalidRow = { section: string; reason: string; cells: string[]; raw: string };
 type ConflictRecorder = (field: string, values: string[]) => void;
+
+// ===== 品类调研报告扩展：数字编号章节解析 =====
+type NumberedSection = {
+  title: string;
+  subSections: Map<string, string[]>;
+  lines: string[];
+};
+type NumberedSectionMap = Map<string, NumberedSection>;
+type ResearchSectionKind =
+  | "marketOverview"
+  | "competitiveLandscape"
+  | "productBenchmark"
+  | "userInsights"
+  | "supplyChainFindings"
+  | "decision";
+type CategoryResearchFields = {
+  marketOverview?: MarketOverview;
+  competitiveLandscape?: CompetitiveLandscape;
+  productBenchmark?: ProductBenchmark;
+  userInsights?: UserInsights;
+  supplyChainFindings?: SupplyChainFindings;
+};
 
 export type ProductResearchSource = {
   fileName?: string;
@@ -123,6 +151,22 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
     importIssues: toProductModelIssues(issues),
     createdAt: source.importedAt ?? "unknown"
   };
+
+  const categoryFields = parseCategoryResearchFields(rawText);
+  if (
+    categoryFields.marketOverview
+    || categoryFields.competitiveLandscape
+    || categoryFields.productBenchmark
+    || categoryFields.userInsights
+    || categoryFields.supplyChainFindings
+  ) {
+    product.researchDepth = "category";
+    if (categoryFields.marketOverview) product.marketOverview = categoryFields.marketOverview;
+    if (categoryFields.competitiveLandscape) product.competitiveLandscape = categoryFields.competitiveLandscape;
+    if (categoryFields.productBenchmark) product.productBenchmark = categoryFields.productBenchmark;
+    if (categoryFields.userInsights) product.userInsights = categoryFields.userInsights;
+    if (categoryFields.supplyChainFindings) product.supplyChainFindings = categoryFields.supplyChainFindings;
+  }
 
   return { product, issues };
 }
@@ -569,4 +613,470 @@ function fingerprint(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
+}
+
+// ====================================================================
+// 品类调研报告扩展：数字编号章节解析（与 splitSections 并行的新逻辑）
+// ====================================================================
+
+/**
+ * 识别 `1. 行业概览` / `1.1 市场规模` 这种数字编号格式的章节，
+ * 返回 Map<sectionNumber, { title, subSections, lines }>。
+ *
+ * - 大章节标题：`^(\d+)\.\s+(.+)` 例如 `1. 行业概览与市场机会`
+ * - 子章节标题：`^(\d+)\.(\d+)\s+(.+)` 例如 `1.1 市场规模与增长趋势`
+ *
+ * subSections 的 key 是子章节编号（如 "1.1"），value 是该子章节的所有行
+ * （首行是子章节标题行，后续行是内容，包含表格、字段等）。
+ * lines 是直接挂在大章节下、不属于任何子章节的内容行。
+ */
+function splitNumberedSections(rawText: string): NumberedSectionMap {
+  const sections: NumberedSectionMap = new Map();
+  const ensureSection = (number: string): NumberedSection => {
+    let section = sections.get(number);
+    if (!section) {
+      section = { title: "", subSections: new Map(), lines: [] };
+      sections.set(number, section);
+    }
+    return section;
+  };
+
+  let currentSectionNumber: string | undefined;
+  let currentSubsectionNumber: string | undefined;
+
+  rawText.replace(/\r\n/g, "\n").split("\n").forEach((line) => {
+    // 优先匹配子章节（如 "1.1 市场规模"），避免被大章节正则误吃
+    const subMatch = line.match(/^(\d+)\.(\d+)\s+(.+?)\s*$/);
+    if (subMatch) {
+      const [, main, sub, title] = subMatch;
+      const subNumber = `${main}.${sub}`;
+      const section = ensureSection(main);
+      // 把子章节标题行作为首行存入，方便后续基于标题做特殊提取
+      section.subSections.set(subNumber, [`${subNumber} ${title.trim()}`]);
+      currentSectionNumber = main;
+      currentSubsectionNumber = subNumber;
+      return;
+    }
+
+    const mainMatch = line.match(/^(\d+)\.\s+(.+?)\s*$/);
+    if (mainMatch) {
+      const [, number, title] = mainMatch;
+      const section = ensureSection(number);
+      section.title = title.trim();
+      currentSectionNumber = number;
+      currentSubsectionNumber = undefined;
+      return;
+    }
+
+    if (!currentSectionNumber) return;
+    const section = sections.get(currentSectionNumber);
+    if (!section) return;
+    if (currentSubsectionNumber) {
+      section.subSections.get(currentSubsectionNumber)?.push(line);
+    } else {
+      section.lines.push(line);
+    }
+  });
+
+  return sections;
+}
+
+/**
+ * 根据章节标题关键词判断该章节属于哪一组扩展字段。
+ * 返回 undefined 表示无法归类。
+ */
+function classifySection(title: string): ResearchSectionKind | undefined {
+  const keywordGroups: Array<{ kind: ResearchSectionKind; keywords: string[] }> = [
+    {
+      kind: "marketOverview",
+      keywords: ["行业概览", "市场规模", "市场机会", "PESTEL", "进入门槛", "pestel"]
+    },
+    {
+      kind: "competitiveLandscape",
+      keywords: ["竞争格局", "头部玩家", "头部品牌", "波特五力", "市占率", "份额排名", "CR5", "cr5"]
+    },
+    {
+      kind: "productBenchmark",
+      keywords: ["产品竞争", "差异化", "天猫", "排行榜", "对标", "价格分层", "形态对比"]
+    },
+    {
+      kind: "userInsights",
+      keywords: ["用户需求", "用户画像", "痛点", "差评", "好评", "购买决策"]
+    },
+    {
+      kind: "supplyChainFindings",
+      keywords: ["供应链", "寻源", "1688", "供应商", "批发价", "价差", "一件代发"]
+    },
+    {
+      kind: "decision",
+      keywords: ["结论", "建议"]
+    }
+  ];
+  for (const { kind, keywords } of keywordGroups) {
+    if (keywords.some((keyword) => title.includes(keyword))) return kind;
+  }
+  return undefined;
+}
+
+/**
+ * 把现有的 firstTable 输出转换为 ResearchTable 格式。
+ * 返回 undefined 表示没有可识别的表格。
+ */
+function extractResearchTable(lines: string[]): ResearchTable | undefined {
+  const noop: ConflictRecorder = () => {};
+  const table = firstTable(lines, noop);
+  if (table.headers.length === 0 && table.rows.length === 0) return undefined;
+  return {
+    headers: table.headers,
+    rows: table.rows.map(({ values }) => values)
+  };
+}
+
+/**
+ * 主入口：解析品类调研报告（数字编号格式）的扩展字段。
+ * 与原有 splitSections 逻辑并行，不互斥，识别到任意一组数据即返回。
+ */
+function parseCategoryResearchFields(rawText: string): CategoryResearchFields {
+  const sections = splitNumberedSections(rawText);
+  const fields: CategoryResearchFields = {};
+  const ensureMarketOverview = () => (fields.marketOverview ??= {});
+  const ensureCompetitiveLandscape = () => (fields.competitiveLandscape ??= {});
+  const ensureProductBenchmark = () => (fields.productBenchmark ??= {});
+  const ensureUserInsights = () => (fields.userInsights ??= {});
+  const ensureSupplyChainFindings = () => (fields.supplyChainFindings ??= {});
+
+  // 把每个大章节拆成多个"块"（直接行 + 各子章节），分别处理
+  const blocks: Array<{ title: string; lines: string[]; sectionTitle: string }> = [];
+  for (const [, section] of sections) {
+    if (section.lines.length > 0) {
+      blocks.push({ title: section.title, lines: section.lines, sectionTitle: section.title });
+    }
+    for (const [, subLines] of section.subSections) {
+      // subLines[0] 形如 "1.1 市场规模与增长趋势"
+      const titleLine = subLines[0] ?? "";
+      const subTitle = titleLine.replace(/^\d+\.\d+\s+/, "").trim();
+      blocks.push({ title: subTitle, lines: subLines.slice(1), sectionTitle: section.title });
+    }
+  }
+
+  for (const block of blocks) {
+    const kind = classifySection(block.sectionTitle) ?? classifySection(block.title);
+    if (!kind || kind === "decision") continue;
+
+    handleResearchBlock(block, kind, {
+      ensureMarketOverview,
+      ensureCompetitiveLandscape,
+      ensureProductBenchmark,
+      ensureUserInsights,
+      ensureSupplyChainFindings
+    });
+  }
+
+  // 清理空对象（仅保留有内容的字段组）
+  return pruneEmptyFields(fields);
+}
+
+type ResearchBlockHandlers = {
+  ensureMarketOverview: () => MarketOverview;
+  ensureCompetitiveLandscape: () => CompetitiveLandscape;
+  ensureProductBenchmark: () => ProductBenchmark;
+  ensureUserInsights: () => UserInsights;
+  ensureSupplyChainFindings: () => SupplyChainFindings;
+};
+
+function handleResearchBlock(
+  block: { title: string; lines: string[] },
+  kind: ResearchSectionKind,
+  handlers: ResearchBlockHandlers
+) {
+  const subTitle = block.title;
+  const lines = block.lines;
+
+  // ① 特殊结构提取（优先匹配关键词，命中后不再走默认表格逻辑）
+  if (subTitle.includes("PESTEL") || subTitle.includes("PEST")) {
+    const pestel = extractPestelArray(lines);
+    if (pestel.length > 0) {
+      handlers.ensureMarketOverview().pestel = pestel;
+    }
+    return;
+  }
+  if (subTitle.includes("波特五力") || subTitle.includes("五力")) {
+    const forces = extractPorterFiveForces(lines);
+    if (forces.length > 0) {
+      handlers.ensureCompetitiveLandscape().porterFiveForces = forces;
+    }
+    return;
+  }
+  if (subTitle.includes("进入门槛") || subTitle.includes("进入壁垒")) {
+    const barriers = extractEntryBarriers(lines);
+    if (barriers.length > 0) {
+      handlers.ensureMarketOverview().entryBarriers = barriers;
+    }
+    return;
+  }
+  if (subTitle.includes("购买决策") || subTitle.includes("购买优先") || subTitle.includes("决策因素")) {
+    const priorities = extractListItems(lines);
+    if (priorities.length > 0) {
+      handlers.ensureUserInsights().purchasePriorities = priorities;
+    }
+    return;
+  }
+  if (
+    subTitle.includes("执行路径")
+    || subTitle.includes("寻源步骤")
+    || subTitle.includes("寻源路径")
+    || subTitle.includes("落地步骤")
+  ) {
+    const steps = extractListItems(lines);
+    if (steps.length > 0) {
+      handlers.ensureSupplyChainFindings().sourcingPathSteps = steps;
+    }
+    return;
+  }
+  if (subTitle.includes("好评") || subTitle.includes("好评点")) {
+    const praises = extractListItems(lines);
+    if (praises.length > 0) {
+      handlers.ensureUserInsights().praisePoints = praises;
+    }
+    return;
+  }
+
+  // ② 默认表格/字段提取：按章节类型把第一个表格塞到合适的槽位
+  const table = extractResearchTable(lines);
+  const directFields = fieldsIn(lines, () => {});
+
+  if (kind === "marketOverview") {
+    const mo = handlers.ensureMarketOverview();
+    if (!mo.marketSize) {
+      const marketSize = field(directFields, "市场规模") ?? field(directFields, "整体规模");
+      if (marketSize) mo.marketSize = marketSize;
+    }
+    if (!mo.yoyGrowth) {
+      const yoy = field(directFields, "同比增长") ?? field(directFields, "同比增长率") ?? field(directFields, "YoY");
+      if (yoy) mo.yoyGrowth = yoy;
+    }
+    if (!mo.subCategoryTrend) {
+      const trend = field(directFields, "细分趋势") ?? field(directFields, "子品类趋势");
+      if (trend) mo.subCategoryTrend = trend;
+    }
+    if (table) {
+      if (subTitle.includes("细分") || subTitle.includes("结构")) {
+        if (!mo.segmentStructure) mo.segmentStructure = table;
+      } else if (!mo.marketSizeTable) {
+        mo.marketSizeTable = table;
+      } else if (!mo.segmentStructure) {
+        mo.segmentStructure = table;
+      }
+    }
+    return;
+  }
+
+  if (kind === "competitiveLandscape") {
+    const cl = handlers.ensureCompetitiveLandscape();
+    if (!cl.cr5) {
+      const cr5 = field(directFields, "CR5") ?? field(directFields, "cr5") ?? field(directFields, "前五市占率");
+      if (cr5) cl.cr5 = cr5;
+    }
+    if (!cl.strategyDifferences) {
+      const strategy = field(directFields, "策略差异") ?? field(directFields, "战略差异");
+      if (strategy) cl.strategyDifferences = strategy;
+    }
+    if (table) {
+      if (subTitle.includes("分类") || subTitle.includes("分品类")) {
+        if (!cl.brandRankingByCategory) cl.brandRankingByCategory = table;
+      } else if (!cl.topBrandRanking) {
+        cl.topBrandRanking = table;
+      } else if (!cl.brandRankingByCategory) {
+        cl.brandRankingByCategory = table;
+      }
+    }
+    return;
+  }
+
+  if (kind === "productBenchmark") {
+    const pb = handlers.ensureProductBenchmark();
+    if (!pb.keyFindings) {
+      const findings = field(directFields, "关键发现") ?? field(directFields, "核心发现");
+      if (findings) pb.keyFindings = findings;
+    }
+    if (table) {
+      if (subTitle.includes("膜") && !subTitle.includes("板")) {
+        if (!pb.tmallProtectiveFilm) pb.tmallProtectiveFilm = table;
+      } else if (subTitle.includes("板")) {
+        if (!pb.tmallHangingBoard) pb.tmallHangingBoard = table;
+      } else if (subTitle.includes("形态")) {
+        if (!pb.formComparison) pb.formComparison = table;
+      } else if (subTitle.includes("价格分层") || subTitle.includes("价格")) {
+        if (!pb.priceTiers) pb.priceTiers = table;
+      } else if (!pb.tmallProtectiveFilm) {
+        pb.tmallProtectiveFilm = table;
+      } else if (!pb.tmallHangingBoard) {
+        pb.tmallHangingBoard = table;
+      } else if (!pb.formComparison) {
+        pb.formComparison = table;
+      } else if (!pb.priceTiers) {
+        pb.priceTiers = table;
+      }
+    }
+    return;
+  }
+
+  if (kind === "userInsights") {
+    const ui = handlers.ensureUserInsights();
+    if (table) {
+      if (subTitle.includes("画像")) {
+        if (!ui.personas) ui.personas = table;
+      } else if (subTitle.includes("核心指标") || subTitle.includes("关键指标")) {
+        if (!ui.coreMetrics) ui.coreMetrics = table;
+      } else if (subTitle.includes("差评") || subTitle.includes("投诉")) {
+        if (!ui.complaints) ui.complaints = table;
+      } else if (!ui.personas) {
+        ui.personas = table;
+      } else if (!ui.coreMetrics) {
+        ui.coreMetrics = table;
+      } else if (!ui.complaints) {
+        ui.complaints = table;
+      }
+    }
+    return;
+  }
+
+  if (kind === "supplyChainFindings") {
+    const sc = handlers.ensureSupplyChainFindings();
+    if (!sc.comboSupply) {
+      const combo = field(directFields, "组合供应") ?? field(directFields, "一件代发");
+      if (combo) sc.comboSupply = combo;
+    }
+    if (table) {
+      if (subTitle.includes("膜") && !subTitle.includes("板")) {
+        if (subTitle.includes("价格") || subTitle.includes("梯度")) {
+          if (!sc.priceGradientFilm) sc.priceGradientFilm = table;
+        } else if (!sc.filmSuppliers) {
+          sc.filmSuppliers = table;
+        } else if (!sc.priceGradientFilm) {
+          sc.priceGradientFilm = table;
+        }
+      } else if (subTitle.includes("板")) {
+        if (subTitle.includes("价格") || subTitle.includes("梯度")) {
+          if (!sc.priceGradientBoard) sc.priceGradientBoard = table;
+        } else if (!sc.boardSuppliers) {
+          sc.boardSuppliers = table;
+        } else if (!sc.priceGradientBoard) {
+          sc.priceGradientBoard = table;
+        }
+      } else if (subTitle.includes("建议")) {
+        if (!sc.sourcingAdvice) sc.sourcingAdvice = table;
+      } else if (subTitle.includes("核心指标") || subTitle.includes("关键指标")) {
+        if (!sc.coreMetrics) sc.coreMetrics = table;
+      } else if (!sc.filmSuppliers) {
+        sc.filmSuppliers = table;
+      } else if (!sc.boardSuppliers) {
+        sc.boardSuppliers = table;
+      } else if (!sc.priceGradientFilm) {
+        sc.priceGradientFilm = table;
+      } else if (!sc.priceGradientBoard) {
+        sc.priceGradientBoard = table;
+      } else if (!sc.sourcingAdvice) {
+        sc.sourcingAdvice = table;
+      }
+    }
+    return;
+  }
+}
+
+/** PESTEL 表格 → pestel 数组（dimension / factor / impact） */
+function extractPestelArray(lines: string[]): Array<{ dimension: string; factor: string; impact: string }> {
+  const noop: ConflictRecorder = () => {};
+  const table = firstTable(lines, noop);
+  return table.rows
+    .map(({ values: row }) => {
+      const dimension = column(row, "维度") ?? column(row, "Dimension") ?? column(row, "PESTEL") ?? "";
+      const factor = column(row, "因素") ?? column(row, "Factor") ?? column(row, "关键因素") ?? "";
+      const impact = column(row, "影响") ?? column(row, "Impact") ?? column(row, "影响分析") ?? "";
+      if (!dimension && !factor && !impact) return undefined;
+      return { dimension, factor, impact };
+    })
+    .filter(isDefined);
+}
+
+/** 波特五力表格 → porterFiveForces 数组（force / strength / basis） */
+function extractPorterFiveForces(
+  lines: string[]
+): Array<{ force: string; strength: string; basis: string }> {
+  const noop: ConflictRecorder = () => {};
+  const table = firstTable(lines, noop);
+  return table.rows
+    .map(({ values: row }) => {
+      const force = column(row, "五力") ?? column(row, "Force") ?? column(row, "竞争力量") ?? column(row, "力量") ?? "";
+      const strength = column(row, "强度") ?? column(row, "Strength") ?? column(row, "力量强度") ?? "";
+      const basis = column(row, "依据") ?? column(row, "Basis") ?? column(row, "分析依据") ?? column(row, "理由") ?? "";
+      if (!force && !strength && !basis) return undefined;
+      return { force, strength, basis };
+    })
+    .filter(isDefined);
+}
+
+/** 进入门槛表格 → entryBarriers 数组（name / level / analysis） */
+function extractEntryBarriers(
+  lines: string[]
+): Array<{ name: string; level: string; analysis: string }> {
+  const noop: ConflictRecorder = () => {};
+  const table = firstTable(lines, noop);
+  return table.rows
+    .map(({ values: row }) => {
+      const name = column(row, "名称") ?? column(row, "Name") ?? column(row, "门槛") ?? column(row, "壁垒") ?? "";
+      const level = column(row, "等级") ?? column(row, "Level") ?? column(row, "强度") ?? column(row, "门槛高度") ?? "";
+      const analysis = column(row, "分析") ?? column(row, "Analysis") ?? column(row, "说明") ?? column(row, "解读") ?? "";
+      if (!name && !level && !analysis) return undefined;
+      return { name, level, analysis };
+    })
+    .filter(isDefined);
+}
+
+/**
+ * 把段落里的列表项（`- xxx` / `1. xxx` / `1) xxx` / `1、xxx`）抽出来。
+ * 用于 purchasePriorities、sourcingPathSteps、praisePoints 等字符串数组字段。
+ */
+function extractListItems(lines: string[]): string[] {
+  const items: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("|")) continue;
+    const match = trimmed.match(/^[-•]\s+(.+)$/) ?? trimmed.match(/^\d+[.)、]\s+(.+)$/);
+    if (match) {
+      const value = match[1].trim();
+      if (value && !items.includes(value)) items.push(value);
+    }
+  }
+  return items;
+}
+
+/** 清理：仅保留至少有一个非空字段的扩展组，避免产出空对象 */
+function pruneEmptyFields(fields: CategoryResearchFields): CategoryResearchFields {
+  const result: CategoryResearchFields = {};
+  if (fields.marketOverview && hasAnyFieldValue(fields.marketOverview)) {
+    result.marketOverview = fields.marketOverview;
+  }
+  if (fields.competitiveLandscape && hasAnyFieldValue(fields.competitiveLandscape)) {
+    result.competitiveLandscape = fields.competitiveLandscape;
+  }
+  if (fields.productBenchmark && hasAnyFieldValue(fields.productBenchmark)) {
+    result.productBenchmark = fields.productBenchmark;
+  }
+  if (fields.userInsights && hasAnyFieldValue(fields.userInsights)) {
+    result.userInsights = fields.userInsights;
+  }
+  if (fields.supplyChainFindings && hasAnyFieldValue(fields.supplyChainFindings)) {
+    result.supplyChainFindings = fields.supplyChainFindings;
+  }
+  return result;
+}
+
+function hasAnyFieldValue(value: Record<string, unknown>): boolean {
+  return Object.values(value).some((v) => {
+    if (v === undefined || v === null) return false;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === "object") return Object.keys(v as Record<string, unknown>).length > 0;
+    return Boolean(v);
+  });
 }
