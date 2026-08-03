@@ -4,6 +4,7 @@ import { extractWorkbenchDraft } from "@/features/workbench/ai-extraction";
 import { getMvpUserId } from "@/features/workbench/mvp-user";
 import { createIntakeDraft } from "@/features/workbench/repository";
 import { hasSupabaseConfig } from "@/features/workbench/supabase";
+import { randomId } from "@/lib/random-id";
 
 const IntakeRequestSchema = z.object({
   mode: z.enum(["screenshot", "chat", "summary"]),
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
         sourceUrl: body.sourceUrl,
         extraction
       })
-    : { id: crypto.randomUUID() };
+    : { id: randomId() };
 
   return NextResponse.json({
     draftId: draft.id,

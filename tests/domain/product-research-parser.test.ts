@@ -362,6 +362,117 @@ describe("product research Markdown parser", () => {
     expect(PRODUCT_RESEARCH_PROMPT).toContain("不得输出 JSON");
     expect(PRODUCT_RESEARCH_PROMPT).toContain("不得增加章节");
   });
+
+  it("parses category research report with Markdown heading prefixes", () => {
+    const report = `# 电脑防窥防蓝光防反光保护膜及防窥挂板 - 品类调研评估报告
+
+视角：产品经理
+渠道：天猫排行榜对标 + 1688供应链
+产品线：保护膜 + 防窥挂板
+报告日期：2026-07-31
+
+## 1. 行业概览与市场机会
+
+### 1.1 市场规模与增长趋势
+市场规模：约120亿元
+同比增长：15%
+
+### 1.2 PESTEL 分析
+| 维度 | 因素 | 影响 |
+| --- | --- | --- |
+| 政治 | 环保法规 | 推动无胶膜需求 |
+| 经济 | 消费电子增长 | 市场扩容 |
+
+### 1.3 进入门槛分析
+| 门槛维度 | 级别 | 说明 |
+| --- | --- | --- |
+| 技术专利 | 高 | 防窥膜专利集中 |
+| 渠道资源 | 中 | 需天猫运营能力 |
+
+## 2. 竞争格局与头部玩家
+
+### 2.1 市场份额与品牌排名
+| 排名 | 品牌 | 市占率 |
+| --- | --- | --- |
+| 1 | 3M | 25% |
+| 2 | 绿联 | 15% |
+
+## 3. 产品竞争与差异化
+
+### 3.1 天猫保护膜排行榜
+| 品牌 | 价格带 | 核心卖点 |
+| --- | --- | --- |
+| 3M | 高 | 医用级防蓝光 |
+| 绿联 | 中 | 性价比 |
+
+### 3.2 天猫挂板排行榜
+| 品牌 | 价格带 | 形态 |
+| --- | --- | --- |
+| XX | 低 | 挂式 |
+| YY | 中 | 立式 |
+
+### 3.3 价格分层
+| 分层 | 价格区间 | 代表 |
+| --- | --- | --- |
+| 高端 | 200+ | 3M |
+| 中端 | 80-200 | 绿联 |
+
+## 4. 用户需求与画像
+
+### 4.1 用户画像
+| 人群 | 核心需求 | 价格敏感度 |
+| --- | --- | --- |
+| 上班族 | 护眼 | 中 |
+| 学生 | 防窥 | 高 |
+
+### 4.2 购买决策因素
+- 护眼效果
+- 防窥角度
+- 品牌口碑
+
+## 5. 供应链与寻源
+
+### 5.1 1688 供应商（膜）
+| 供应商 | 报价 | MOQ |
+| --- | --- | --- |
+| A厂 | 15元/张 | 100 |
+| B厂 | 12元/张 | 200 |
+
+### 5.2 1688 供应商（挂板）
+| 供应商 | 报价 | MOQ |
+| --- | --- | --- |
+| C厂 | 25元/个 | 50 |
+| D厂 | 22元/个 | 100 |
+
+### 5.3 寻源步骤
+1. 索要样品
+2. 测试防窥角度
+3. 确认大货价`;
+
+    const parsed = parseProductResearchMarkdown(report, { fileName: "report.md" });
+
+    expect(parsed.product.name).toBe("电脑防窥防蓝光防反光保护膜及防窥挂板");
+    expect(parsed.product.researchDepth).toBe("category");
+    expect(parsed.product.marketOverview).toMatchObject({
+      marketSize: "约120亿元",
+      yoyGrowth: "15%",
+      pestel: expect.arrayContaining([
+        expect.objectContaining({ dimension: "政治", factor: "环保法规", impact: "推动无胶膜需求" })
+      ]),
+      entryBarriers: expect.arrayContaining([
+        expect.objectContaining({ name: "技术专利", level: "高", analysis: "防窥膜专利集中" })
+      ])
+    });
+    expect(parsed.product.competitiveLandscape?.topBrandRanking?.rows).toHaveLength(2);
+    expect(parsed.product.productBenchmark?.tmallProtectiveFilm?.rows).toHaveLength(2);
+    expect(parsed.product.productBenchmark?.tmallHangingBoard?.rows).toHaveLength(2);
+    expect(parsed.product.productBenchmark?.priceTiers?.rows).toHaveLength(2);
+    expect(parsed.product.userInsights?.personas?.rows).toHaveLength(2);
+    expect(parsed.product.userInsights?.purchasePriorities).toEqual(["护眼效果", "防窥角度", "品牌口碑"]);
+    expect(parsed.product.supplyChainFindings?.filmSuppliers?.rows).toHaveLength(2);
+    expect(parsed.product.supplyChainFindings?.boardSuppliers?.rows).toHaveLength(2);
+    expect(parsed.product.supplyChainFindings?.sourcingPathSteps).toEqual(["索要样品", "测试防窥角度", "确认大货价"]);
+  });
 });
 
 const COST_HEADERS = ["类别", "名称", "规格或用量", "单价", "计价单位", "小计", "货币", "来源", "地区", "日期", "可信程度", "是否计入"];

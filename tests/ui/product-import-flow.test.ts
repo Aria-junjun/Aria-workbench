@@ -12,7 +12,7 @@ describe("product research import page", () => {
     expect(source).toContain("navigator.clipboard.writeText(PRODUCT_RESEARCH_PROMPT)");
     expect(source).toContain('accept=".md,.txt,.docx"');
     expect(source).toContain("setRawText(data.text)");
-    expect(source).toContain("parseProductResearchMarkdown(rawText");
+    expect(source).toContain("parseProductResearchMarkdown(currentText");
     expect(source).toContain("saveProductImportDraft(parsed)");
     expect(source).toContain("router.push(`/products/review/${draftId}`)");
     expect(source).toContain("请先粘贴或上传产品调研文档。");

@@ -11,7 +11,8 @@ import {
   CheckSquare,
   BookOpen,
   Settings,
-  Sparkles
+  Sparkles,
+  FlaskConical
 } from "lucide-react";
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/suppliers", label: "供应商库", icon: Truck },
   { href: "/offers", label: "货盘报价", icon: Package },
   { href: "/products", label: "产品知识", icon: Lightbulb },
+  { href: "/research", label: "深度调研", icon: FlaskConical },
   { href: "/tasks", label: "待办事项", icon: CheckSquare },
   { href: "/knowledge", label: "商业知识", icon: BookOpen },
   { href: "/settings", label: "系统设置", icon: Settings }

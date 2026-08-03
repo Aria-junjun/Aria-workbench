@@ -101,9 +101,19 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
   };
   const fields = (section: StandardSection) => fieldsIn(sections.get(section) ?? [], recordConflict(section));
 
+  // 提取文档开头的产品名与元数据（处理品类调研报告：# 标题 / 视角：xxx 等前置信息）
+  const docMeta = extractDocumentMeta(rawText);
+
   const positioningSection: StandardSection = sections.has("产品与规格") ? "产品与规格" : "产品定位";
   const positioning = fields(positioningSection);
-  const name = field(positioning, "产品名称");
+  const name = field(positioning, "产品名称") ?? docMeta.name ?? fallbackProductName(source.fileName);
+  const category = field(positioning, "产品品类") ?? docMeta.category;
+  const coreUse = field(positioning, "核心用途") ?? docMeta.coreUse;
+  const targetUsers = field(positioning, "目标用户") ?? docMeta.targetUsers;
+  const useScenarios = values(field(positioning, "使用场景")).length > 0
+    ? values(field(positioning, "使用场景"))
+    : docMeta.useScenarios ?? [];
+  const defaultUnit = field(positioning, "默认计量单位");
   if (!name) addIssue("blocking", positioningSection, "缺少产品名称，无法入库。");
 
   const specifications = parseSpecifications(sections.get("关键规格") ?? [], addIssue, recordConflict("关键规格"));
@@ -126,11 +136,11 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
     schemaVersion: 2,
     id: `product-research-${fingerprint(rawText)}`,
     name: name ?? "未命名产品",
-    category: field(positioning, "产品品类"),
-    coreUse: field(positioning, "核心用途"),
-    targetUsers: field(positioning, "目标用户"),
-    useScenarios: values(field(positioning, "使用场景")),
-    defaultUnit: field(positioning, "默认计量单位"),
+    category,
+    coreUse,
+    targetUsers,
+    useScenarios,
+    defaultUnit,
     specifications,
     procurementQuotes,
     materialStructures,
@@ -216,6 +226,112 @@ function splitSections(rawText: string): SectionMap {
   });
 
   return sections;
+}
+
+/**
+ * 品类调研报告的前置元数据提取。
+ * 支持：
+ *   # 电脑防窥防蓝光防反光保护膜及防窥挂板 - 品类调研评估报告
+ *   视角：产品经理
+ *   渠道：天猫排行榜对标 + 1688供应链
+ *   产品线：保护膜 + 防窥挂板
+ *   报告日期：2026-07-31
+ */
+type DocumentMeta = {
+  name?: string;
+  category?: string;
+  coreUse?: string;
+  targetUsers?: string;
+  useScenarios?: string[];
+  productLine?: string;
+  perspective?: string;
+};
+
+function extractDocumentMeta(rawText: string): DocumentMeta {
+  const normalized = rawText.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const meta: DocumentMeta = {};
+
+  // 优先从首个 Markdown H1 标题提取产品名
+  const h1Line = lines.find((line) => /^#\s+/.test(line));
+  if (h1Line) {
+    const rawTitle = h1Line.replace(/^#\s+/, "").trim();
+    // 去掉常见报告后缀（支持 - / — / – / 空格 等连接符）
+    const cleaned = rawTitle
+      .replace(/\s*[-—–—]\s*品类调研评估报告.*$/i, "")
+      .replace(/\s*[-—–—]\s*品类调研.*$/i, "")
+      .replace(/\s*[-—–—]\s*调研评估报告.*$/i, "")
+      .replace(/\s*[-—–—]\s*调研报告.*$/i, "")
+      .replace(/\s*品类调研评估报告\s*$/i, "")
+      .replace(/\s*品类调研\s*$/i, "")
+      .replace(/\s*调研评估报告\s*$/i, "")
+      .replace(/\s*调研报告\s*$/i, "")
+      .replace(/\s*报告\s*$/i, "")
+      .trim();
+    if (cleaned) meta.name = cleaned;
+  }
+
+  // 扫描开头 20 行的元数据字段（视角/渠道/产品线/数据周期/报告日期 等）
+  const scanLimit = Math.min(lines.length, 40);
+  for (let i = 0; i < scanLimit; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const kv = line.match(/^([\u4e00-\u9fa5A-Za-z]{2,12})\s*[:：]\s*(.+?)\s*$/);
+    if (!kv) continue;
+    const key = kv[1];
+    const value = kv[2];
+    switch (key) {
+      case "产品线":
+      case "产品":
+      case "产品品类":
+        meta.productLine = value;
+        if (!meta.category) {
+          meta.category = value
+            .split(/[+＋,，、/]/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join(" / ");
+        }
+        break;
+      case "品类":
+        meta.category = value;
+        break;
+      case "核心用途":
+      case "用途":
+        meta.coreUse = value;
+        break;
+      case "目标用户":
+      case "用户群体":
+        meta.targetUsers = value;
+        break;
+      case "使用场景":
+      case "应用场景":
+        meta.useScenarios = values(value);
+        break;
+      case "视角":
+      case "报告视角":
+        meta.perspective = value;
+        break;
+      case "渠道":
+      case "调研渠道":
+        meta.productLine = meta.productLine ?? value;
+        break;
+      default:
+        break;
+    }
+  }
+
+  // 如果 H1 没抓到产品名，回落到首个 H1 原始文本
+  if (!meta.name && h1Line) meta.name = h1Line.replace(/^#\s+/, "").trim();
+
+  return meta;
+}
+
+function fallbackProductName(fileName?: string): string | undefined {
+  if (!fileName) return undefined;
+  const stem = fileName.replace(/\.[^.]+$/, "").trim();
+  if (!stem || stem.length < 2) return undefined;
+  return stem;
 }
 
 function isStandardSection(value: string): value is StandardSection {
@@ -641,42 +757,95 @@ function splitNumberedSections(rawText: string): NumberedSectionMap {
     return section;
   };
 
+  const lines = rawText.replace(/\r\n/g, "\n").split("\n");
+
+  // Check what kind of document we're dealing with
+  const hasHeadingSections = lines.some((line) => /^#+\s*\d+\.\d*\s+/.test(line));
+  const hasNumberedOnly = lines.some((line) => /^(\d+)\.\s+/.test(line.trim().replace(/^#+\s*/, "")));
+  const hasHeadingNoNumber = lines.some((line) => /^##+\s+(?!\d+\.\d*)/.test(line));
+
   let currentSectionNumber: string | undefined;
   let currentSubsectionNumber: string | undefined;
 
-  rawText.replace(/\r\n/g, "\n").split("\n").forEach((line) => {
-    // 优先匹配子章节（如 "1.1 市场规模"），避免被大章节正则误吃
-    const subMatch = line.match(/^(\d+)\.(\d+)\s+(.+?)\s*$/);
-    if (subMatch) {
-      const [, main, sub, title] = subMatch;
-      const subNumber = `${main}.${sub}`;
-      const section = ensureSection(main);
-      // 把子章节标题行作为首行存入，方便后续基于标题做特殊提取
-      section.subSections.set(subNumber, [`${subNumber} ${title.trim()}`]);
-      currentSectionNumber = main;
-      currentSubsectionNumber = subNumber;
-      return;
-    }
+  // Strategy: if document has numbered headings (with or without #), use numbered parsing
+  if (hasHeadingSections || hasNumberedOnly) {
+    const allowBareNumbered = !hasHeadingSections;
 
-    const mainMatch = line.match(/^(\d+)\.\s+(.+?)\s*$/);
-    if (mainMatch) {
-      const [, number, title] = mainMatch;
-      const section = ensureSection(number);
-      section.title = title.trim();
-      currentSectionNumber = number;
-      currentSubsectionNumber = undefined;
-      return;
-    }
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const isHeading = /^#+\s*\d+\.\d*\s+/.test(trimmed);
+      const normalizedLine = trimmed.replace(/^#+\s*/, "").trim();
 
-    if (!currentSectionNumber) return;
-    const section = sections.get(currentSectionNumber);
-    if (!section) return;
-    if (currentSubsectionNumber) {
-      section.subSections.get(currentSubsectionNumber)?.push(line);
-    } else {
-      section.lines.push(line);
-    }
-  });
+      const subMatch = normalizedLine.match(/^(\d+)\.(\d+)\s+(.+?)\s*$/);
+      if (subMatch && (allowBareNumbered || isHeading)) {
+        const [, main, sub, title] = subMatch;
+        const subNumber = `${main}.${sub}`;
+        const section = ensureSection(main);
+        section.subSections.set(subNumber, [`${subNumber} ${title.trim()}`]);
+        currentSectionNumber = main;
+        currentSubsectionNumber = subNumber;
+        return;
+      }
+
+      const mainMatch = normalizedLine.match(/^(\d+)\.\s+(.+?)\s*$/);
+      if (mainMatch && (allowBareNumbered || isHeading)) {
+        const [, number, title] = mainMatch;
+        const section = ensureSection(number);
+        if (!section.title) section.title = title.trim();
+        currentSectionNumber = number;
+        currentSubsectionNumber = undefined;
+        return;
+      }
+
+      if (!currentSectionNumber) return;
+      const section = sections.get(currentSectionNumber);
+      if (!section) return;
+      if (currentSubsectionNumber) {
+        section.subSections.get(currentSubsectionNumber)?.push(line);
+      } else {
+        section.lines.push(line);
+      }
+    });
+  } else if (hasHeadingNoNumber) {
+    // Strategy: document uses standard Markdown headings without numbers
+    // Assign synthetic section numbers based on heading order
+    let sectionCounter = 0;
+    let subCounter = 0;
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const headingMatch = trimmed.match(/^(#{2,3})\s+(.+)$/);
+
+      if (headingMatch) {
+        const level = headingMatch[1].length; // ## = 2, ### = 3
+        const title = headingMatch[2].trim();
+
+        if (level === 2) {
+          sectionCounter++;
+          currentSectionNumber = String(sectionCounter);
+          currentSubsectionNumber = undefined;
+          const section = ensureSection(currentSectionNumber);
+          if (!section.title) section.title = title;
+          subCounter = 0;
+        } else if (level === 3 && currentSectionNumber) {
+          subCounter++;
+          currentSubsectionNumber = `${currentSectionNumber}.${subCounter}`;
+          const section = ensureSection(currentSectionNumber);
+          section.subSections.set(currentSubsectionNumber, [title]);
+        }
+        return;
+      }
+
+      if (!currentSectionNumber) return;
+      const section = sections.get(currentSectionNumber);
+      if (!section) return;
+      if (currentSubsectionNumber) {
+        section.subSections.get(currentSubsectionNumber)?.push(line);
+      } else {
+        section.lines.push(line);
+      }
+    });
+  }
 
   return sections;
 }
@@ -807,7 +976,7 @@ function handleResearchBlock(
     }
     return;
   }
-  if (subTitle.includes("进入门槛") || subTitle.includes("进入壁垒")) {
+  if (subTitle.includes("进入门槛") || subTitle.includes("进入壁垒") || subTitle.includes("门槛分析") || subTitle.includes("壁垒分析")) {
     const barriers = extractEntryBarriers(lines);
     if (barriers.length > 0) {
       handlers.ensureMarketOverview().entryBarriers = barriers;
@@ -948,19 +1117,19 @@ function handleResearchBlock(
       if (combo) sc.comboSupply = combo;
     }
     if (table) {
-      if (subTitle.includes("膜") && !subTitle.includes("板")) {
-        if (subTitle.includes("价格") || subTitle.includes("梯度")) {
+      const tableText = (table.headers?.join(" ") ?? "") + " " + (table.rows?.flat().join(" ") ?? "");
+      const surroundingText = lines.filter(l => !l.trim().startsWith("|")).join(" ");
+      const combinedText = tableText + " " + surroundingText;
+      const isBoardTable = combinedText.includes("挂板") || combinedText.includes("挂式") || combinedText.includes("亚克力");
+      const isFilmTable = combinedText.includes("贴膜") || (combinedText.includes("膜") && !isBoardTable);
+
+      if (subTitle.includes("价格") || subTitle.includes("梯度")) {
+        if (isBoardTable) {
+          if (!sc.priceGradientBoard) sc.priceGradientBoard = table;
+        } else if (isFilmTable) {
           if (!sc.priceGradientFilm) sc.priceGradientFilm = table;
-        } else if (!sc.filmSuppliers) {
-          sc.filmSuppliers = table;
         } else if (!sc.priceGradientFilm) {
           sc.priceGradientFilm = table;
-        }
-      } else if (subTitle.includes("板")) {
-        if (subTitle.includes("价格") || subTitle.includes("梯度")) {
-          if (!sc.priceGradientBoard) sc.priceGradientBoard = table;
-        } else if (!sc.boardSuppliers) {
-          sc.boardSuppliers = table;
         } else if (!sc.priceGradientBoard) {
           sc.priceGradientBoard = table;
         }
@@ -968,6 +1137,16 @@ function handleResearchBlock(
         if (!sc.sourcingAdvice) sc.sourcingAdvice = table;
       } else if (subTitle.includes("核心指标") || subTitle.includes("关键指标")) {
         if (!sc.coreMetrics) sc.coreMetrics = table;
+      } else if (subTitle.includes("膜") && !subTitle.includes("板")) {
+        if (!sc.filmSuppliers) sc.filmSuppliers = table;
+        else if (!sc.boardSuppliers) sc.boardSuppliers = table;
+      } else if (subTitle.includes("板") || isBoardTable) {
+        if (!sc.boardSuppliers) sc.boardSuppliers = table;
+        else if (!sc.priceGradientBoard) sc.priceGradientBoard = table;
+        else if (!sc.filmSuppliers) sc.filmSuppliers = table;
+      } else if (isFilmTable) {
+        if (!sc.filmSuppliers) sc.filmSuppliers = table;
+        else if (!sc.boardSuppliers) sc.boardSuppliers = table;
       } else if (!sc.filmSuppliers) {
         sc.filmSuppliers = table;
       } else if (!sc.boardSuppliers) {
@@ -1024,8 +1203,8 @@ function extractEntryBarriers(
   const table = firstTable(lines, noop);
   return table.rows
     .map(({ values: row }) => {
-      const name = column(row, "名称") ?? column(row, "Name") ?? column(row, "门槛") ?? column(row, "壁垒") ?? "";
-      const level = column(row, "等级") ?? column(row, "Level") ?? column(row, "强度") ?? column(row, "门槛高度") ?? "";
+      const name = column(row, "名称") ?? column(row, "Name") ?? column(row, "门槛") ?? column(row, "壁垒") ?? column(row, "门槛维度") ?? column(row, "维度") ?? "";
+      const level = column(row, "等级") ?? column(row, "Level") ?? column(row, "强度") ?? column(row, "门槛高度") ?? column(row, "高低") ?? column(row, "级别") ?? "";
       const analysis = column(row, "分析") ?? column(row, "Analysis") ?? column(row, "说明") ?? column(row, "解读") ?? "";
       if (!name && !level && !analysis) return undefined;
       return { name, level, analysis };

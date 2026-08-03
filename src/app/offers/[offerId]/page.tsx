@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Info, SectionActions, TextField } from "@/components/workbench/edit-fields";
 import { deleteLocalItem, loadLocalWorkbenchData, updateLocalItem, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
+import { randomId } from "@/lib/random-id";
 
 /** 计算价格区间展示文本 */
 function formatPriceRange(offer: LocalOffer): string | null {
@@ -257,7 +258,7 @@ function SkuTable({
     const next: OfferSku[] = [
       ...skus,
       {
-        id: crypto.randomUUID(),
+        id: randomId(),
         specName: "",
         specCode: "",
         width: "",

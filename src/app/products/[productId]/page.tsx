@@ -76,8 +76,9 @@ export default function ProductDetailPage() {
 }
 
 function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
-  const [activeTab, setActiveTab] = useState<"product" | "research">("product");
-  const showTabs = product.researchDepth === "category" || hasCategoryResearch(product);
+  const hasCategory = product.researchDepth === "category" || hasCategoryResearch(product);
+  const [activeTab, setActiveTab] = useState<"product" | "research">(hasCategory ? "research" : "product");
+  const showTabs = hasCategory;
   const workbenchData = loadLocalWorkbenchData();
 
   const risks = [
@@ -184,7 +185,25 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
         <button className={activeTab === "product" ? `${tabBase} bg-action text-white` : tabBase} onClick={() => setActiveTab("product")} type="button">产品详情</button>
         <button className={activeTab === "research" ? `${tabBase} bg-action text-white` : tabBase} onClick={() => setActiveTab("research")} type="button">深度调研</button>
       </div>
-      {activeTab === "product" ? productDetail : <CategoryResearchView product={product} />}
+      {activeTab === "product" ? (
+        <>
+          {!hasStandardProductData(product) && product.rawDocument?.content ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              当前产品为品类调研报告，标准产品字段为空。请切换到"深度调研"标签查看品类数据，或点击"编辑"补充标准产品字段。
+            </div>
+          ) : null}
+          {productDetail}
+        </>
+      ) : <CategoryResearchView product={product} />}
+      {product.rawDocument?.content ? (
+        <section className="rounded-lg border border-line bg-white p-4">
+          <h2 className="text-lg font-semibold">原始调研文档</h2>
+          <p className="mt-1 text-sm text-slate-500">这是你导入的原始文档内容，即使结构化解析不完整，原始数据始终保留。</p>
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-paper p-3 text-xs leading-6 text-slate-700">
+            {product.rawDocument.content}
+          </pre>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -327,6 +346,13 @@ function CategoryResearchView({ product }: { product: ProductKnowledgeV2 }) {
           </div>
         ) : <Empty />}
       </DetailSection>
+      {!hasCategoryResearch(product) && product.rawDocument?.content ? (
+        <DetailSection title="结构化解析不完整">
+          <p className="text-sm text-slate-600">
+            当前品类调研的结构化数据尚未完整提取。你可以通过"编辑"按钮手动补充，下方保留了原始文档内容供参考。
+          </p>
+        </DetailSection>
+      ) : null}
     </>
   );
 }
@@ -343,6 +369,21 @@ function hasCategoryResearch(product: ProductKnowledgeV2): boolean {
   if (u && (u.purchasePriorities?.length || u.praisePoints?.length || hasTable(u.personas) || hasTable(u.coreMetrics) || hasTable(u.complaints))) return true;
   if (s && (s.comboSupply || s.sourcingPathSteps?.length || hasTable(s.coreMetrics) || hasTable(s.filmSuppliers) || hasTable(s.boardSuppliers) || hasTable(s.priceGradientFilm) || hasTable(s.priceGradientBoard) || hasTable(s.sourcingAdvice))) return true;
   return false;
+}
+
+function hasStandardProductData(product: ProductKnowledgeV2): boolean {
+  return Boolean(
+    product.targetUsers
+    || product.category
+    || product.coreUse
+    || (product.useScenarios && product.useScenarios.length > 0)
+    || (product.specifications && product.specifications.length > 0)
+    || (product.procurementQuotes && product.procurementQuotes.length > 0)
+    || (product.materialStructures && product.materialStructures.length > 0)
+    || (product.costItems && product.costItems.length > 0)
+    || product.decision?.summary
+    || product.decision?.recommendation
+  );
 }
 
 function hasTable(table: ResearchTable | undefined): boolean {

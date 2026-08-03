@@ -6,6 +6,7 @@ import { Check, ChevronDown, Pin, PinOff, Pencil, Plus, Trash2, X } from "lucide
 import { EmptyState } from "@/components/empty-state";
 import { applyTaskReviewToProduct, includesQuery, loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
 import { labelPriority, labelReviewOutcome, labelTaskType } from "@/features/workbench/display-labels";
+import { randomId } from "@/lib/random-id";
 
 type SortField = "createdAt" | "priority";
 type SortDir = "asc" | "desc";
@@ -167,7 +168,7 @@ export default function TasksPage() {
     if (!createDraft.title.trim()) return;
     const supplier = data.suppliers.find((s) => s.id === createDraft.supplierId);
     const newTask: LocalTask = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       title: createDraft.title.trim(),
       dueText: createDraft.dueText || undefined,
       priority: createDraft.priority,

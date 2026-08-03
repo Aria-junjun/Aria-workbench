@@ -836,7 +836,8 @@ function sampleData(): LocalWorkbenchData {
         tags: ["谈判"],
         createdAt: "2026-07-09T00:00:00.000Z"
       }
-    ]
+    ],
+    researchReports: []
   };
 }
 

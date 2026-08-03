@@ -350,6 +350,19 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     const hasUnverifiedHardCost = hardCost.status === "pending" && (
       parsed.data.hardCostTotal !== undefined || parsed.data.hardCostStatus !== hardCost.status
     );
+
+    const categoryResearch: Pick<
+      ProductKnowledgeV2,
+      "researchDepth" | "marketOverview" | "competitiveLandscape" | "productBenchmark" | "userInsights" | "supplyChainFindings"
+    > = {
+      researchDepth: parsed.data.researchDepth,
+      marketOverview: parsed.data.marketOverview,
+      competitiveLandscape: parsed.data.competitiveLandscape,
+      productBenchmark: parsed.data.productBenchmark,
+      userInsights: parsed.data.userInsights,
+      supplyChainFindings: parsed.data.supplyChainFindings
+    };
+
     let product: ProductKnowledgeV2;
     if (hasUnverifiedHardCost) {
       if (parsed.data.hardCostTotal !== undefined) {
@@ -361,6 +374,7 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
       const { hardCostTotal: _hardCostTotal, hardCostStatus: _hardCostStatus, ...parsedProduct } = parsed.data;
       product = {
         ...parsedProduct,
+        ...categoryResearch,
         hardCostStatus: "pending",
         legacyNotes: mergeLegacyNotes(
           parsed.data.legacyNotes,
@@ -370,6 +384,7 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     } else {
       product = {
         ...parsed.data,
+        ...categoryResearch,
         hardCostTotal: hardCost.total,
         hardCostStatus: hardCost.status
       };
@@ -499,8 +514,48 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     qualityRisks,
     commonPitfalls,
     alternatives,
-    judgement
+    judgement,
+    // 品类调研扩展
+    researchDepth: normalizeOptionalEnum(candidate.researchDepth, ["product", "category"] as const, context),
+    marketOverview: parseStructuredObject(candidate.marketOverview, "marketOverview", MarketOverviewSchema, context),
+    competitiveLandscape: parseStructuredObject(candidate.competitiveLandscape, "competitiveLandscape", CompetitiveLandscapeSchema, context),
+    productBenchmark: parseStructuredObject(candidate.productBenchmark, "productBenchmark", ProductBenchmarkSchema, context),
+    userInsights: parseStructuredObject(candidate.userInsights, "userInsights", UserInsightsSchema, context),
+    supplyChainFindings: parseStructuredObject(candidate.supplyChainFindings, "supplyChainFindings", SupplyChainFindingsSchema, context),
+    // 闭环关联
+    relatedSupplierIds: normalizeStringArray(candidate.relatedSupplierIds, "relatedSupplierIds", context),
+    relatedOfferIds: normalizeStringArray(candidate.relatedOfferIds, "relatedOfferIds", context)
   };
+}
+
+function normalizeOptionalEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  context: NormalizationContext
+): T | undefined {
+  if (typeof value !== "string") return undefined;
+  if ((allowed as readonly string[]).includes(value)) return value as T;
+  addImportIssue(context, "", `枚举值不合法：${value}`, value);
+  return undefined;
+}
+
+function parseStructuredObject<T>(
+  value: unknown,
+  fieldName: string,
+  schema: z.ZodType<T>,
+  context: NormalizationContext
+): T | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    addImportIssue(context, fieldName, `${fieldName} 结构不合法`, value);
+    return undefined;
+  }
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    addImportIssue(context, fieldName, `${fieldName} 解析失败`, value);
+    return undefined;
+  }
+  return parsed.data;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

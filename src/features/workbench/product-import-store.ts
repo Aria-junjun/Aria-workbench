@@ -1,6 +1,7 @@
 import type { ParsedProductResearch } from "./product-research-parser";
 import { saveProductKnowledge } from "./local-store";
 import { normalizeProductKnowledge, type ProductKnowledgeV2 } from "./product-knowledge";
+import { randomId } from "@/lib/random-id";
 
 const productImportStorageKey = "personal-commercial-workbench-product-imports";
 type ProductImportDrafts = Record<string, ParsedProductResearch>;
@@ -12,7 +13,7 @@ export function exportProductImportDrafts(): string {
 }
 
 export function saveProductImportDraft(parsed: ParsedProductResearch): string {
-  const draftId = crypto.randomUUID();
+  const draftId = randomId();
   const drafts = loadProductImportDrafts();
   drafts[draftId] = parsed;
   saveProductImportDrafts(drafts);
@@ -25,16 +26,23 @@ export function loadProductImportDraft(id: string): ParsedProductResearch | unde
 
   const normalizedIssues = normalizeProductResearchIssues(draft.issues);
   const issues = normalizedIssues.issues;
+  const rawProduct = draft.product;
+  const normalized = normalizeProductKnowledge({
+    ...rawProduct,
+    rawDocument: withProductResearchIssueEvidence(rawProduct?.rawDocument, normalizedIssues.unknownIssues),
+    importIssues: [
+      ...(Array.isArray(rawProduct?.importIssues) ? rawProduct.importIssues : []),
+      ...issues.map((issue) => ({ field: issue.section, message: issue.message, severity: issue.severity }))
+    ]
+  });
+
+  // Safety net: if normalization strips category research data, preserve the original product
+  const hasOriginalCategoryData = rawProduct.marketOverview || rawProduct.competitiveLandscape || rawProduct.productBenchmark || rawProduct.userInsights || rawProduct.supplyChainFindings;
+  const hasNormalizedCategoryData = normalized.marketOverview || normalized.competitiveLandscape || normalized.productBenchmark || normalized.userInsights || normalized.supplyChainFindings;
+
   return {
     ...draft,
-    product: normalizeProductKnowledge({
-      ...draft.product,
-      rawDocument: withProductResearchIssueEvidence(draft.product?.rawDocument, normalizedIssues.unknownIssues),
-      importIssues: [
-        ...(Array.isArray(draft.product?.importIssues) ? draft.product.importIssues : []),
-        ...issues.map((issue) => ({ field: issue.section, message: issue.message, severity: issue.severity }))
-      ]
-    }),
+    product: (hasOriginalCategoryData && !hasNormalizedCategoryData) ? rawProduct : normalized,
     issues
   };
 }
@@ -44,7 +52,15 @@ export function updateProductImportDraft(id: string, product: ProductKnowledgeV2
   const draft = loadProductImportDraft(id);
   if (!draft) return;
 
-  drafts[id] = { ...draft, product: normalizeProductKnowledge(product) };
+  const normalized = normalizeProductKnowledge(product);
+  // Safety net: if normalization strips category research data, preserve the original
+  const hasOriginalCategoryData = draft.product.marketOverview || draft.product.competitiveLandscape || draft.product.productBenchmark || draft.product.userInsights || draft.product.supplyChainFindings;
+  const hasNormalizedCategoryData = normalized.marketOverview || normalized.competitiveLandscape || normalized.productBenchmark || normalized.userInsights || normalized.supplyChainFindings;
+  if (hasOriginalCategoryData && !hasNormalizedCategoryData) {
+    drafts[id] = { ...draft, product };
+  } else {
+    drafts[id] = { ...draft, product: normalized };
+  }
   saveProductImportDrafts(drafts);
 }
 

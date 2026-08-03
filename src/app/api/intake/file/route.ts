@@ -4,6 +4,7 @@ import { extractWorkbenchFileText } from "@/features/workbench/file-text";
 import { getMvpUserId } from "@/features/workbench/mvp-user";
 import { createIntakeDraft } from "@/features/workbench/repository";
 import { hasSupabaseConfig } from "@/features/workbench/supabase";
+import { randomId } from "@/lib/random-id";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
           rawText: extractedText,
           extraction
         })
-      : { id: crypto.randomUUID() };
+      : { id: randomId() };
 
     return NextResponse.json({
       draftId: draft.id,

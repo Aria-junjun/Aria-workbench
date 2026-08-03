@@ -1,5 +1,14 @@
 import React from "react";
+import type {
+  MarketOverview,
+  CompetitiveLandscape,
+  ProductBenchmark,
+  UserInsights,
+  ResearchTable,
+  SupplyChainFindings
+} from "@/features/workbench/product-knowledge";
 import type { ProductKnowledgeV2 } from "@/features/workbench/product-knowledge";
+import { randomId } from "@/lib/random-id";
 
 export type ProductKnowledgeEditorIssue = {
   severity: "blocking" | "warning" | "conflict";
@@ -68,7 +77,7 @@ export function ProductKnowledgeEditor({
             label="新增规格"
             onClick={() => onChange({
               ...value,
-              specifications: [...value.specifications, { id: crypto.randomUUID(), name: "新规格", value: "", source: "manual" }]
+              specifications: [...value.specifications, { id: randomId(), name: "新规格", value: "", source: "manual" }]
             })}
           />
         </div>
@@ -207,7 +216,7 @@ export function ProductKnowledgeEditor({
               ...value,
               optimizationOptions: [
                 ...value.optimizationOptions,
-                { id: crypto.randomUUID(), name: "新替代方案", status: "candidate" }
+                { id: randomId(), name: "新替代方案", status: "candidate" }
               ]
             })}
           />
@@ -259,6 +268,400 @@ export function ProductKnowledgeEditor({
           })} />
         )}
       </EditorSection>
+
+      <CategoryResearchSection onChange={onChange} value={value} />
+    </div>
+  );
+}
+
+function CategoryResearchSection({
+  value,
+  onChange
+}: {
+  value: ProductKnowledgeV2;
+  onChange: (value: ProductKnowledgeV2) => void;
+}) {
+  const hasResearch = value.researchDepth === "category"
+    || Boolean(value.marketOverview)
+    || Boolean(value.competitiveLandscape)
+    || Boolean(value.productBenchmark)
+    || Boolean(value.userInsights)
+    || Boolean(value.supplyChainFindings);
+
+  if (!hasResearch) {
+    return (
+      <section className="py-5">
+        <h2 className="font-semibold">品类调研（按需）</h2>
+        <p className="mt-2 text-sm text-slate-500">当前产品尚未关联品类调研数据。</p>
+        <AddButton
+          label="启用品类调研记录"
+          onClick={() => onChange({ ...value, researchDepth: "category", marketOverview: {} })}
+        />
+      </section>
+    );
+  }
+
+  return (
+    <section className="py-5">
+      <h2 className="font-semibold">品类调研</h2>
+      <div className="mt-3 space-y-6">
+        <MarketOverviewEditor
+          value={value.marketOverview}
+          onChange={(marketOverview) => onChange({ ...value, marketOverview })}
+        />
+        <CompetitiveLandscapeEditor
+          value={value.competitiveLandscape}
+          onChange={(competitiveLandscape) => onChange({ ...value, competitiveLandscape })}
+        />
+        <ProductBenchmarkEditor
+          value={value.productBenchmark}
+          onChange={(productBenchmark) => onChange({ ...value, productBenchmark })}
+        />
+        <UserInsightsEditor
+          value={value.userInsights}
+          onChange={(userInsights) => onChange({ ...value, userInsights })}
+        />
+        <SupplyChainFindingsEditor
+          value={value.supplyChainFindings}
+          onChange={(supplyChainFindings) => onChange({ ...value, supplyChainFindings })}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MarketOverviewEditor({
+  value,
+  onChange
+}: {
+  value?: MarketOverview;
+  onChange: (value: MarketOverview | undefined) => void;
+}) {
+  const market = value ?? {};
+  const hasContent = Boolean(market.marketSize || market.yoyGrowth || market.subCategoryTrend || market.pestel?.length || market.entryBarriers?.length || market.marketSizeTable || market.segmentStructure);
+  if (!hasContent) {
+    return (
+      <div className="rounded-md border border-dashed border-line p-3">
+        <div className="text-sm font-medium">行业概览</div>
+        <p className="mt-1 text-xs text-slate-500">暂无行业概览数据。</p>
+        <button className="mt-2 rounded-md border border-line px-3 py-1 text-xs" onClick={() => onChange({})} type="button">
+          新建
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">行业概览</div>
+        <button className="text-xs text-red-600" onClick={() => onChange(undefined)} type="button">删除</button>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <TextInput label="市场规模" onChange={(marketSize) => onChange({ ...market, marketSize })} value={market.marketSize} />
+        <TextInput label="同比增长" onChange={(yoyGrowth) => onChange({ ...market, yoyGrowth })} value={market.yoyGrowth} />
+        <TextInput label="细分趋势" onChange={(subCategoryTrend) => onChange({ ...market, subCategoryTrend })} value={market.subCategoryTrend} />
+      </div>
+      <TableEditor label="市场规模表" onChange={(marketSizeTable) => onChange({ ...market, marketSizeTable })} value={market.marketSizeTable} />
+      <PestelEditor onChange={(pestel) => onChange({ ...market, pestel })} value={market.pestel} />
+      <EntryBarriersEditor onChange={(entryBarriers) => onChange({ ...market, entryBarriers })} value={market.entryBarriers} />
+      <TableEditor label="细分结构表" onChange={(segmentStructure) => onChange({ ...market, segmentStructure })} value={market.segmentStructure} />
+    </div>
+  );
+}
+
+function CompetitiveLandscapeEditor({
+  value,
+  onChange
+}: {
+  value?: CompetitiveLandscape;
+  onChange: (value: CompetitiveLandscape | undefined) => void;
+}) {
+  const cl = value ?? {};
+  const hasContent = Boolean(cl.cr5 || cl.strategyDifferences || cl.porterFiveForces?.length || cl.topBrandRanking || cl.brandRankingByCategory);
+  if (!hasContent) {
+    return (
+      <div className="rounded-md border border-dashed border-line p-3">
+        <div className="text-sm font-medium">竞争格局</div>
+        <p className="mt-1 text-xs text-slate-500">暂无竞争格局数据。</p>
+        <button className="mt-2 rounded-md border border-line px-3 py-1 text-xs" onClick={() => onChange({})} type="button">
+          新建
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">竞争格局</div>
+        <button className="text-xs text-red-600" onClick={() => onChange(undefined)} type="button">删除</button>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <TextInput label="CR5" onChange={(cr5) => onChange({ ...cl, cr5 })} value={cl.cr5} />
+        <TextInput label="策略差异" onChange={(strategyDifferences) => onChange({ ...cl, strategyDifferences })} value={cl.strategyDifferences} />
+      </div>
+      <TableEditor label="头部品牌排名" onChange={(topBrandRanking) => onChange({ ...cl, topBrandRanking })} value={cl.topBrandRanking} />
+      <TableEditor label="分类品牌排名" onChange={(brandRankingByCategory) => onChange({ ...cl, brandRankingByCategory })} value={cl.brandRankingByCategory} />
+      <PorterFiveEditor onChange={(porterFiveForces) => onChange({ ...cl, porterFiveForces })} value={cl.porterFiveForces} />
+    </div>
+  );
+}
+
+function ProductBenchmarkEditor({
+  value,
+  onChange
+}: {
+  value?: ProductBenchmark;
+  onChange: (value: ProductBenchmark | undefined) => void;
+}) {
+  const pb = value ?? {};
+  const hasContent = Boolean(pb.keyFindings || pb.tmallProtectiveFilm || pb.tmallHangingBoard || pb.formComparison || pb.priceTiers);
+  if (!hasContent) {
+    return (
+      <div className="rounded-md border border-dashed border-line p-3">
+        <div className="text-sm font-medium">产品对标</div>
+        <p className="mt-1 text-xs text-slate-500">暂无产品对标数据。</p>
+        <button className="mt-2 rounded-md border border-line px-3 py-1 text-xs" onClick={() => onChange({})} type="button">
+          新建
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">产品对标</div>
+        <button className="text-xs text-red-600" onClick={() => onChange(undefined)} type="button">删除</button>
+      </div>
+      <div className="mt-3">
+        <TextArea label="关键发现" onChange={(keyFindings) => onChange({ ...pb, keyFindings })} value={pb.keyFindings} />
+      </div>
+      <TableEditor label="天猫保护膜对标" onChange={(tmallProtectiveFilm) => onChange({ ...pb, tmallProtectiveFilm })} value={pb.tmallProtectiveFilm} />
+      <TableEditor label="天猫挂板对标" onChange={(tmallHangingBoard) => onChange({ ...pb, tmallHangingBoard })} value={pb.tmallHangingBoard} />
+      <TableEditor label="形态对比" onChange={(formComparison) => onChange({ ...pb, formComparison })} value={pb.formComparison} />
+      <TableEditor label="价格分层" onChange={(priceTiers) => onChange({ ...pb, priceTiers })} value={pb.priceTiers} />
+    </div>
+  );
+}
+
+function UserInsightsEditor({
+  value,
+  onChange
+}: {
+  value?: UserInsights;
+  onChange: (value: UserInsights | undefined) => void;
+}) {
+  const ui = value ?? {};
+  const hasContent = Boolean(ui.purchasePriorities?.length || ui.praisePoints?.length || ui.personas || ui.coreMetrics || ui.complaints);
+  if (!hasContent) {
+    return (
+      <div className="rounded-md border border-dashed border-line p-3">
+        <div className="text-sm font-medium">用户洞察</div>
+        <p className="mt-1 text-xs text-slate-500">暂无用户洞察数据。</p>
+        <button className="mt-2 rounded-md border border-line px-3 py-1 text-xs" onClick={() => onChange({})} type="button">
+          新建
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">用户洞察</div>
+        <button className="text-xs text-red-600" onClick={() => onChange(undefined)} type="button">删除</button>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <ListInput label="购买决策因素" onChange={(purchasePriorities) => onChange({ ...ui, purchasePriorities })} values={ui.purchasePriorities ?? []} />
+        <ListInput label="好评卖点" onChange={(praisePoints) => onChange({ ...ui, praisePoints })} values={ui.praisePoints ?? []} />
+      </div>
+      <TableEditor label="用户画像" onChange={(personas) => onChange({ ...ui, personas })} value={ui.personas} />
+      <TableEditor label="核心指标" onChange={(coreMetrics) => onChange({ ...ui, coreMetrics })} value={ui.coreMetrics} />
+      <TableEditor label="差评与投诉" onChange={(complaints) => onChange({ ...ui, complaints })} value={ui.complaints} />
+    </div>
+  );
+}
+
+function SupplyChainFindingsEditor({
+  value,
+  onChange
+}: {
+  value?: SupplyChainFindings;
+  onChange: (value: SupplyChainFindings | undefined) => void;
+}) {
+  const sc = value ?? {};
+  const hasContent = Boolean(sc.comboSupply || sc.sourcingPathSteps?.length || sc.coreMetrics || sc.filmSuppliers || sc.boardSuppliers || sc.priceGradientFilm || sc.priceGradientBoard || sc.sourcingAdvice);
+  if (!hasContent) {
+    return (
+      <div className="rounded-md border border-dashed border-line p-3">
+        <div className="text-sm font-medium">供应链寻源</div>
+        <p className="mt-1 text-xs text-slate-500">暂无供应链寻源数据。</p>
+        <button className="mt-2 rounded-md border border-line px-3 py-1 text-xs" onClick={() => onChange({})} type="button">
+          新建
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">供应链寻源</div>
+        <button className="text-xs text-red-600" onClick={() => onChange(undefined)} type="button">删除</button>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <TextInput label="三合一供应说明" onChange={(comboSupply) => onChange({ ...sc, comboSupply })} value={sc.comboSupply} />
+        <ListInput label="寻源执行路径" onChange={(sourcingPathSteps) => onChange({ ...sc, sourcingPathSteps })} values={sc.sourcingPathSteps ?? []} />
+      </div>
+      <TableEditor label="核心指标" onChange={(coreMetrics) => onChange({ ...sc, coreMetrics })} value={sc.coreMetrics} />
+      <TableEditor label="贴膜供应商" onChange={(filmSuppliers) => onChange({ ...sc, filmSuppliers })} value={sc.filmSuppliers} />
+      <TableEditor label="挂板供应商" onChange={(boardSuppliers) => onChange({ ...sc, boardSuppliers })} value={sc.boardSuppliers} />
+      <TableEditor label="贴膜价格梯度" onChange={(priceGradientFilm) => onChange({ ...sc, priceGradientFilm })} value={sc.priceGradientFilm} />
+      <TableEditor label="挂板价格梯度" onChange={(priceGradientBoard) => onChange({ ...sc, priceGradientBoard })} value={sc.priceGradientBoard} />
+      <TableEditor label="寻源建议" onChange={(sourcingAdvice) => onChange({ ...sc, sourcingAdvice })} value={sc.sourcingAdvice} />
+    </div>
+  );
+}
+
+function TableEditor({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value?: ResearchTable;
+  onChange: (value: ResearchTable | undefined) => void;
+}) {
+  if (!value || value.rows.length === 0) {
+    return (
+      <div className="mt-3">
+        <div className="text-xs text-slate-500">{label}</div>
+        <p className="mt-1 text-xs text-slate-400">暂无数据</p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-slate-500">{label}（{value.rows.length} 行）</div>
+        <button className="text-xs text-red-600" onClick={() => onChange(undefined)} type="button">清空</button>
+      </div>
+      <div className="mt-1 overflow-x-auto">
+        <table className="min-w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-line">
+              {value.headers.map((header, index) => (
+                <th className="py-1 pr-3" key={index}>{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {value.rows.map((row, rowIndex) => (
+              <tr className="border-b border-line" key={rowIndex}>
+                {value.headers.map((header, colIndex) => (
+                  <td className="py-1 pr-3" key={colIndex}>{row[header] ?? "—"}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PestelEditor({
+  value,
+  onChange
+}: {
+  value?: MarketOverview["pestel"];
+  onChange: (value: MarketOverview["pestel"]) => void;
+}) {
+  if (!value || value.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <div className="text-xs text-slate-500">PESTEL 分析</div>
+      <table className="mt-1 min-w-full text-left text-xs">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="py-1 pr-3">维度</th>
+            <th className="py-1 pr-3">关键因素</th>
+            <th className="py-1 pr-3">影响</th>
+          </tr>
+        </thead>
+        <tbody>
+          {value.map((item, index) => (
+            <tr className="border-b border-line" key={index}>
+              <td className="py-1 pr-3">{item.dimension}</td>
+              <td className="py-1 pr-3">{item.factor}</td>
+              <td className="py-1 pr-3">{item.impact}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PorterFiveEditor({
+  value,
+  onChange
+}: {
+  value?: CompetitiveLandscape["porterFiveForces"];
+  onChange: (value: CompetitiveLandscape["porterFiveForces"]) => void;
+}) {
+  if (!value || value.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <div className="text-xs text-slate-500">波特五力</div>
+      <table className="mt-1 min-w-full text-left text-xs">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="py-1 pr-3">竞争力量</th>
+            <th className="py-1 pr-3">强度</th>
+            <th className="py-1 pr-3">关键依据</th>
+          </tr>
+        </thead>
+        <tbody>
+          {value.map((item, index) => (
+            <tr className="border-b border-line" key={index}>
+              <td className="py-1 pr-3">{item.force}</td>
+              <td className="py-1 pr-3">{item.strength}</td>
+              <td className="py-1 pr-3">{item.basis}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EntryBarriersEditor({
+  value,
+  onChange
+}: {
+  value?: MarketOverview["entryBarriers"];
+  onChange: (value: MarketOverview["entryBarriers"]) => void;
+}) {
+  if (!value || value.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <div className="text-xs text-slate-500">进入门槛</div>
+      <table className="mt-1 min-w-full text-left text-xs">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="py-1 pr-3">门槛维度</th>
+            <th className="py-1 pr-3">高低</th>
+            <th className="py-1 pr-3">分析</th>
+          </tr>
+        </thead>
+        <tbody>
+          {value.map((item, index) => (
+            <tr className="border-b border-line" key={index}>
+              <td className="py-1 pr-3">{item.name}</td>
+              <td className="py-1 pr-3">{item.level}</td>
+              <td className="py-1 pr-3">{item.analysis}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

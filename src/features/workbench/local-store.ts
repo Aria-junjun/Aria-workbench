@@ -17,6 +17,7 @@ import {
   ProductKnowledgeV2Schema,
   type ProductKnowledgeV2
 } from "./product-knowledge";
+import { randomId } from "@/lib/random-id";
 import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
@@ -218,6 +219,21 @@ export type LocalKnowledgeActionSource = {
   action: string;
 };
 
+// 深度调研报告：作为独立模块存储，保留原始 Markdown 全文，后期再关联产品
+export type ResearchReport = {
+  id: string;
+  title: string;           // 报告标题（从H1提取或手动输入）
+  category?: string;       // 品类名称
+  content: string;         // 原始Markdown全文
+  summary?: string;        // 一句话摘要
+  source?: string;         // 来源（文件名等）
+  importedAt: string;      // 导入时间
+  updatedAt?: string;      // 更新时间
+  status: "draft" | "active" | "archived";
+  linkedProductIds?: string[];  // 关联的产品ID列表
+  tags?: string[];         // 标签
+};
+
 export type LocalWorkbenchData = {
   suppliers: LocalSupplier[];
   communications: LocalCommunication[];
@@ -229,6 +245,7 @@ export type LocalWorkbenchData = {
   decisionTools: LocalDecisionTool[];
   knowledgeApplications: LocalKnowledgeApplication[];
   decisionCases: DecisionCase[];
+  researchReports: ResearchReport[];
 };
 
 export type LocalCollectionName = keyof LocalWorkbenchData;
@@ -294,7 +311,7 @@ export function loadLocalWorkbenchData(): LocalWorkbenchData {
 export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
   const current = loadLocalWorkbenchData();
   const now = new Date().toISOString();
-  const communicationId = crypto.randomUUID();
+  const communicationId = randomId();
 
   // ===== 多供应商收集与匹配 =====
   // 从 extraction.supplier 和 offers.supplierName 收集所有不同的供应商名
@@ -314,7 +331,7 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
 
   for (const name of allSupplierNames) {
     const existing = findMatchingSupplier(current.suppliers, name);
-    const id = existing?.id ?? crypto.randomUUID();
+    const id = existing?.id ?? randomId();
 
     // 如果已通过其他名字匹配到同一个已有供应商，复用
     if (existing && supplierById.has(existing.id)) {
@@ -350,7 +367,7 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
   const newTasks = extraction.tasks
     .filter((task) => !current.tasks.some((saved) => saved.status === "open" && saved.supplierId === primarySupplierId && normalizeText(saved.title) === normalizeText(task.title)))
     .map((task) => ({
-      id: crypto.randomUUID(),
+      id: randomId(),
       supplierId: primarySupplierId,
       supplierName: primarySupplierName,
       communicationId,
@@ -382,7 +399,7 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
         const offerSupplierId = entry?.id ?? primarySupplierId;
         const resolvedName = entry?.supplier.name || offerSupplierName || primarySupplierName;
         return {
-        id: crypto.randomUUID(),
+        id: randomId(),
         supplierId: offerSupplierId,
         communicationId,
         supplierName: resolvedName,
@@ -393,7 +410,7 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
         quotedPrice: offer.quotedPrice,
         priceDetails: offer.priceDetails,
         skus: offer.skus?.map((sku, idx) => ({
-          id: crypto.randomUUID(),
+          id: randomId(),
           specName: sku.specName,
           specCode: sku.specCode,
           width: sku.width,
@@ -447,9 +464,10 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
     decisionTools: current.decisionTools,
     knowledgeApplications: current.knowledgeApplications,
     decisionCases: current.decisionCases,
+    researchReports: current.researchReports,
     knowledgeCards: [
       ...extraction.knowledgeCards.map((card) => ({
-        id: crypto.randomUUID(),
+        id: randomId(),
         title: card.title,
         source: card.source,
         summary: card.summary,
@@ -526,9 +544,25 @@ export function saveProductKnowledge(product: ProductKnowledgeV2): ProductKnowle
     updatedAt: new Date().toISOString()
   });
   const validated = ProductKnowledgeV2Schema.parse(normalized);
+
+  // Safety net: if validation strips category research data, merge it back
+  const hasOriginalCategoryData = validatedInput.marketOverview || validatedInput.competitiveLandscape || validatedInput.productBenchmark || validatedInput.userInsights || validatedInput.supplyChainFindings;
+  const hasValidatedCategoryData = validated.marketOverview || validated.competitiveLandscape || validated.productBenchmark || validated.userInsights || validated.supplyChainFindings;
+  const finalProduct: ProductKnowledgeV2 = (hasOriginalCategoryData && !hasValidatedCategoryData)
+    ? {
+        ...validated,
+        marketOverview: validatedInput.marketOverview,
+        competitiveLandscape: validatedInput.competitiveLandscape,
+        productBenchmark: validatedInput.productBenchmark,
+        userInsights: validatedInput.userInsights,
+        supplyChainFindings: validatedInput.supplyChainFindings,
+        researchDepth: validatedInput.researchDepth || product.researchDepth
+      }
+    : validated;
+
   const current = loadLocalWorkbenchData();
-  const relatedSupplierIds = validated.relatedSupplierIds ?? [];
-  const relatedOfferIds = validated.relatedOfferIds ?? [];
+  const relatedSupplierIds = finalProduct.relatedSupplierIds ?? [];
+  const relatedOfferIds = finalProduct.relatedOfferIds ?? [];
   let updatedOffers = current.offers;
   if (relatedSupplierIds.length > 0 || relatedOfferIds.length > 0) {
     const offerIdSet = new Set(relatedOfferIds);
@@ -536,30 +570,71 @@ export function saveProductKnowledge(product: ProductKnowledgeV2): ProductKnowle
       const matchedByOfferId = offerIdSet.has(offer.id);
       const matchedBySupplierId = Boolean(offer.supplierId) && relatedSupplierIds.includes(offer.supplierId!);
       if (matchedByOfferId || matchedBySupplierId) {
-        return { ...offer, productId: validated.id, productName: validated.name };
+        return { ...offer, productId: finalProduct.id, productName: finalProduct.name };
       }
       return offer;
     });
   }
   saveLocalWorkbenchData({
     ...current,
-    products: [validated, ...current.products.filter((item) => item.id !== validated.id)],
+    products: [finalProduct, ...current.products.filter((item) => item.id !== finalProduct.id)],
     offers: updatedOffers
   });
-  return validated;
+  return finalProduct;
+}
+
+// 保存或更新调研报告：已存在则更新，否则前置插入
+export function saveResearchReport(report: ResearchReport): ResearchReport {
+  const current = loadLocalWorkbenchData();
+  const existing = current.researchReports.find(r => r.id === report.id);
+  const updated = { ...report, updatedAt: new Date().toISOString() };
+  if (existing) {
+    saveLocalWorkbenchData({
+      ...current,
+      researchReports: current.researchReports.map(r => r.id === report.id ? updated : r)
+    });
+  } else {
+    saveLocalWorkbenchData({
+      ...current,
+      researchReports: [updated, ...current.researchReports]
+    });
+  }
+  return updated;
+}
+
+// 删除调研报告
+export function deleteResearchReport(id: string): void {
+  const current = loadLocalWorkbenchData();
+  saveLocalWorkbenchData({
+    ...current,
+    researchReports: current.researchReports.filter(r => r.id !== id)
+  });
+}
+
+// 把调研报告关联到指定产品（去重追加 productId）
+export function linkResearchToProduct(reportId: string, productId: string): void {
+  const current = loadLocalWorkbenchData();
+  saveLocalWorkbenchData({
+    ...current,
+    researchReports: current.researchReports.map(r =>
+      r.id === reportId
+        ? { ...r, linkedProductIds: [...new Set([...(r.linkedProductIds ?? []), productId])] }
+        : r
+    )
+  });
 }
 
 export function saveBookPackage(parsed: ParsedBookPackage) {
   const current = loadLocalWorkbenchData();
   const now = new Date().toISOString();
   const book: LocalKnowledgeBook = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     ...parsed.book,
     rawText: parsed.rawText,
     createdAt: now
   };
   const tools: LocalDecisionTool[] = parsed.tools.map((tool) => ({
-    id: crypto.randomUUID(),
+    id: randomId(),
     bookId: book.id,
     name: tool.name,
     problem: tool.problem,
@@ -586,7 +661,7 @@ export function createTaskFromKnowledgeAction(toolId: string, action: string) {
   const tool = current.decisionTools.find((item) => item.id === toolId);
   if (!tool) throw new Error("没有找到对应的决策工具。");
   const task: LocalTask = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     title: `${tool.name}：${action}`,
     priority: "medium",
     type: "knowledge_action",
@@ -641,7 +716,7 @@ export function applyTaskReviewToProduct(taskId: string): void {
       optimizationOptions: [
         ...product.optimizationOptions,
         {
-          id: crypto.randomUUID(),
+          id: randomId(),
           name: `复盘发现：${task.title}`,
           description: reviewNote,
           status: "candidate"
@@ -670,7 +745,7 @@ export function saveKnowledgeApplication(input: {
 }) {
   const current = loadLocalWorkbenchData();
   const application: LocalKnowledgeApplication = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     problem: input.problem.trim(),
     toolIds: input.toolIds,
     diagnosis: input.diagnosis?.trim() || undefined,
@@ -691,7 +766,7 @@ export function savePlainKnowledgeApplication(input: { rawInput: string }) {
   if (!rawInput) throw new Error("请输入需要保存的内容。");
   const now = new Date().toISOString();
   const application: LocalKnowledgeApplication = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     problem: rawInput,
     rawInput,
     analysisStatus: "not_requested",
@@ -718,7 +793,7 @@ export function saveAnalyzedKnowledgeApplication(input: {
   if (!rawInput) throw new Error("请输入需要分析的内容。");
   const now = new Date().toISOString();
   const application: LocalKnowledgeApplication = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     problem: input.analysis.summary,
     rawInput,
     analysisStatus: "analyzed",
@@ -754,7 +829,7 @@ export function saveKnowledgeApplicationVersion(
   const next: LocalKnowledgeApplication = {
     ...latest,
     ...patch,
-    id: crypto.randomUUID(),
+    id: randomId(),
     rootApplicationId,
     version: (latest.version ?? 1) + 1,
     createdAt: now,
@@ -797,7 +872,7 @@ export function createDecisionCase(input: {
     initialJudgement: input.initialJudgement
   }, now);
   const caseItem = DecisionCaseSchema.parse({
-    id: crypto.randomUUID(),
+    id: randomId(),
     title,
     normalizedProblemKey: normalizeProblemKey(title),
     objective: input.objective?.trim() || undefined,
@@ -878,7 +953,7 @@ export function addToolContribution(caseId: string, cycleId: string, input: {
   const cycle = caseItem?.cycles.find((item) => item.id === cycleId);
   if (!caseItem || !cycle) throw new Error("没有找到当前决策周期。");
   const contribution: ToolContribution = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     toolId: input.toolId,
     toolName: input.toolName,
     sourceBook: input.sourceBook,
@@ -995,7 +1070,7 @@ export function repairKnowledgeBookFromRawText(bookId: string) {
   const addedTools: LocalDecisionTool[] = parsed.tools
     .filter((tool) => !existingNames.has(normalizeText(tool.name)))
     .map((tool) => ({
-      id: crypto.randomUUID(),
+      id: randomId(),
       bookId,
       name: tool.name,
       problem: tool.problem,
@@ -1173,7 +1248,8 @@ function emptyData(): LocalWorkbenchData {
     knowledgeBooks: [],
     decisionTools: [],
     knowledgeApplications: []
-    ,decisionCases: []
+    ,decisionCases: [],
+    researchReports: []
   };
 }
 
@@ -1239,7 +1315,8 @@ function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): LocalWorkben
       scripts: Array.isArray(card.scripts) ? card.scripts : [],
       risks: Array.isArray(card.risks) ? card.risks : [],
       tags: Array.isArray(card.tags) ? card.tags : []
-    }))
+    })),
+    researchReports: data.researchReports ?? []
   };
 }
 
@@ -1254,7 +1331,7 @@ function getApplicationVersions(applications: LocalKnowledgeApplication[], appli
 function isWorkbenchDataLike(value: unknown): value is Partial<LocalWorkbenchData> {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<Record<LocalCollectionName, unknown>>;
-  return ["suppliers", "communications", "offers", "products", "tasks", "knowledgeCards", "knowledgeBooks", "decisionTools", "knowledgeApplications", "decisionCases"].every((key) => {
+  return ["suppliers", "communications", "offers", "products", "tasks", "knowledgeCards", "knowledgeBooks", "decisionTools", "knowledgeApplications", "decisionCases", "researchReports"].every((key) => {
     const collection = candidate[key as LocalCollectionName];
     return collection === undefined || Array.isArray(collection);
   });
@@ -1268,7 +1345,7 @@ function createCycle(input: {
   initialJudgement?: string;
 }, now: string): DecisionCycle {
   return DecisionCycleSchemaCompat({
-    id: crypto.randomUUID(),
+    id: randomId(),
     cycleNumber: input.cycleNumber,
     title: input.title.trim(),
     rawInput: input.rawInput.trim(),
@@ -1302,7 +1379,7 @@ function migrateApplicationCycle(
       ? sourceActions.map((source) => source.action)
       : application.toolIds.length === 1 ? application.selectedActions : [];
     return {
-      id: crypto.randomUUID(),
+      id: randomId(),
       toolId,
       toolName: tool?.name ?? sourceActions[0]?.toolName ?? "历史知识工具",
       sourceBook: tool?.bookId ? data.knowledgeBooks.find((book) => book.id === tool.bookId)?.title : undefined,

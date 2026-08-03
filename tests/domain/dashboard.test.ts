@@ -72,7 +72,8 @@ const data: LocalWorkbenchData = {
   knowledgeBooks: [],
   decisionTools: [],
   knowledgeApplications: []
-  ,decisionCases: []
+  ,decisionCases: [],
+  researchReports: []
 };
 
 describe("getDashboardView", () => {
