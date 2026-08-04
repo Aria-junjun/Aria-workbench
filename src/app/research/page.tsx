@@ -42,7 +42,7 @@ export default function ResearchListPage() {
           </button>
           <Link
             className="whitespace-nowrap rounded-md bg-action px-3 py-2 text-sm font-medium text-white"
-            href="/products/import"
+            href="/research/import"
           >
             导入调研报告
           </Link>
@@ -53,7 +53,7 @@ export default function ResearchListPage() {
         <EmptyState
           title="还没有深度调研报告"
           description="导入调研报告后，可在此查看原始 Markdown 内容，并把报告关联到具体产品。"
-          actionHref="/products/import"
+          actionHref="/research/import"
           actionLabel="导入调研报告"
         />
       ) : (
