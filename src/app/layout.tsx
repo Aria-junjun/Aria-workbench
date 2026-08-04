@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { DataSyncLoader } from "@/components/data-sync-loader";
 import { ThemeLoader } from "@/components/theme-loader";
+import { AuthGuard } from "@/components/auth-guard";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeLoader />
         <DataSyncLoader />
-        <AppShell>{children}</AppShell>
+        <AuthGuard>{children}</AuthGuard>
       </body>
     </html>
   );

@@ -94,7 +94,7 @@ export function getDashboardView(data: LocalWorkbenchData): DashboardView {
       kind: "decision",
       title: item.title,
       summary: item.objective || `${item.cycles.length} 个决策轮次`,
-      href: `/knowledge/decisions/${item.id}`,
+      href: `/knowledge/cases/${item.id}`,
       createdAt: item.createdAt
     }));
 
