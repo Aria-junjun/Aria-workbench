@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   deleteResearchReport,
   linkResearchToProduct,
@@ -15,13 +15,28 @@ export default function ResearchDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const [mounted, setMounted] = useState(false);
   const [version, setVersion] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [showLinkPanel, setShowLinkPanel] = useState(false);
   const [linkQuery, setLinkQuery] = useState("");
 
-  // 每次渲染都从 localStorage 读取最新数据；version 变化时强制刷新
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="space-y-4">
+        <Link className="text-sm text-action" href="/research">返回调研报告列表</Link>
+        <div className="rounded-lg border border-line bg-white p-8 text-center text-slate-500">
+          加载中...
+        </div>
+      </div>
+    );
+  }
+
   const data = loadLocalWorkbenchData();
   const report = id ? data.researchReports.find((item) => item.id === id) : undefined;
 
