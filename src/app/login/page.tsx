@@ -82,10 +82,9 @@ function LoginForm() {
         </button>
       </div>
 
-      <div className="mt-5 flex items-center justify-center gap-1.5 rounded-xl bg-paper-warm/70 border border-line-soft px-3 py-2.5 text-[11px] text-muted">
-        <ShieldCheck className="h-3.5 w-3.5 text-action" />
-        <span>默认密码：</span>
-        <code className="rounded bg-white/60 px-1.5 py-0.5 text-action font-mono">aria2024</code>
+      <div className="mt-5 flex items-center justify-center gap-1.5 text-[11px] text-muted">
+        <Lock className="h-3 w-3" />
+        <span>忘记密码？请联系管理员</span>
       </div>
     </form>
   );
