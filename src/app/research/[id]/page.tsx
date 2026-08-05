@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { MarkdownViewer } from "@/components/markdown-viewer";
 import {
   deleteResearchReport,
   linkResearchToProduct,
@@ -145,14 +146,11 @@ export default function ResearchDetailPage() {
         </div>
       </section>
 
-      {/* 原始 Markdown 内容 */}
-      <section className="rounded-lg border border-line bg-white p-4">
-        <h2 className="border-b border-line pb-2 text-lg font-semibold">原始调研内容</h2>
-        <p className="mt-1 text-sm text-slate-500">保留导入时的原始 Markdown 全文，可在此基础上进行结构化解析或关联产品。</p>
-        <pre className="mt-3 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-paper p-3 text-xs leading-6 text-slate-700">
-          {report.content || "（无内容）"}
-        </pre>
-      </section>
+      {/* Markdown 内容 */}
+      <MarkdownViewer
+        content={report.content || ""}
+        title="调研内容"
+      />
 
       {/* 关联产品 */}
       <section className="rounded-lg border border-line bg-white p-4">
