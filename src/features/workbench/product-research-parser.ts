@@ -142,9 +142,10 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
   const manufacturingFields = fieldsIn(manufacturingLines, recordConflict(manufacturingSection));
   const optimizationSection: StandardSection = sections.has("成熟替代与优化") ? "成熟替代与优化" : "替代与优化";
   const riskSection: StandardSection = sections.has("缺陷与风险") ? "缺陷与风险" : "风险与缺陷";
+  const stableId = `product-research-${fingerprint((name ?? "未命名产品").trim().toLowerCase())}`;
   const product: ProductKnowledgeV2 = {
     schemaVersion: 2,
-    id: `product-research-${fingerprint(rawText)}`,
+    id: stableId,
     name: name ?? "未命名产品",
     category,
     coreUse,

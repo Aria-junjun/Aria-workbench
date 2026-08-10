@@ -586,8 +586,16 @@ export function saveProductKnowledge(product: ProductKnowledgeV2): ProductKnowle
     : validated;
 
   const current = loadLocalWorkbenchData();
-  const relatedSupplierIds = finalProduct.relatedSupplierIds ?? [];
-  const relatedOfferIds = finalProduct.relatedOfferIds ?? [];
+  const existing = current.products.find((item) => item.id === finalProduct.id);
+  const incomingSupplierIds = finalProduct.relatedSupplierIds ?? [];
+  const incomingOfferIds = finalProduct.relatedOfferIds ?? [];
+  // 新导入的产品通常不自带关联，如果空数组就从旧记录继承（保护手动关联）
+  const relatedSupplierIds = incomingSupplierIds.length > 0
+    ? incomingSupplierIds
+    : (existing?.relatedSupplierIds ?? []);
+  const relatedOfferIds = incomingOfferIds.length > 0
+    ? incomingOfferIds
+    : (existing?.relatedOfferIds ?? []);
   let updatedOffers = current.offers;
   if (relatedSupplierIds.length > 0 || relatedOfferIds.length > 0) {
     const offerIdSet = new Set(relatedOfferIds);

@@ -7,8 +7,10 @@ import { ProductKnowledgeEditor } from "@/components/workbench/product-knowledge
 import { SectionActions } from "@/components/workbench/edit-fields";
 import { deleteLocalItem, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
-import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable } from "@/features/workbench/product-knowledge";
+import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable, ProductLifecycleStage, ProductSignalStatus } from "@/features/workbench/product-knowledge";
 import { buildProductTechnologyPrompt } from "@/features/workbench/product-technology-prompt";
+import { labelLifecycleStage, labelSignalStatus, LIFECYCLE_STAGE_OPTIONS, SIGNAL_STATUS_OPTIONS, labelDormantReason } from "@/features/workbench/display-labels";
+import type { ProductDormantReason } from "@/features/workbench/product-knowledge";
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -58,12 +60,13 @@ export default function ProductDetailPage() {
       {copyMessage ? <p className="text-right text-xs text-slate-500">{copyMessage}</p> : null}
       <section className="border-b border-line pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold">{product.name}</h1>
             <p className="mt-1 text-sm text-slate-600">{product.category || "未记录品类"}{product.coreUse ? ` · ${product.coreUse}` : ""}</p>
           </div>
           <SectionActions editing={editing} onCancel={() => { setDraft(product); setEditing(false); }} onDelete={remove} onEdit={() => setEditing(true)} onSave={save} />
         </div>
+        <LifecycleStatusBar product={product} onUpdate={(next) => { setDraft(next); saveProductKnowledge(next); setVersion((v) => v + 1); }} />
       </section>
 
       {editing ? (
@@ -505,6 +508,120 @@ function StringList({ title, items }: { title: string; items: string[] | undefin
       <ul className="mt-1 list-disc space-y-1 pl-5">
         {items.map((item, index) => <li key={index}>{item}</li>)}
       </ul>
+    </div>
+  );
+}
+
+const DORMANT_REASON_OPTIONS: ProductDormantReason[] = ["供应商不成熟", "采购成本过高", "季节不适配", "资金不足", "产能受限", "竞争太激烈", "其他"];
+
+function LifecycleStatusBar({ product, onUpdate }: { product: ProductKnowledgeV2; onUpdate: (next: ProductKnowledgeV2) => void }) {
+  const isSignalStage = !product.lifecycleStage || product.lifecycleStage === "signal";
+
+  function setStage(stage: ProductLifecycleStage) {
+    onUpdate({
+      ...product,
+      lifecycleStage: stage,
+      // 如果离开 signal 阶段，把 signalStatus 固定为 active（非信号阶段不需要休眠）
+      signalStatus: stage === "signal" ? (product.signalStatus ?? "active") : "active"
+    });
+  }
+
+  function setSignalStatus(status: ProductSignalStatus) {
+    onUpdate({
+      ...product,
+      signalStatus: status,
+      lifecycleStage: product.lifecycleStage ?? "signal",
+      // 如果从 dormant 切走，清除休眠原因
+      dormantReason: status === "dormant" ? product.dormantReason : undefined
+    });
+  }
+
+  function setDormantReason(reason: ProductDormantReason) {
+    onUpdate({ ...product, dormantReason: reason, signalStatus: "dormant", lifecycleStage: product.lifecycleStage ?? "signal" });
+  }
+
+  const stageMeta = labelLifecycleStage(product.lifecycleStage);
+  const signalMeta = labelSignalStatus(product.signalStatus);
+
+  return (
+    <div className="mt-4 space-y-3 rounded-xl border border-line bg-slate-50/60 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">当前阶段：</span>
+          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${stageMeta.tone}`}>{stageMeta.label}</span>
+          {isSignalStage && product.signalStatus && (
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${signalMeta.tone}`}>
+              {signalMeta.label}
+              {product.signalStatus === "dormant" && product.dormantReason ? ` · ${labelDormantReason(product.dormantReason)}` : ""}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 text-xs font-medium text-slate-500">阶段切换（点击直接推进漏斗）</div>
+        <div className="flex flex-wrap gap-1.5">
+          {LIFECYCLE_STAGE_OPTIONS.map((opt) => {
+            const active = (product.lifecycleStage ?? "signal") === opt.value;
+            const meta = labelLifecycleStage(opt.value);
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setStage(opt.value as ProductLifecycleStage)}
+                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition ${active ? meta.tone : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-100"}`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {isSignalStage && (
+        <div className="space-y-2 border-t border-dashed border-line pt-3">
+          <div>
+            <div className="mb-2 text-xs font-medium text-slate-500">信号状态（仅信号池阶段）</div>
+            <div className="flex flex-wrap gap-1.5">
+              {SIGNAL_STATUS_OPTIONS.map((opt) => {
+                const active = (product.signalStatus ?? "active") === opt.value;
+                const meta = labelSignalStatus(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSignalStatus(opt.value as ProductSignalStatus)}
+                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition ${active ? meta.tone : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-100"}`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {(product.signalStatus === "dormant" || product.dormantReason) && (
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">休眠原因</div>
+              <div className="flex flex-wrap gap-1.5">
+                {DORMANT_REASON_OPTIONS.map((reason) => {
+                  const active = product.dormantReason === reason;
+                  return (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() => setDormantReason(reason)}
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition ${active ? "bg-slate-200 text-slate-800 ring-slate-300" : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-100"}`}
+                    >
+                      {reason}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
