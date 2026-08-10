@@ -9,27 +9,26 @@ import {
   addToolContribution,
   createDecisionCase,
   createTaskFromKnowledgeAction,
-  loadLocalWorkbenchData,
   type LocalDecisionTool,
-  type LocalKnowledgeActionSource,
-  type LocalWorkbenchData
+  type LocalKnowledgeActionSource
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function CombinedDecisionPage() {
   const router = useRouter();
-  const [data, setData] = useState<LocalWorkbenchData>();
   const [problem, setProblem] = useState("");
   const [selectedTools, setSelectedTools] = useState<LocalDecisionTool[]>([]);
   const [diagnosis, setDiagnosis] = useState("");
   const [selectedSources, setSelectedSources] = useState<LocalKnowledgeActionSource[]>([]);
   const [message, setMessage] = useState("");
 
+  const data = useWorkbenchData();
+
   useEffect(() => {
-    const loaded = loadLocalWorkbenchData();
     const params = new URLSearchParams(window.location.search);
     const restoredProblem = params.get("problem")?.trim() || "";
-    const validIds = parseSelectedToolIds(params.get("toolIds"), loaded.decisionTools.map((tool) => tool.id));
-    const toolById = new Map(loaded.decisionTools.map((tool) => [tool.id, tool]));
+    const validIds = parseSelectedToolIds(params.get("toolIds"), data.decisionTools.map((tool) => tool.id));
+    const toolById = new Map(data.decisionTools.map((tool) => [tool.id, tool]));
     const restoredTools = validIds.map((id) => toolById.get(id)).filter((tool): tool is LocalDecisionTool => Boolean(tool));
 
     if (!restoredProblem || restoredTools.length === 0) {
@@ -37,7 +36,6 @@ export default function CombinedDecisionPage() {
       return;
     }
 
-    setData(loaded);
     setProblem(restoredProblem);
     setSelectedTools(restoredTools);
   }, [router]);
@@ -46,7 +44,7 @@ export default function CombinedDecisionPage() {
     matchDecisionTools(problem, selectedTools).map(({ tool, reasons }) => [tool.id, reasons])
   ), [problem, selectedTools]);
 
-  if (!data || selectedTools.length === 0) return <div className="text-sm text-slate-500">正在准备组合决策工作区...</div>;
+  if (selectedTools.length === 0) return <div className="text-sm text-slate-500">正在准备组合决策工作区...</div>;
 
   function toggleAction(tool: LocalDecisionTool, action: string) {
     const exists = selectedSources.some((source) => source.toolId === tool.id && source.action === action);

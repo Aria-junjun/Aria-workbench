@@ -4,17 +4,27 @@ import type {
   MarketOverview,
   ProductBenchmark,
   ProductCostItem,
+  ProductDormantReason,
   ProductImportIssue as ProductModelImportIssue,
   ProductKnowledgeV2,
+  ProductLifecycleStage,
   ProductMaterialStructure,
   ProductOptimizationOption,
   ProductProcurementQuote,
   ProductResearchDocument,
   ProductRiskSet,
+  ProductSignalActivationTrigger,
+  ProductSignalStatus,
   ProductSpecification,
   ResearchTable,
   SupplyChainFindings,
   UserInsights
+} from "@/features/workbench/product-knowledge";
+import {
+  DORMANT_REASONS,
+  PRODUCT_LIFECYCLE_STAGES,
+  SIGNAL_STATUSES,
+  ProductSignalActivationTriggerSchema
 } from "@/features/workbench/product-knowledge";
 
 const STANDARD_SECTIONS = [
@@ -159,7 +169,12 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
       : parseDecision(sections.get("决策摘要") ?? [], recordConflict("决策摘要")),
     rawDocument: buildRawDocument(rawText, source, fieldConflicts, invalidRows),
     importIssues: toProductModelIssues(issues),
-    createdAt: source.importedAt ?? "unknown"
+    createdAt: source.importedAt ?? "unknown",
+    // 流水线/信号池（文档头部解析）
+    lifecycleStage: docMeta.lifecycleStage,
+    signalStatus: docMeta.signalStatus,
+    dormantReason: docMeta.dormantReason,
+    activationTrigger: docMeta.activationTrigger
   };
 
   const categoryFields = parseCategoryResearchFields(rawText);
@@ -236,6 +251,11 @@ function splitSections(rawText: string): SectionMap {
  *   渠道：天猫排行榜对标 + 1688供应链
  *   产品线：保护膜 + 防窥挂板
  *   报告日期：2026-07-31
+ *   ===== 以下为每日情报专用字段（可选，留空会使用默认值） =====
+ *   流水线阶段：signal          # signal | validated | defined | supply_locked | listing | evaluating | archived | discontinued
+ *   信号状态：dormant           # active（默认）| dormant | rejected
+ *   休眠原因：采购成本过高      # 仅当信号状态= dormant 时填写，枚举见下
+ *   激活触发：{"requiredSupplierCategories": ["日用品"], "maxUnitCost": 12, "applicableMonths": [9,10,11]}
  */
 type DocumentMeta = {
   name?: string;
@@ -245,6 +265,10 @@ type DocumentMeta = {
   useScenarios?: string[];
   productLine?: string;
   perspective?: string;
+  lifecycleStage?: ProductLifecycleStage;
+  signalStatus?: ProductSignalStatus;
+  dormantReason?: ProductDormantReason;
+  activationTrigger?: ProductSignalActivationTrigger;
 };
 
 function extractDocumentMeta(rawText: string): DocumentMeta {
@@ -316,6 +340,52 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
       case "调研渠道":
         meta.productLine = meta.productLine ?? value;
         break;
+      // ===== 流水线/信号池 =====
+      case "流水线阶段":
+      case "阶段":
+      case "lifecycleStage": {
+        const v = value.trim().toLowerCase().replace(/\s+/g, "_");
+        if ((PRODUCT_LIFECYCLE_STAGES as readonly string[]).includes(v)) {
+          meta.lifecycleStage = v as ProductLifecycleStage;
+        }
+        break;
+      }
+      case "信号状态":
+      case "signalStatus": {
+        const v = value.trim().toLowerCase();
+        if ((SIGNAL_STATUSES as readonly string[]).includes(v)) {
+          meta.signalStatus = v as ProductSignalStatus;
+        }
+        break;
+      }
+      case "休眠原因":
+      case "dormantReason": {
+        const v = value.trim();
+        if ((DORMANT_REASONS as readonly string[]).includes(v)) {
+          meta.dormantReason = v as ProductDormantReason;
+        }
+        break;
+      }
+      case "激活触发":
+      case "激活条件":
+      case "activationTrigger": {
+        const payload = value.trim();
+        if (!payload) break;
+        try {
+          // 允许 JSON 字符串，或简化格式：key=value;key=value1,value2
+          let parsed: unknown;
+          if (payload.startsWith("{") && payload.endsWith("}")) {
+            parsed = JSON.parse(payload);
+          } else {
+            parsed = parseActivationTriggerCompact(payload);
+          }
+          const validated = ProductSignalActivationTriggerSchema.safeParse(parsed);
+          if (validated.success) meta.activationTrigger = validated.data;
+        } catch {
+          // 解析失败静默跳过，用户可在界面里再补
+        }
+        break;
+      }
       default:
         break;
     }
@@ -325,6 +395,63 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
   if (!meta.name && h1Line) meta.name = h1Line.replace(/^#\s+/, "").trim();
 
   return meta;
+}
+
+/** 激活触发简化格式："requiredSupplierCategories=A,B;maxUnitCost=12;applicableMonths=9,10,11" */
+function parseActivationTriggerCompact(payload: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const segments = payload.split(/[;；]/);
+  for (const seg of segments) {
+    const eqIdx = seg.indexOf("=");
+    if (eqIdx <= 0) continue;
+    const rawKey = seg.slice(0, eqIdx).trim();
+    const rawValue = seg.slice(eqIdx + 1).trim();
+    const key = triggerKeyAlias(rawKey);
+    if (!key) continue;
+    // 数字数组或普通数组
+    if (key === "applicableMonths") {
+      const nums = rawValue.split(/[,，、\s]+/).map((x) => Number(x)).filter((x) => Number.isFinite(x));
+      if (nums.length) out[key] = nums;
+      continue;
+    }
+    if (key === "requiredSupplierCategories") {
+      const arr = rawValue.split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean);
+      if (arr.length) out[key] = arr;
+      continue;
+    }
+    if (key === "maxUnitCost") {
+      const n = Number(rawValue);
+      if (Number.isFinite(n)) out[key] = n;
+      continue;
+    }
+    out[key] = rawValue;
+  }
+  return out;
+}
+
+function triggerKeyAlias(raw: string): keyof ProductSignalActivationTrigger | undefined {
+  switch (raw) {
+    case "requiredSupplierCategories":
+    case "供应商品类":
+    case "所需供应商品类":
+      return "requiredSupplierCategories";
+    case "maxUnitCost":
+    case "单位成本上限":
+    case "最大单位成本":
+      return "maxUnitCost";
+    case "applicableMonths":
+    case "适用月份":
+    case "季节月份":
+      return "applicableMonths";
+    case "minSupplierCooperationLevel":
+    case "最低合作等级":
+      return "minSupplierCooperationLevel";
+    case "customRule":
+    case "自定义规则":
+      return "customRule";
+    default:
+      return undefined;
+  }
 }
 
 function fallbackProductName(fileName?: string): string | undefined {

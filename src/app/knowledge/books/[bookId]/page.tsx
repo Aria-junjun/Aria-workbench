@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BookCoverEditor } from "@/features/workbench/book-cover-editor";
 import { auditKnowledgeBookImport, type AuditedListField, type KnowledgeBookAudit, type KnowledgeToolAudit } from "@/features/workbench/knowledge-library";
-import { deleteKnowledgeBook, loadLocalWorkbenchData, repairKnowledgeBookFromRawText, updateLocalItem, type LocalWorkbenchData } from "@/features/workbench/local-store";
+import { deleteKnowledgeBook, loadLocalWorkbenchData, repairKnowledgeBookFromRawText, updateLocalItem } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 const auditedFields: Array<{ key: AuditedListField; label: string }> = [
   { key: "triggers", label: "触发信号" },
@@ -19,14 +20,12 @@ export default function KnowledgeBookPage() {
   const params = useParams();
   const router = useRouter();
   const bookId = Array.isArray(params.bookId) ? params.bookId[0] : params.bookId;
-  const [data, setData] = useState<LocalWorkbenchData>();
   const [audit, setAudit] = useState<KnowledgeBookAudit>();
   const [auditError, setAuditError] = useState("");
   const [repairMessage, setRepairMessage] = useState("");
 
-  useEffect(() => setData(loadLocalWorkbenchData()), []);
+  const data = useWorkbenchData();
 
-  if (!data) return <div className="text-sm text-slate-500">正在读取书籍...</div>;
   const book = data.knowledgeBooks.find((item) => item.id === bookId);
   const tools = data.decisionTools.filter((tool) => tool.bookId === bookId);
 
@@ -42,7 +41,6 @@ export default function KnowledgeBookPage() {
   function updateCover(coverImage: string | undefined) {
     if (!book) return;
     updateLocalItem("knowledgeBooks", book.id, { coverImage });
-    setData(loadLocalWorkbenchData());
   }
 
   function inspectImport() {
@@ -66,7 +64,6 @@ export default function KnowledgeBookPage() {
     const result = repairKnowledgeBookFromRawText(book.id);
     const nextData = loadLocalWorkbenchData();
     const nextTools = nextData.decisionTools.filter((tool) => tool.bookId === book.id);
-    setData(nextData);
     setAudit(auditKnowledgeBookImport(book.rawText || "", nextTools));
     setRepairMessage(`已补充 ${result.updatedTools} 个现有工具，并新增 ${result.addedTools} 个工具。未覆盖人工修改。`);
   }

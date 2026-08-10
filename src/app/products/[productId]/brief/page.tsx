@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { buildProductBrief } from "@/features/workbench/product-brief";
-import { loadLocalWorkbenchData } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function ProductBriefPage() {
   const params = useParams();
   const productId = Array.isArray(params.productId) ? params.productId[0] : params.productId;
-  const product = loadLocalWorkbenchData().products.find((item) => item.id === productId);
+  const product = useWorkbenchData().products.find((item) => item.id === productId);
 
   if (!product) {
     return <div className="rounded-md border border-line bg-white p-4 text-sm">没有找到这个产品知识。</div>;

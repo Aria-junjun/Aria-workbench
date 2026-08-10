@@ -7,25 +7,22 @@ import { buildKnowledgeReturnHref } from "@/features/workbench/knowledge-solve";
 import {
   addToolContribution,
   createDecisionCase,
-  createTaskFromKnowledgeAction,
-  loadLocalWorkbenchData,
-  type LocalWorkbenchData
+  createTaskFromKnowledgeAction
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function DecisionToolPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
   const toolId = Array.isArray(params.toolId) ? params.toolId[0] : params.toolId;
-  const [data, setData] = useState<LocalWorkbenchData>();
   const [problem, setProblem] = useState(searchParams.get("problem") || "");
   const [diagnosis, setDiagnosis] = useState("");
   const [selectedActions, setSelectedActions] = useState<string[]>([]);
   const [message, setMessage] = useState("");
 
-  useEffect(() => setData(loadLocalWorkbenchData()), []);
+  const data = useWorkbenchData();
 
-  if (!data) return <div className="text-sm text-slate-500">正在读取决策工具...</div>;
   const tool = data.decisionTools.find((item) => item.id === toolId);
   const book = tool?.bookId ? data.knowledgeBooks.find((item) => item.id === tool.bookId) : undefined;
 

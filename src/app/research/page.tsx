@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
-import { loadLocalWorkbenchData, type ResearchReport } from "@/features/workbench/local-store";
+import { type ResearchReport } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function ResearchListPage() {
+  const data = useWorkbenchData();
   const [mounted, setMounted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -24,7 +26,6 @@ export default function ResearchListPage() {
     );
   }
 
-  const data = loadLocalWorkbenchData();
   const reports = [...data.researchReports].sort(
     (a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()
   );

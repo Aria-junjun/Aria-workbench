@@ -11,11 +11,11 @@ import {
   toggleSelectedToolId
 } from "@/features/workbench/knowledge-solve";
 import {
-  loadLocalWorkbenchData,
   createDecisionCase,
   loadDecisionCases,
   type LocalWorkbenchData
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   BookOpen,
   CheckSquare,
@@ -48,14 +48,13 @@ export default function KnowledgePage() {
   const [matches, setMatches] = useState<ToolMatch[]>([]);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
   const [selectionMessage, setSelectionMessage] = useState("");
-  const [data, setData] = useState<LocalWorkbenchData>();
   const [message, setMessage] = useState("");
   const restoredQuery = useRef(false);
 
-  useEffect(() => setData(loadLocalWorkbenchData()), []);
+  const data = useWorkbenchData();
 
   useEffect(() => {
-    if (!data || restoredQuery.current) return;
+    if (restoredQuery.current) return;
     restoredQuery.current = true;
     const restoredProblem = new URLSearchParams(window.location.search).get("problem")?.trim() || "";
     if (!restoredProblem) return;
@@ -65,8 +64,6 @@ export default function KnowledgePage() {
     setMatches(restoredMatches);
     setSelectedToolIds(defaultSelectedToolIds(combinableToolIds(restoredMatches)));
   }, [data]);
-
-  if (!data) return <div className="py-20 text-center text-sm text-muted">正在读取商业知识...</div>;
 
   const bookById = new Map(data.knowledgeBooks.map((book) => [book.id, book]));
   const tools = buildClientTools(data);
@@ -85,7 +82,6 @@ export default function KnowledgePage() {
 
   function saveDirectly() {
     createDecisionCase({ title: question, rawInput: question });
-    setData(loadLocalWorkbenchData());
     setMessage("已保存为问题草稿，不消耗 API。");
   }
 

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { LibraryToolbar, uniqueTags } from "@/components/workbench/library-toolbar";
-import { findDuplicateSuppliers, includesQuery, loadLocalWorkbenchData, mergeSuppliers, sortPinnedFirst, togglePinned, type LocalWorkbenchData } from "@/features/workbench/local-store";
+import { findDuplicateSuppliers, includesQuery, mergeSuppliers, sortPinnedFirst, togglePinned, type LocalWorkbenchData } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import { AlertTriangle, ArrowRightLeft, Check, X } from "lucide-react";
 
@@ -19,12 +20,12 @@ export default function SuppliersPage() {
   const [mergedMsg, setMergedMsg] = useState<{ pair: string; text: string } | null>(null);
   // 使用 useEffect 延迟加载客户端数据，避免 hydration mismatch
   const [hydrated, setHydrated] = useState(false);
-  const [workbenchData, setWorkbenchData] = useState<LocalWorkbenchData | null>(null);
 
   useEffect(() => {
-    setWorkbenchData(loadLocalWorkbenchData());
     setHydrated(true);
   }, []);
+
+  const workbenchData = useWorkbenchData();
 
   //  hydration 前使用空数据，hydration 后使用真实数据
   const data = workbenchData ?? { suppliers: [], communications: [], offers: [], products: [], tasks: [], knowledgeCards: [], knowledgeBooks: [], decisionTools: [], knowledgeApplications: [], decisionCases: [] };
@@ -39,7 +40,6 @@ export default function SuppliersPage() {
 
   function pin(id: string) {
     togglePinned("suppliers", id);
-    setWorkbenchData(loadLocalWorkbenchData());
     setVersion((current) => current + 1);
   }
 
@@ -57,7 +57,6 @@ export default function SuppliersPage() {
     mergeSuppliers(targetId, sourceId);
     setMerging(null);
     setMergedMsg({ pair: pairKey, text: `已合并：${sourceName} → ${targetName}` });
-    setWorkbenchData(loadLocalWorkbenchData());
     setVersion((v) => v + 1);
     // 刷新重复列表
     setDuplicatePairs(findDuplicateSuppliers());

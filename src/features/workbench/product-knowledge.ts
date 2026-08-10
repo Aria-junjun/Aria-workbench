@@ -196,6 +196,43 @@ export const ProductImportIssueSchema = z.object({
 
 export type ProductImportIssue = z.infer<typeof ProductImportIssueSchema>;
 
+// ===== 流水线阶段 + 信号池休眠/激活机制 =====
+export const PRODUCT_LIFECYCLE_STAGES = [
+  "signal",           // 信号池（每日情报导入的原始机会，未进入执行）
+  "validated",        // 已验证通过，决定做
+  "defined",          // 产品定义完成（产品知识卡填充完毕）
+  "supply_locked",    // 供应锁定（供应商、货盘、成本都齐了）
+  "listing",          // 上架测试中
+  "evaluating",       // 评估决策（看上架数据决定放量/止损）
+  "archived",         // 归档（成功跑完闭环）
+  "discontinued"      // 已淘汰（明确不做，区别于休眠）
+] as const;
+export type ProductLifecycleStage = typeof PRODUCT_LIFECYCLE_STAGES[number];
+
+export const SIGNAL_STATUSES = ["active", "dormant", "rejected"] as const;
+export type ProductSignalStatus = typeof SIGNAL_STATUSES[number];
+
+export const DORMANT_REASONS = [
+  "供应商不成熟",
+  "采购成本过高",
+  "季节不适配",
+  "资金不足",
+  "产能受限",
+  "竞争太激烈",
+  "其他"
+] as const;
+export type ProductDormantReason = typeof DORMANT_REASONS[number];
+
+export const ProductSignalActivationTriggerSchema = z.object({
+  requiredSupplierCategories: z.array(z.string()).optional(),
+  maxUnitCost: z.number().finite().optional(),
+  applicableMonths: z.array(z.number().int().min(1).max(12)).optional(),
+  minSupplierCooperationLevel: z.string().optional(),
+  customRule: z.string().optional()
+});
+export type ProductSignalActivationTrigger = z.infer<typeof ProductSignalActivationTriggerSchema>;
+
+// ===== 历史遗留兼容字段 =====
 type LegacyProductKnowledgeFields = {
   supplierId?: string;
   supplierName?: string;
@@ -240,6 +277,12 @@ export type ProductKnowledgeV2 = {
   legacyNotes?: string;
   createdAt: string;
   updatedAt?: string;
+  // ===== 流水线阶段 + 信号池休眠/激活 =====
+  lifecycleStage?: ProductLifecycleStage;
+  signalStatus?: ProductSignalStatus;          // 仅 lifecycleStage === "signal" 时有效
+  dormantReason?: ProductDormantReason;        // signalStatus === "dormant" 时填写原因
+  activationTrigger?: ProductSignalActivationTrigger;  // 系统何时可以提醒你重新评估
+  lastActivationCheckAt?: string;              // 上次扫描匹配时间，避免重复提醒
   // ===== 品类调研扩展字段（全部可空） =====
   researchDepth?: "product" | "category";
   marketOverview?: MarketOverview;
@@ -282,6 +325,12 @@ export const ProductKnowledgeV2Schema = z.object({
   legacyNotes: z.string().optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().optional(),
+  // 流水线阶段 + 信号池休眠/激活
+  lifecycleStage: z.enum(PRODUCT_LIFECYCLE_STAGES).optional(),
+  signalStatus: z.enum(SIGNAL_STATUSES).optional(),
+  dormantReason: z.enum(DORMANT_REASONS).optional(),
+  activationTrigger: ProductSignalActivationTriggerSchema.optional(),
+  lastActivationCheckAt: z.string().optional(),
   supplierId: z.string().optional(),
   supplierName: z.string().optional(),
   communicationId: z.string().optional(),
@@ -364,6 +413,7 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     };
 
     let product: ProductKnowledgeV2;
+    const hasExplicitStage = parsed.data.lifecycleStage !== undefined;
     if (hasUnverifiedHardCost) {
       if (parsed.data.hardCostTotal !== undefined) {
         addImportIssue(context, "hardCostTotal", "硬成本总额未确认，原始值已保留。", parsed.data.hardCostTotal);
@@ -388,6 +438,11 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
         hardCostTotal: hardCost.total,
         hardCostStatus: hardCost.status
       };
+    }
+    // 信号池默认值：未设 stage 的非品类调研报告 → 自动视为信号池活跃机会
+    if (!hasExplicitStage && product.researchDepth !== "category") {
+      product.lifecycleStage = "signal";
+      if (!product.signalStatus) product.signalStatus = "active";
     }
     const importIssues = dedupeImportIssues([...parsed.data.importIssues, ...context.issues]);
     if (context.issues.length === 0 && importIssues.length === parsed.data.importIssues.length) return product;
@@ -467,7 +522,16 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
   const normalizedRawDocument = withCapturedRawData(rawDocument, context.rawData);
   const importIssues = dedupeImportIssues([...existingImportIssues, ...context.issues]);
 
-  return {
+  const researchDepth = normalizeOptionalEnum(candidate.researchDepth, ["product", "category"] as const, context);
+  const lifecycleStage = normalizeOptionalEnum(candidate.lifecycleStage, PRODUCT_LIFECYCLE_STAGES, context);
+  const signalStatus = normalizeOptionalEnum(candidate.signalStatus, SIGNAL_STATUSES, context);
+  const dormantReason = normalizeOptionalEnum(candidate.dormantReason, DORMANT_REASONS, context);
+  const activationTrigger = parseStructuredObject(
+    candidate.activationTrigger, "activationTrigger", ProductSignalActivationTriggerSchema, context
+  );
+  const lastActivationCheckAt = optionalString(candidate, "lastActivationCheckAt", context);
+
+  const product: ProductKnowledgeV2 = {
     schemaVersion: 2,
     id,
     pinned,
@@ -515,8 +579,14 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     commonPitfalls,
     alternatives,
     judgement,
+    // 流水线/信号池
+    lifecycleStage,
+    signalStatus,
+    dormantReason,
+    activationTrigger,
+    lastActivationCheckAt,
     // 品类调研扩展
-    researchDepth: normalizeOptionalEnum(candidate.researchDepth, ["product", "category"] as const, context),
+    researchDepth,
     marketOverview: parseStructuredObject(candidate.marketOverview, "marketOverview", MarketOverviewSchema, context),
     competitiveLandscape: parseStructuredObject(candidate.competitiveLandscape, "competitiveLandscape", CompetitiveLandscapeSchema, context),
     productBenchmark: parseStructuredObject(candidate.productBenchmark, "productBenchmark", ProductBenchmarkSchema, context),
@@ -526,6 +596,14 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     relatedSupplierIds: normalizeStringArray(candidate.relatedSupplierIds, "relatedSupplierIds", context),
     relatedOfferIds: normalizeStringArray(candidate.relatedOfferIds, "relatedOfferIds", context)
   };
+
+  // 信号池默认值：未设 stage 的非品类调研报告 → 自动视为信号池活跃机会
+  if (!lifecycleStage && researchDepth !== "category") {
+    product.lifecycleStage = "signal";
+    if (!product.signalStatus) product.signalStatus = "active";
+  }
+
+  return product;
 }
 
 function normalizeOptionalEnum<T extends string>(
@@ -937,4 +1015,163 @@ function mergeStrings(current: string[], incoming: string[]): string[] {
 
 function mergeLegacyNotes(...notes: Array<string | undefined>): string | undefined {
   return notes.filter((note): note is string => Boolean(note)).join("\n") || undefined;
+}
+
+// ========== 休眠信号智能唤醒匹配 ==========
+
+export type ActivationMatch = {
+  productId: string;
+  productName: string;
+  matchedRules: string[];      // 人类可读的命中原因（列表）
+  confidence: "weak" | "strong"; // 弱=仅建议 / 强=满足全部规则
+};
+
+export type SignalScanContext = {
+  suppliers: Array<{
+    id: string;
+    name?: string;
+    categories: string[];
+    cooperationLevel?: string;  // 例如："A" "B" "C" "战略" "深度"
+  }>;
+  now?: Date;
+};
+
+/**
+ * 扫描休眠信号，根据 activationTrigger + 当前供应商/月份/报价匹配可激活机会。
+ * 返回按置信度降序排列的列表。
+ */
+export function scanDormantSignals(
+  products: ProductKnowledgeV2[],
+  ctx: SignalScanContext
+): ActivationMatch[] {
+  const now = ctx.now ?? new Date();
+  const currentMonth = now.getMonth() + 1; // 1-12
+
+  const matched: ActivationMatch[] = [];
+
+  for (const product of products) {
+    // 只扫描休眠信号
+    if (product.signalStatus !== "dormant") continue;
+    if (product.lifecycleStage !== undefined && product.lifecycleStage !== "signal") continue;
+
+    const trigger = product.activationTrigger;
+    if (!trigger) {
+      // 没设激活规则：默认匹配"供应商类别命中产品品类"的弱建议
+      const hitSuppliers = product.category
+        ? ctx.suppliers.filter((s) => s.categories.includes(product.category!))
+        : [];
+      if (hitSuppliers.length > 0) {
+        matched.push({
+          productId: product.id,
+          productName: product.name,
+          matchedRules: [`品类已有 ${hitSuppliers.length} 家供应商：${hitSuppliers.slice(0, 2).map((s) => s.name || s.id).join("、")}`],
+          confidence: "weak"
+        });
+      }
+      continue;
+    }
+
+    const rules: string[] = [];
+    let strongCount = 0;
+    let ruleCount = 0;
+
+    // 1. 供应商类别匹配
+    if (trigger.requiredSupplierCategories && trigger.requiredSupplierCategories.length > 0) {
+      ruleCount += trigger.requiredSupplierCategories.length;
+      for (const category of trigger.requiredSupplierCategories) {
+        const hitSuppliers = ctx.suppliers.filter((s) => s.categories.includes(category));
+        if (hitSuppliers.length > 0) {
+          rules.push(
+            trigger.requiredSupplierCategories.length === 1
+              ? `「${category}」品类已积累 ${hitSuppliers.length} 家供应商`
+              : `「${category}」供应商就位（${hitSuppliers.length} 家）`
+          );
+          strongCount += 1;
+        }
+      }
+    }
+
+    // 2. 产品硬成本 ≤ maxUnitCost（如果有阈值和报价）
+    if (trigger.maxUnitCost !== undefined && product.hardCostTotal !== undefined) {
+      ruleCount += 1;
+      if (product.hardCostTotal <= trigger.maxUnitCost) {
+        rules.push(`硬成本 ${product.hardCostTotal.toFixed(2)} 已降到阈值 ${trigger.maxUnitCost} 以内`);
+        strongCount += 1;
+      }
+    }
+
+    // 3. 季节/月份
+    if (trigger.applicableMonths && trigger.applicableMonths.length > 0) {
+      ruleCount += 1;
+      if (trigger.applicableMonths.includes(currentMonth)) {
+        rules.push(`当前月份（${currentMonth}月）已进入适用季节`);
+        strongCount += 1;
+      }
+    }
+
+    // 4. 供应商合作等级
+    if (trigger.minSupplierCooperationLevel) {
+      const productRelatedSuppliers = product.relatedSupplierIds ?? [];
+      const candidates = ctx.suppliers.filter((s) => productRelatedSuppliers.includes(s.id) ||
+        (product.category ? s.categories.includes(product.category) : false));
+      ruleCount += 1;
+      const hit = candidates.find((s) => s.cooperationLevel === trigger.minSupplierCooperationLevel) ||
+        candidates.find((s) => s.cooperationLevel);
+      if (hit) {
+        rules.push(`已有合作等级 ≥ ${trigger.minSupplierCooperationLevel} 的供应商（${hit.name || hit.id}）`);
+        strongCount += 1;
+      }
+    }
+
+    if (rules.length === 0) continue;
+
+    const confidence: ActivationMatch["confidence"] =
+      ruleCount > 0 && strongCount >= Math.max(1, Math.ceil(ruleCount * 0.8)) ? "strong" : "weak";
+
+    matched.push({
+      productId: product.id,
+      productName: product.name,
+      matchedRules: rules,
+      confidence
+    });
+  }
+
+  // 先强后弱排序
+  matched.sort((a, b) => {
+    const score = (x: ActivationMatch) =>
+      (x.confidence === "strong" ? 1000 : 0) + x.matchedRules.length;
+    return score(b) - score(a);
+  });
+
+  return matched;
+}
+
+/** 返回修改后的新对象（不直接 mutate） */
+export function activateSignal(product: ProductKnowledgeV2, at?: Date): ProductKnowledgeV2 {
+  const now = (at ?? new Date()).toISOString();
+  return {
+    ...product,
+    signalStatus: "active",
+    dormantReason: undefined,
+    lastActivationCheckAt: now,
+    updatedAt: product.updatedAt ? (now > product.updatedAt ? now : product.updatedAt) : now
+  };
+}
+
+export function dormanizeSignal(
+  product: ProductKnowledgeV2,
+  reason: ProductDormantReason,
+  trigger?: ProductSignalActivationTrigger,
+  at?: Date
+): ProductKnowledgeV2 {
+  const now = (at ?? new Date()).toISOString();
+  return {
+    ...product,
+    lifecycleStage: product.lifecycleStage ?? "signal",
+    signalStatus: "dormant",
+    dormantReason: reason,
+    activationTrigger: trigger ?? product.activationTrigger,
+    lastActivationCheckAt: undefined,
+    updatedAt: product.updatedAt ? (now > product.updatedAt ? now : product.updatedAt) : now
+  };
 }

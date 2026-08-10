@@ -6,7 +6,8 @@ import { useMemo, useState } from "react";
 import { ArrowDownUp, ArrowUpDown, ChevronDown, ChevronUp } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { LibraryToolbar, uniqueTags } from "@/components/workbench/library-toolbar";
-import { includesQuery, loadLocalWorkbenchData, sortPinnedFirst, togglePinned, type LocalOffer } from "@/features/workbench/local-store";
+import { includesQuery, sortPinnedFirst, togglePinned, type LocalOffer } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 type SortField = "createdAt" | "quotedPriceNum" | "moqNum" | "leadTimeDays";
 type SortDirection = "asc" | "desc";
@@ -27,7 +28,7 @@ export default function OffersPage() {
   const [moqMax, setMoqMax] = useState("");
   const [expandedSkus, setExpandedSkus] = useState<Record<string, boolean>>({});
 
-  const offers = sortPinnedFirst(loadLocalWorkbenchData().offers);
+  const offers = sortPinnedFirst(useWorkbenchData().offers);
   const hasSkusOffers = offers.filter(hasSkus).length;
   const baseTags = uniqueTags(offers.map((offer) => [offer.category || "", offer.supplierName || ""]));
   const tags = hasSkusOffers > 0 ? [...baseTags, SPECIAL_TAG_HAS_SKUS] : baseTags;

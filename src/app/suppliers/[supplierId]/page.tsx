@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Info, ListField, SectionActions, TextField } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, loadLocalWorkbenchData, updateLocalItem, type LocalSupplier } from "@/features/workbench/local-store";
+import { deleteLocalItem, updateLocalItem, type LocalSupplier } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import {
   AlertCircle,
@@ -30,7 +31,7 @@ export default function SupplierDetailPage() {
   const router = useRouter();
   const params = useParams();
   const supplierId = Array.isArray(params.supplierId) ? params.supplierId[0] : params.supplierId;
-  const data = loadLocalWorkbenchData();
+  const data = useWorkbenchData();
   const supplier = data.suppliers.find((item) => item.id === supplierId);
   const offers = data.offers.filter((offer) => offer.supplierId === supplierId || (!offer.supplierId && offer.supplierName === supplier?.name));
   const communications = data.communications.filter((item) => item.supplierId === supplierId || (!item.supplierId && item.supplierName === supplier?.name));

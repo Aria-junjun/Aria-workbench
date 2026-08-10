@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { buildProductComparison } from "@/features/workbench/product-comparison";
-import { loadLocalWorkbenchData } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function ProductComparisonPage() {
   return (
@@ -17,7 +17,7 @@ export default function ProductComparisonPage() {
 function ProductComparisonContent() {
   const searchParams = useSearchParams();
   const ids = (searchParams.get("ids") || "").split(",").filter(Boolean);
-  const products = loadLocalWorkbenchData().products.filter((product) => ids.includes(product.id));
+  const products = useWorkbenchData().products.filter((product) => ids.includes(product.id));
   const comparison = buildProductComparison(products);
 
   if (products.length < 2) {

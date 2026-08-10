@@ -11,16 +11,24 @@ export function DataSyncLoader() {
 
     async function sync() {
       try {
+        // 从 Supabase 拉取最新数据，成功后会自动调用 setWorkbenchSnapshot 更新全局 store
         await loadWorkbenchData();
       } catch {
-        // 同步失败不影响使用，页面会回退到 localStorage
+        // 同步失败不影响使用，页面会使用 localStorage 中的数据
       } finally {
         if (!cancelled) setSynced(true);
       }
     }
 
     sync();
-    return () => { cancelled = true; };
+
+    // 定期从云端拉取最新数据（每 30 秒），确保多端数据一致
+    const interval = setInterval(sync, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   // 同步完成前显示一个轻量的加载指示

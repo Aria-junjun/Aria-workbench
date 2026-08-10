@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   loadWorkbenchData,
-  loadLocalWorkbenchData,
   type LocalWorkbenchData
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   getDashboardView,
   type DashboardItem,
@@ -77,23 +77,24 @@ function GreetingBlock() {
 }
 
 export default function DashboardPage() {
+  const data = useWorkbenchData();
   const [view, setView] = useState<DashboardView | null>(null);
-  const [data, setData] = useState<LocalWorkbenchData | null>(null);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    loadWorkbenchData().then((d: LocalWorkbenchData) => {
-      setData(d);
-      setView(getDashboardView(d));
-    });
+    loadWorkbenchData();
   }, []);
+
+  useEffect(() => {
+    setView(getDashboardView(data));
+  }, [data]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
 
-  if (!view || !data) {
+  if (!view) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-action border-t-transparent" />

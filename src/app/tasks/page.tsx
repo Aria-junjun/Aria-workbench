@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, Pin, PinOff, Pencil, Plus, Trash2, X } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { applyTaskReviewToProduct, includesQuery, loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
+import { applyTaskReviewToProduct, includesQuery, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { labelPriority, labelReviewOutcome, labelTaskType } from "@/features/workbench/display-labels";
 import { randomId } from "@/lib/random-id";
 
@@ -34,7 +35,7 @@ export default function TasksPage() {
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [reviewDraft, setReviewDraft] = useState<{ note: string; outcome: ReviewOutcome }>({ note: "", outcome: "success" });
 
-  const data = loadLocalWorkbenchData();
+  const data = useWorkbenchData();
   const tasks = data.tasks;
   const suppliers = useMemo(() => {
     const map = new Map<string, string>();

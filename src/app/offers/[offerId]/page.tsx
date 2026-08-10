@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Info, SectionActions, TextField } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, loadLocalWorkbenchData, updateLocalItem, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
+import { deleteLocalItem, updateLocalItem, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { randomId } from "@/lib/random-id";
 
 /** 计算价格区间展示文本 */
@@ -23,7 +24,7 @@ export default function OfferDetailPage() {
   const router = useRouter();
   const params = useParams();
   const offerId = Array.isArray(params.offerId) ? params.offerId[0] : params.offerId;
-  const data = loadLocalWorkbenchData();
+  const data = useWorkbenchData();
   const offer = data.offers.find((item) => item.id === offerId);
   const supplier = offer?.supplierId ? data.suppliers.find((s) => s.id === offer.supplierId) : null;
   const communications = data.communications.filter((item) => item.offerId === offerId);

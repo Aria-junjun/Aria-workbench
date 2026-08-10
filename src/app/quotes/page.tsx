@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   ArrowDownUp,
   ArrowLeft,
@@ -228,7 +229,7 @@ function QuotesCompareContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [skuExpanded, setSkuExpanded] = useState(true);
 
-  const data = loadLocalWorkbenchData();
+  const data = useWorkbenchData();
   const offers = offerIds
     .map((id) => data.offers.find((o) => o.id === id))
     .filter((o): o is NonNullable<typeof o> => o != null);

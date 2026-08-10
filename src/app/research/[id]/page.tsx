@@ -7,15 +7,16 @@ import { MarkdownViewer } from "@/components/markdown-viewer";
 import {
   deleteResearchReport,
   linkResearchToProduct,
-  loadLocalWorkbenchData,
   saveResearchReport,
   type ResearchReport
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function ResearchDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const data = useWorkbenchData();
   const [mounted, setMounted] = useState(false);
   const [version, setVersion] = useState(0);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -38,7 +39,6 @@ export default function ResearchDetailPage() {
     );
   }
 
-  const data = loadLocalWorkbenchData();
   const report = id ? data.researchReports.find((item) => item.id === id) : undefined;
 
   if (!report) {

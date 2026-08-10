@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ProductKnowledgeEditor } from "@/components/workbench/product-knowledge-editor";
 import { SectionActions } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, loadLocalWorkbenchData, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
+import { deleteLocalItem, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable } from "@/features/workbench/product-knowledge";
 import { buildProductTechnologyPrompt } from "@/features/workbench/product-technology-prompt";
 
@@ -13,7 +14,8 @@ export default function ProductDetailPage() {
   const router = useRouter();
   const params = useParams();
   const productId = Array.isArray(params.productId) ? params.productId[0] : params.productId;
-  const storedProduct = loadLocalWorkbenchData().products.find((item) => item.id === productId);
+  const data = useWorkbenchData();
+  const storedProduct = data.products.find((item) => item.id === productId);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProductKnowledgeV2 | undefined>(storedProduct);
   const [version, setVersion] = useState(0);
@@ -22,7 +24,7 @@ export default function ProductDetailPage() {
   if (!storedProduct || !draft) {
     return <div className="rounded-lg border border-line bg-white p-4 text-sm text-slate-600">没有找到这个产品知识。</div>;
   }
-  const product = loadLocalWorkbenchData().products.find((item) => item.id === productId) || storedProduct;
+  const product = data.products.find((item) => item.id === productId) || storedProduct;
 
   function save() {
     if (!draft) return;
@@ -79,7 +81,7 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
   const hasCategory = product.researchDepth === "category" || hasCategoryResearch(product);
   const [activeTab, setActiveTab] = useState<"product" | "research">(hasCategory ? "research" : "product");
   const showTabs = hasCategory;
-  const workbenchData = loadLocalWorkbenchData();
+  const workbenchData = useWorkbenchData();
 
   const risks = [
     ...product.risks.quality.map((value) => `质量：${value}`),

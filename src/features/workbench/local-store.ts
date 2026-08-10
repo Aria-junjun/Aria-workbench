@@ -1,5 +1,6 @@
 import defaultData from "@/data/workbench-data.json";
 import { supabase } from "@/lib/supabase";
+import { setWorkbenchSnapshot } from "./workbench-store";
 import type { DraftExtraction } from "./schemas";
 import type { DecisionAnalysis, DecisionModelSection } from "./decision-analysis";
 import {
@@ -264,12 +265,14 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
       .single();
 
     if (!error && data?.data) {
-      const parsed = data.data as Partial<LocalWorkbenchData>;
+      const parsed = normalizeWorkbenchData(data.data as Partial<LocalWorkbenchData>);
       // 同时缓存到 localStorage
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(parsed));
       }
-      return normalizeWorkbenchData(parsed);
+      // 通知全局 store 更新（让所有页面看到最新云端数据）
+      setWorkbenchSnapshot(parsed);
+      return parsed;
     }
   } catch {
     // Supabase 读取失败，回退到本地
@@ -494,36 +497,58 @@ export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void>
   // 2. 写入 Supabase
   try {
     // 查询是否已有记录
-    const { data: existing } = await supabase
+    const { data: existing, error: selectError } = await supabase
       .from("workbench_data")
       .select("id")
       .limit(1)
       .single();
 
+    if (selectError) {
+      console.error("[Sync] 查询 Supabase 记录失败:", selectError.message);
+      throw selectError;
+    }
+
     if (existing?.id) {
       // 更新已有记录
-      await supabase
+      const { error: updateError } = await supabase
         .from("workbench_data")
         .update({ data: data as unknown as Record<string, unknown>, updated_at: new Date().toISOString() })
         .eq("id", existing.id);
+      
+      if (updateError) {
+        console.error("[Sync] 更新 Supabase 记录失败:", updateError.message);
+        throw updateError;
+      }
+      console.log("[Sync] 更新 Supabase 成功");
     } else {
       // 插入新记录
-      await supabase
+      const { error: insertError } = await supabase
         .from("workbench_data")
         .insert({ data: data as unknown as Record<string, unknown> });
+      
+      if (insertError) {
+        console.error("[Sync] 插入 Supabase 记录失败:", insertError.message);
+        throw insertError;
+      }
+      console.log("[Sync] 插入 Supabase 成功");
     }
-  } catch {
-    // Supabase 写入失败，本地已保存，不报错
+  } catch (e) {
+    console.error("[Sync] Supabase 写入失败:", e);
+    console.error("[Sync] 本地已保存，不影响使用");
   }
 }
 
 // 保持同步版本用于兼容旧代码
 export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(storageKey, JSON.stringify(data));
+  const normalized = normalizeWorkbenchData(data);
+  window.localStorage.setItem(storageKey, JSON.stringify(normalized));
 
-  // 同步到 Supabase
-  saveWorkbenchData(data).catch(() => {
+  // 立即通知全局 store（所有页面即时刷新）
+  setWorkbenchSnapshot(normalized);
+
+  // 异步同步到 Supabase
+  saveWorkbenchData(normalized).catch(() => {
     // 云端同步失败不影响本地操作
   });
 }

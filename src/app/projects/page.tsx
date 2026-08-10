@@ -12,9 +12,9 @@ import {
   Scale
 } from "lucide-react";
 import {
-  loadLocalWorkbenchData,
   type LocalWorkbenchData
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 type CategorySummary = {
   category: string;
@@ -91,11 +91,12 @@ function buildCategorySummaries(data: LocalWorkbenchData): CategorySummary[] {
 export default function ProjectsPage() {
   const [summaries, setSummaries] = useState<CategorySummary[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const data = useWorkbenchData();
 
   useEffect(() => {
-    setSummaries(buildCategorySummaries(loadLocalWorkbenchData()));
+    setSummaries(buildCategorySummaries(data));
     setHydrated(true);
-  }, []);
+  }, [data]);
 
   return (
     <div className="space-y-5">

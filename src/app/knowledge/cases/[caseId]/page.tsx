@@ -8,12 +8,12 @@ import { latestDecisionCycle, type DecisionCase, type DecisionCycle, type ToolCo
 import {
   addDecisionCycle,
   loadDecisionCases,
-  loadLocalWorkbenchData,
   updateDecisionCycleVersion,
   type LocalOffer,
   type LocalProductKnowledge,
   type LocalSupplier
 } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   ArrowDown,
   BookOpen,
@@ -124,6 +124,8 @@ export default function DecisionCasePage() {
   const [expandToolMap, setExpandToolMap] = useState<Record<string, boolean>>({});
   const [expandConclusion, setExpandConclusion] = useState(false);
 
+  const data = useWorkbenchData();
+
   useEffect(() => reload(), [caseId]);
 
   function reload(preferredCycleId?: string) {
@@ -162,7 +164,7 @@ export default function DecisionCasePage() {
     if (!caseItem) {
       return { suppliers: [] as LocalSupplier[], offers: [] as LocalOffer[], products: [] as LocalProductKnowledge[] };
     }
-    const { suppliers, offers, products } = loadLocalWorkbenchData();
+    const { suppliers, offers, products } = data;
     return {
       suppliers: caseItem.supplierIds
         .map((id) => suppliers.find((item) => item.id === id))
@@ -174,7 +176,7 @@ export default function DecisionCasePage() {
         .map((id) => products.find((item) => item.id === id))
         .filter((item): item is LocalProductKnowledge => Boolean(item))
     };
-  }, [caseItem]);
+  }, [caseItem, data]);
 
   /* 推理链中各步骤的重复关系 */
   const rawInputText = cycle?.rawInput || caseItem?.title || "";

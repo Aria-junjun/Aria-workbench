@@ -4,13 +4,15 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Info, ListField, SectionActions, TextField } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, loadLocalWorkbenchData, updateLocalItem, type LocalKnowledgeCard } from "@/features/workbench/local-store";
+import { deleteLocalItem, updateLocalItem, type LocalKnowledgeCard } from "@/features/workbench/local-store";
+import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
 export default function KnowledgeCardDetailPage() {
   const router = useRouter();
   const params = useParams();
   const cardId = Array.isArray(params.cardId) ? params.cardId[0] : params.cardId;
-  const card = loadLocalWorkbenchData().knowledgeCards.find((item) => item.id === cardId);
+  const data = useWorkbenchData();
+  const card = data.knowledgeCards.find((item) => item.id === cardId);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<LocalKnowledgeCard | undefined>(card);
 
