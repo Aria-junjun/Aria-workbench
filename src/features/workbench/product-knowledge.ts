@@ -31,7 +31,9 @@ export const ProductProcurementQuoteSchema = z.object({
   price: z.string().min(1),
   moq: z.string().optional(),
   freight: z.string().optional(),
-  quotedAt: z.string().optional()
+  quotedAt: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  note: z.string().optional()
 });
 
 export type ProductProcurementQuote = z.infer<typeof ProductProcurementQuoteSchema>;

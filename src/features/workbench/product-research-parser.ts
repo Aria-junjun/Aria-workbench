@@ -42,7 +42,9 @@ const STANDARD_SECTIONS = [
   "风险与缺陷",
   "采购与验证",
   "延伸机会",
-  "决策摘要"
+  "决策摘要",
+  "市场与竞争",
+  "用户与需求"
 ] as const;
 
 type StandardSection = typeof STANDARD_SECTIONS[number];
@@ -178,6 +180,36 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
     activationTrigger: docMeta.activationTrigger
   };
 
+  // ===== 解析"市场与竞争"和"用户与需求"章节（情报机每日情报格式） =====
+  const signalCompetition = parseMarketAndCompetition(
+    sections.get("市场与竞争") ?? []
+  );
+  if (signalCompetition.competitiveLandscape) {
+    product.competitiveLandscape = { ...product.competitiveLandscape, ...signalCompetition.competitiveLandscape };
+    product.researchDepth = product.researchDepth ?? "category";
+  }
+  if (signalCompetition.marketOverview) {
+    product.marketOverview = { ...product.marketOverview, ...signalCompetition.marketOverview };
+    product.researchDepth = product.researchDepth ?? "category";
+  }
+  // 把差评/退货分析追加到 risks.other
+  if (signalCompetition.negativesFromReviews.length > 0) {
+    product.risks.other = [...product.risks.other, ...signalCompetition.negativesFromReviews];
+  }
+
+  const signalUsers = parseUsersAndNeeds(
+    sections.get("用户与需求") ?? []
+  );
+  if (signalUsers.userInsights) {
+    product.userInsights = { ...product.userInsights, ...signalUsers.userInsights };
+    product.researchDepth = product.researchDepth ?? "category";
+  }
+  // 把痛点描述也追加到 risks.other（避免浪费信息）
+  if (signalUsers.painPoints.length > 0 && product.risks.other.length === 0) {
+    product.risks.other = [...signalUsers.painPoints];
+  }
+
+  // ===== 合并品类调研报告扩展字段（数字编号格式章节） =====
   const categoryFields = parseCategoryResearchFields(rawText);
   if (
     categoryFields.marketOverview
@@ -187,10 +219,10 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
     || categoryFields.supplyChainFindings
   ) {
     product.researchDepth = "category";
-    if (categoryFields.marketOverview) product.marketOverview = categoryFields.marketOverview;
-    if (categoryFields.competitiveLandscape) product.competitiveLandscape = categoryFields.competitiveLandscape;
+    if (categoryFields.marketOverview) product.marketOverview = { ...product.marketOverview, ...categoryFields.marketOverview };
+    if (categoryFields.competitiveLandscape) product.competitiveLandscape = { ...product.competitiveLandscape, ...categoryFields.competitiveLandscape };
     if (categoryFields.productBenchmark) product.productBenchmark = categoryFields.productBenchmark;
-    if (categoryFields.userInsights) product.userInsights = categoryFields.userInsights;
+    if (categoryFields.userInsights) product.userInsights = { ...product.userInsights, ...categoryFields.userInsights };
     if (categoryFields.supplyChainFindings) product.supplyChainFindings = categoryFields.supplyChainFindings;
   }
 
@@ -198,20 +230,78 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
 }
 
 function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorder): ProductProcurementQuote[] {
-  return firstTable(lines, recordConflict).rows.map(({ values: row }) => {
+  const table = firstTable(lines, recordConflict);
+  const results: ProductProcurementQuote[] = [];
+
+  function pushQuote(quote: ProductProcurementQuote | undefined) {
+    if (!quote) return;
+    if (!quote.source || !quote.specification || !quote.price) return;
+    results.push(quote);
+  }
+
+  // 路径1：标准表格
+  table.rows.forEach(({ values: row }) => {
     const source = column(row, "来源");
     const specification = column(row, "对应规格");
     const price = column(row, "批发报价");
-    if (!source || !specification || !price) return undefined;
-    return {
+    if (!source || !specification || !price) return;
+    pushQuote({
       source,
       specification,
       price,
       moq: column(row, "MOQ"),
       freight: column(row, "运费口径"),
       quotedAt: column(row, "报价时间")
-    };
-  }).filter(isDefined);
+    });
+  });
+
+  // 路径2：单行管道格式（如：来源：1688 | 规格：xxx | 页面标价：¥36 | MOQ：1件起批 | 运费：待确认 | 链接：xxx）
+  // 也兼容无竖线的 bullet key:value 多行格式，每行一条报价
+  const kvField = /(来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：]\s*([^｜|\n]*?)\s*(?=(?:\s*[｜|]\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：])|$)/g;
+  const headerPattern = /^[\s\-*\u2022]*\s*来源\s*[:=：]/i;
+
+  /** 对于"链接"字段额外清理：只取 http(s) URL，剔除反引号后的尾巴注释 */
+  function cleanUrl(raw: string): string {
+    const s = raw.trim().replace(/^`|`$/g, "");
+    const urlMatch = s.match(/https?:\/\/[^\s`'"（）()【】\[\]]+/i);
+    return urlMatch ? urlMatch[0] : s;
+  }
+
+  lines.forEach((rawLine) => {
+    if (rawLine.match(/^\s*\|/)) return;
+    if (!headerPattern.test(rawLine)) return;
+    const line = rawLine.trim();
+    const found: Record<string, string> = {};
+    let m: RegExpExecArray | null;
+    while ((m = kvField.exec(line)) !== null) {
+      const key = m[1];
+      const rawValue = m[2].trim();
+      const value = key === "链接" ? cleanUrl(rawValue) : rawValue.replace(/^`|`$/g, "");
+      if (!value) continue;
+      if (key === "来源") found.source = found.source || value;
+      else if (key === "规格") found.specification = found.specification || value;
+      else if (key === "页面标价" || key === "批发报价" || key === "售价" || key === "价格") found.price = found.price || value;
+      else if (key === "MOQ" || key === "起订量") found.moq = found.moq || value;
+      else if (key === "运费") found.freight = found.freight || value;
+      else if (key === "报价时间") found.quotedAt = found.quotedAt || value;
+      else if (key === "链接") found.sourceUrl = found.sourceUrl || value;
+      else if (key === "备注") found.note = found.note || value;
+    }
+    if (found.source && found.specification && found.price) {
+      pushQuote({
+        source: found.source,
+        specification: found.specification,
+        price: found.price,
+        moq: found.moq,
+        freight: found.freight,
+        quotedAt: found.quotedAt,
+        sourceUrl: found.sourceUrl,
+        note: found.note
+      });
+    }
+  });
+
+  return results;
 }
 
 function parseMaterialStructures(lines: string[], recordConflict: ConflictRecorder): ProductMaterialStructure[] {
@@ -232,10 +322,20 @@ function splitSections(rawText: string): SectionMap {
   let currentSection: StandardSection | undefined;
 
   rawText.replace(/\r\n/g, "\n").split("\n").forEach((line) => {
+    // 路径1：标准 Markdown ## 标题
     const heading = line.match(/^##\s+(.+?)\s*$/)?.[1].trim();
     if (heading) {
       currentSection = isStandardSection(heading) ? heading : undefined;
       if (currentSection && !sections.has(currentSection)) sections.set(currentSection, []);
+      return;
+    }
+    // 路径2：纯文本章节标题（整行去掉空白后精确匹配章节名）
+    // 启发式：整行字符数 ≤ 15（避免把正文里的"关键规格"等词误判为章节）
+    const trimmed = line.trim();
+    if (trimmed.length > 0 && trimmed.length <= 15 && isStandardSection(trimmed)) {
+      // 再确认一下：这行只包含章节名，没有其他内容（允许前后空白）
+      currentSection = trimmed;
+      if (!sections.has(currentSection)) sections.set(currentSection, []);
       return;
     }
     if (currentSection) sections.get(currentSection)?.push(line);
@@ -277,11 +377,12 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
   const lines = normalized.split("\n");
   const meta: DocumentMeta = {};
 
-  // 优先从首个 Markdown H1 标题提取产品名
+  // ==============================================================
+  // 1) 产品名提取：优先 H1 → 否则取文档第一行（若该行不是纯章节名）
+  // ==============================================================
   const h1Line = lines.find((line) => /^#\s+/.test(line));
   if (h1Line) {
     const rawTitle = h1Line.replace(/^#\s+/, "").trim();
-    // 去掉常见报告后缀（支持 - / — / – / 空格 等连接符）
     const cleaned = rawTitle
       .replace(/\s*[-—–—]\s*品类调研评估报告.*$/i, "")
       .replace(/\s*[-—–—]\s*品类调研.*$/i, "")
@@ -295,21 +396,73 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
       .trim();
     if (cleaned) meta.name = cleaned;
   }
+  // Fallback：如果没有 H1，取第一行作为产品名（排除空行和纯章节名）
+  if (!meta.name) {
+    const firstNonEmpty = lines.find((l) => l.trim().length > 0);
+    if (firstNonEmpty) {
+      const trimmed = firstNonEmpty.trim();
+      // 排除 Markdown 标题（#、##、### 开头的，前面 H1 逻辑没命中说明它不是 H1）
+      if (trimmed.startsWith("#")) {
+        // 跳过，不作为 fallback
+      } else if (!isStandardSection(trimmed) && trimmed.length > 1) {
+        // 如果首行是"产品名 产品品类：xxx"这种拼接，取"产品品类："之前的部分
+        const idx = trimmed.search(/\s*(产品品类|核心用途|目标用户|流水线阶段|信号状态|来源证据|扫描日期)\s*[:：]/);
+        if (idx > 0) {
+          meta.name = trimmed.slice(0, idx).trim();
+        } else if (!trimmed.match(/^[\u4e00-\u9fa5A-Za-z]{2,12}\s*[:：]/)) {
+          // 首行不是 "key：value" 开头的，直接作为产品名
+          meta.name = trimmed;
+        }
+      }
+    }
+  }
 
-  // 扫描开头 20 行的元数据字段（视角/渠道/产品线/数据周期/报告日期 等）
-  const scanLimit = Math.min(lines.length, 40);
-  for (let i = 0; i < scanLimit; i += 1) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const kv = line.match(/^([\u4e00-\u9fa5A-Za-z]{2,12})\s*[:：]\s*(.+?)\s*$/);
-    if (!kv) continue;
-    const key = kv[1];
-    const value = kv[2];
+  // ==============================================================
+  // 2) 元数据字段解析：支持"多个 key-value 挤在同一行"
+  //    例：产品品类：衣柜收纳 核心用途：xxx 目标用户：xxx ...
+  // ==============================================================
+  const multiKvKeys = [
+    "产品线", "产品", "产品品类", "品类", "核心用途", "用途", "目标用户", "用户群体",
+    "使用场景", "应用场景", "视角", "报告视角", "渠道", "调研渠道",
+    "流水线阶段", "阶段", "lifecycleStage", "信号状态", "signalStatus",
+    "休眠原因", "dormantReason", "激活触发", "激活条件", "activationTrigger",
+    "来源证据", "扫描日期", "报告日期", "数据周期", "默认计量单位", "产品名称"
+  ];
+  const multiKvPattern = new RegExp(
+    `(${multiKvKeys.join("|")})\\s*[:=：]\\s*`,
+    "g"
+  );
+
+  /** 把一行文本（可能包含多个 key:value）拆成 [key, value][] */
+  function splitMultiKv(line: string): Array<[string, string]> {
+    const matches: Array<{ key: string; start: number }> = [];
+    let m: RegExpExecArray | null;
+    multiKvPattern.lastIndex = 0;
+    while ((m = multiKvPattern.exec(line)) !== null) {
+      matches.push({ key: m[1], start: multiKvPattern.lastIndex });
+    }
+    if (matches.length === 0) return [];
+    const result: Array<[string, string]> = [];
+    for (let i = 0; i < matches.length; i += 1) {
+      const start = matches[i].start;
+      const end = i + 1 < matches.length
+        ? line.lastIndexOf(matches[i + 1].key, matches[i + 1].start)
+        : line.length;
+      const value = line.slice(start, end).trim().replace(/\s+$/, "");
+      result.push([matches[i].key, value]);
+    }
+    return result;
+  }
+
+  function applyKv(key: string, value: string) {
     switch (key) {
+      case "产品名称":
+        if (!meta.name) meta.name = value;
+        break;
       case "产品线":
       case "产品":
       case "产品品类":
-        meta.productLine = value;
+        meta.productLine = meta.productLine ?? value;
         if (!meta.category) {
           meta.category = value
             .split(/[+＋,，、/]/)
@@ -319,32 +472,34 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
         }
         break;
       case "品类":
-        meta.category = value;
+        meta.category = meta.category ?? value;
         break;
       case "核心用途":
       case "用途":
-        meta.coreUse = value;
+        meta.coreUse = meta.coreUse ?? value;
         break;
       case "目标用户":
       case "用户群体":
-        meta.targetUsers = value;
+        meta.targetUsers = meta.targetUsers ?? value;
         break;
       case "使用场景":
       case "应用场景":
-        meta.useScenarios = values(value);
+        if (!meta.useScenarios || meta.useScenarios.length === 0) {
+          meta.useScenarios = values(value);
+        }
         break;
       case "视角":
       case "报告视角":
-        meta.perspective = value;
+        meta.perspective = meta.perspective ?? value;
         break;
       case "渠道":
       case "调研渠道":
         meta.productLine = meta.productLine ?? value;
         break;
-      // ===== 流水线/信号池 =====
       case "流水线阶段":
       case "阶段":
       case "lifecycleStage": {
+        if (meta.lifecycleStage) break;
         const v = value.trim().toLowerCase().replace(/\s+/g, "_");
         if ((PRODUCT_LIFECYCLE_STAGES as readonly string[]).includes(v)) {
           meta.lifecycleStage = v as ProductLifecycleStage;
@@ -353,6 +508,7 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
       }
       case "信号状态":
       case "signalStatus": {
+        if (meta.signalStatus) break;
         const v = value.trim().toLowerCase();
         if ((SIGNAL_STATUSES as readonly string[]).includes(v)) {
           meta.signalStatus = v as ProductSignalStatus;
@@ -361,6 +517,7 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
       }
       case "休眠原因":
       case "dormantReason": {
+        if (meta.dormantReason) break;
         const v = value.trim();
         if ((DORMANT_REASONS as readonly string[]).includes(v)) {
           meta.dormantReason = v as ProductDormantReason;
@@ -370,10 +527,10 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
       case "激活触发":
       case "激活条件":
       case "activationTrigger": {
+        if (meta.activationTrigger) break;
         const payload = value.trim();
         if (!payload) break;
         try {
-          // 允许 JSON 字符串，或简化格式：key=value;key=value1,value2
           let parsed: unknown;
           if (payload.startsWith("{") && payload.endsWith("}")) {
             parsed = JSON.parse(payload);
@@ -383,7 +540,7 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
           const validated = ProductSignalActivationTriggerSchema.safeParse(parsed);
           if (validated.success) meta.activationTrigger = validated.data;
         } catch {
-          // 解析失败静默跳过，用户可在界面里再补
+          // 跳过
         }
         break;
       }
@@ -392,7 +549,25 @@ function extractDocumentMeta(rawText: string): DocumentMeta {
     }
   }
 
-  // 如果 H1 没抓到产品名，回落到首个 H1 原始文本
+  // 扫描开头 40 行
+  const scanLimit = Math.min(lines.length, 40);
+  for (let i = 0; i < scanLimit; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // 跳过纯章节名
+    if (line.length <= 15 && isStandardSection(line)) continue;
+    // ① 尝试多 kv 拆分
+    const multi = splitMultiKv(line);
+    if (multi.length > 0) {
+      multi.forEach(([k, v]) => applyKv(k, v));
+      continue;
+    }
+    // ② 回落到原始的单 kv 模式（兼容原逻辑）
+    const kv = line.match(/^([\u4e00-\u9fa5A-Za-z]{2,12})\s*[:：]\s*(.+?)\s*$/);
+    if (kv) applyKv(kv[1], kv[2]);
+  }
+
+  // 如果 H1 没抓到且 fallback 也没抓到，回落到 H1 原始文本
   if (!meta.name && h1Line) meta.name = h1Line.replace(/^#\s+/, "").trim();
 
   return meta;
@@ -496,32 +671,65 @@ function parseSpecifications(
   recordConflict: ConflictRecorder
 ): ProductSpecification[] {
   const table = firstTable(lines, recordConflict);
-  if (table.rows.length === 0) addIssue("warning", "关键规格", "关键规格表为空，待补资料。");
-  const missingHeaders = missingHeadersFrom(table.headers, ["参数", "数值"]);
-  if (missingHeaders.length > 0) addIssue("warning", "关键规格", `关键规格表缺少必需列：${missingHeaders.join("、")}。`);
-  if (table.invalidRows.length > 0) addIssue("warning", "关键规格", "关键规格表存在列数不匹配的行。");
-
   const grouped = new Map<string, { name: string; candidates: ProductSpecification[] }>();
-  table.rows.forEach(({ values: row }, index) => {
-    const name = column(row, "参数");
-    const value = column(row, "数值");
-    if (!name || !value) {
-      const missing = [!name ? "参数" : undefined, !value ? "数值" : undefined].filter(isDefined);
-      addIssue("warning", "关键规格", `关键规格第 ${index + 1} 行缺少${missing.join("、")}。`);
-      return;
-    }
+
+  function pushSpec(nameIn: string, valueIn: string, unit?: string) {
+    const name = nameIn.trim();
+    const value = valueIn.trim();
+    if (!name || !value) return;
     const key = normalizeHeader(name);
     const candidate: ProductSpecification = {
       id: `spec-${key}`,
-      name: name.trim(),
+      name,
       value,
-      unit: column(row, "单位"),
+      unit,
       source: "research"
     };
     const entry = grouped.get(key) ?? { name: candidate.name, candidates: [] };
     if (!entry.candidates.some((existing) => sameSpecification(existing, candidate))) entry.candidates.push(candidate);
     grouped.set(key, entry);
+  }
+
+  // 路径1：标准3列表格（参数｜数值｜单位）
+  if (table.rows.length > 0) {
+    const missingHeaders = missingHeadersFrom(table.headers, ["参数", "数值"]);
+    if (missingHeaders.length > 0) addIssue("warning", "关键规格", `关键规格表缺少必需列：${missingHeaders.join("、")}。`);
+    if (table.invalidRows.length > 0) addIssue("warning", "关键规格", "关键规格表存在列数不匹配的行。");
+    table.rows.forEach(({ values: row }, index) => {
+      const name = column(row, "参数");
+      const value = column(row, "数值");
+      if (!name || !value) {
+        const missing = [!name ? "参数" : undefined, !value ? "数值" : undefined].filter(isDefined);
+        addIssue("warning", "关键规格", `关键规格表第 ${index + 1} 行缺少${missing.join("、")}。`);
+        return;
+      }
+      pushSpec(name, value, column(row, "单位"));
+    });
+  }
+
+  // 路径2：纯文本自由格式（每行一个"名称：值"或"名称=值"，可带 bullet -/*）
+  const loosePattern = /^[\s\-*\u2022]*\s*(.+?)\s*[：:=]\s*(.+)$/;
+  const plainRows: string[] = [];
+  lines.forEach((line) => {
+    if (line.match(/^\s*\|/)) return; // 跳过表格行
+    if (line.match(/^\s*$/)) return;   // 跳过空行
+    const m = line.match(loosePattern);
+    if (m) plainRows.push(line);
   });
+
+  if (plainRows.length > 0) {
+    const blacklist = new Set(["流水线阶段", "信号状态", "休眠原因", "激活触发", "产品品类", "核心用途", "目标用户", "使用场景", "默认计量单位", "产品名称", "产品线", "视角", "报告日期", "扫描日期", "来源证据", "渠道"]);
+    plainRows.forEach((line) => {
+      const m = line.match(loosePattern);
+      if (!m) return;
+      if (blacklist.has(m[1].trim())) return;
+      pushSpec(m[1], m[2]);
+    });
+  }
+
+  if (table.rows.length === 0 && plainRows.length === 0) {
+    addIssue("warning", "关键规格", "关键规格表为空，待补资料。");
+  }
 
   return [...grouped.values()].map((entry) => {
     if (entry.candidates.length > 1) recordConflict(`参数${entry.name}`, entry.candidates.map(specificationCandidate));
@@ -669,6 +877,45 @@ function parseOpportunities(lines: string[], recordConflict: ConflictRecorder): 
 
 function parseDecision(lines: string[], recordConflict: ConflictRecorder) {
   const fields = fieldsIn(lines, recordConflict);
+
+  // ==============================================================
+  // 路径1：嵌套分组格式（情报机每日情报表的格式）
+  //   初步结论：GO
+  //   核心优势：
+  //   优势1——说明
+  //   优势2——说明
+  //   主要风险：
+  //   风险1——说明
+  //   判定依据：
+  //   依据1：xxx
+  //   建议零售价区间：¥29-59
+  //   成本区间（页面标价估算）：¥6-52
+  //   推荐主攻平台：淘宝/拼多多
+  // ==============================================================
+  const grouped = parseDecisionGroupedFormat(lines);
+  if (grouped) {
+    const recommendation = grouped.initialConclusion ?? field(fields, "是否值得继续询价或打样");
+    const summaryParts: string[] = [];
+    if (grouped.coreAdvantages.length > 0) {
+      summaryParts.push(`核心优势：${grouped.coreAdvantages.join("；")}`);
+    }
+    if (grouped.suggestedPriceRange) summaryParts.push(`建议零售价：${grouped.suggestedPriceRange}`);
+    if (grouped.costRangeEstimate) summaryParts.push(`成本区间：${grouped.costRangeEstimate}`);
+    if (grouped.recommendedPlatforms) summaryParts.push(`主攻平台：${grouped.recommendedPlatforms}`);
+
+    const rationaleParts: string[] = [];
+    if (grouped.mainRisks.length > 0) rationaleParts.push(`主要风险：${grouped.mainRisks.join("；")}`);
+    if (grouped.judgementBasis.length > 0) rationaleParts.push(`判定依据：${grouped.judgementBasis.join("；")}`);
+
+    return {
+      summary: summaryParts.join("\n").trim() || undefined,
+      recommendation,
+      rationale: rationaleParts.join("\n").trim() || undefined,
+      status: decisionStatus(recommendation)
+    };
+  }
+
+  // 路径2：标准格式（最大成本驱动因素/是否值得继续询价或打样）
   const costDriver = field(fields, "最大成本驱动因素");
   const competition = field(fields, "核心竞争点");
   const missing = field(fields, "当前缺失信息");
@@ -680,6 +927,114 @@ function parseDecision(lines: string[], recordConflict: ConflictRecorder) {
     rationale: [labelValue("当前缺失信息", missing), labelValue("下一步行动", nextStep)].filter(isDefined).join("；") || undefined,
     status: decisionStatus(recommendation)
   };
+}
+
+/**
+ * 解析"情报机嵌套格式"的决策摘要：
+ *   初步结论：GO
+ *   核心优势：
+ *   痛点真实——xxx
+ *   成本低——xxx
+ *   主要风险：
+ *   xxx——xxx
+ *   判定依据：
+ *   xxx：xxx
+ *   建议零售价区间：xxx
+ *   成本区间（页面标价估算）：xxx
+ *   推荐主攻平台：xxx
+ *
+ * 返回 undefined 表示该格式不匹配，走旧格式解析。
+ */
+function parseDecisionGroupedFormat(
+  lines: string[]
+):
+  | {
+      initialConclusion?: string;
+      coreAdvantages: string[];
+      mainRisks: string[];
+      judgementBasis: string[];
+      suggestedPriceRange?: string;
+      costRangeEstimate?: string;
+      recommendedPlatforms?: string;
+    }
+  | undefined {
+  // 只要检测到"初步结论：xx" 或 "核心优势" 或 "主要风险" 或 "判定依据" 任意一个分组头，就认为是此格式
+  const hasGroupHeader = lines.some((l) =>
+    /^\s*(初步结论|核心优势|主要风险|判定依据|建议零售价区间|成本区间|推荐主攻平台)\s*[:：]/.test(l)
+  );
+  if (!hasGroupHeader) return undefined;
+
+  const result = {
+    coreAdvantages: [] as string[],
+    mainRisks: [] as string[],
+    judgementBasis: [] as string[]
+  } as {
+    initialConclusion?: string;
+    coreAdvantages: string[];
+    mainRisks: string[];
+    judgementBasis: string[];
+    suggestedPriceRange?: string;
+    costRangeEstimate?: string;
+    recommendedPlatforms?: string;
+  };
+
+  let currentGroup: "advantages" | "risks" | "basis" | undefined;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    // 分组头识别
+    const header = line.match(/^(初步结论|核心优势|主要风险|判定依据|建议零售价区间|成本区间[（(]页面标价估算[)）]?|推荐主攻平台)\s*[:：]\s*(.*)$/);
+    if (header) {
+      const key = header[1];
+      const rest = header[2].trim();
+      if (key === "初步结论") {
+        result.initialConclusion = rest || undefined;
+        currentGroup = undefined;
+      } else if (key === "核心优势") {
+        currentGroup = "advantages";
+        if (rest) result.coreAdvantages.push(rest);
+      } else if (key === "主要风险") {
+        currentGroup = "risks";
+        if (rest) result.mainRisks.push(rest);
+      } else if (key === "判定依据") {
+        currentGroup = "basis";
+        if (rest) result.judgementBasis.push(rest);
+      } else if (key === "建议零售价区间") {
+        result.suggestedPriceRange = rest || undefined;
+        currentGroup = undefined;
+      } else if (key.startsWith("成本区间")) {
+        result.costRangeEstimate = rest || undefined;
+        currentGroup = undefined;
+      } else if (key === "推荐主攻平台") {
+        result.recommendedPlatforms = rest || undefined;
+        currentGroup = undefined;
+      }
+      continue;
+    }
+    // 分组内容：识别为 "xxx——xxx"（em 破折号）或 "xxx：xxx"（判定依据子项）或 "- xxx"（列表）
+    if (currentGroup === "advantages") {
+      const item = parseBulletItem(line);
+      if (item) result.coreAdvantages.push(item);
+    } else if (currentGroup === "risks") {
+      const item = parseBulletItem(line);
+      if (item) result.mainRisks.push(item);
+    } else if (currentGroup === "basis") {
+      const item = parseBulletItem(line);
+      if (item) result.judgementBasis.push(item);
+    }
+  }
+
+  return result;
+}
+
+/** 把 "痛点真实——xxxx" / "≥3信号源：xxx" / "- xxx" 等格式，统一提取出描述文本 */
+function parseBulletItem(line: string): string | undefined {
+  const trimmed = line.trim()
+    .replace(/^[\s\-*\u2022•]+/, "")  // 去掉 bullet 前缀 - * •
+    .trim();
+  if (!trimmed) return undefined;
+  return trimmed;
 }
 
 function parseProcurementDecision(lines: string[], recordConflict: ConflictRecorder) {
@@ -700,6 +1055,156 @@ function parseProcurementDecision(lines: string[], recordConflict: ConflictRecor
     ].filter(isDefined).join("；") || undefined,
     status: decisionStatus(recommendation)
   };
+}
+
+// ====================================================================
+// 市场与竞争 / 用户与需求（情报机每日情报表专用章节）
+// ====================================================================
+
+type SignalCompetitionResult = {
+  competitiveLandscape?: CompetitiveLandscape;
+  marketOverview?: MarketOverview;
+  negativesFromReviews: string[];
+};
+
+/**
+ * 解析"市场与竞争"章节：
+ *   搜索热度：淘宝"衣柜分层隔板"月销量数万件；...
+ *   淘宝TOP3竞品：
+ *   百荷家居生活馆 | 衣柜隔板置物架 | 售价¥36.90 | 月销3000+ | 主打免打孔、可伸缩
+ *   ...
+ *   差异化空间：现有产品普遍反馈"粘得不稳会掉"；可针对这些痛点做升级款
+ *   差评/退货分析：竞品差评集中在"掉了""不稳""承重差"等方面
+ */
+function parseMarketAndCompetition(lines: string[]): SignalCompetitionResult {
+  const fields = fieldsIn(lines, () => {});
+  const result: SignalCompetitionResult = { negativesFromReviews: [] };
+
+  // ① 搜索热度 → marketOverview.marketSize / marketSentiment
+  const searchHeat = field(fields, "搜索热度");
+  if (searchHeat) {
+    result.marketOverview = { marketSize: searchHeat };
+  }
+
+  // ② 淘宝TOP3竞品 → competitiveLandscape.topBrandRanking（把管道分隔的行解析成表格）
+  const topCompetitorsTable = extractPipeDelimitedTable(
+    lines,
+    "淘宝TOP3竞品",
+    ["店铺/品牌", "产品名", "售价", "月销", "核心卖点"]
+  );
+  if (topCompetitorsTable) {
+    result.competitiveLandscape = { topBrandRanking: topCompetitorsTable };
+  }
+
+  // ③ 差异化空间 → competitiveLandscape.strategyDifferences
+  const differentiation = field(fields, "差异化空间") ?? field(fields, "差异化定位");
+  if (differentiation) {
+    result.competitiveLandscape = {
+      ...result.competitiveLandscape,
+      strategyDifferences: differentiation
+    };
+  }
+
+  // ④ 差评/退货分析 → negativesFromReviews（追加到 risks.other）
+  const reviewNeg = field(fields, "差评/退货分析") ?? field(fields, "差评分析") ?? field(fields, "退货分析");
+  if (reviewNeg) {
+    result.negativesFromReviews = values(reviewNeg);
+  }
+
+  return result;
+}
+
+type SignalUsersResult = {
+  userInsights?: UserInsights;
+  painPoints: string[];
+};
+
+/**
+ * 解析"用户与需求"章节：
+ *   用户画像：租房青年、老旧小区住户...
+ *   痛点描述：衣柜上层空荡荡、下层挤爆炸；...
+ *   需求强度：重要性8/10 × 不满足度9/10 = 7.2分
+ */
+function parseUsersAndNeeds(lines: string[]): SignalUsersResult {
+  const fields = fieldsIn(lines, () => {});
+  const result: SignalUsersResult = { painPoints: [] };
+  const ui: UserInsights = {};
+
+  // 用户画像 → 拼成表格行的 ResearchTable（若有多个画像）
+  const persona = field(fields, "用户画像");
+  if (persona) {
+    ui.personas = {
+      headers: ["人群", "核心特征"],
+      rows: [{ "人群": persona, "核心特征": persona }]
+    };
+  }
+
+  // 痛点描述 → painPoints + purchasePriorities（作为购买决策痛点的反向输入）
+  const pain = field(fields, "痛点描述");
+  if (pain) {
+    result.painPoints = values(pain);
+    if (result.painPoints.length > 0) {
+      ui.purchasePriorities = [...result.painPoints];
+    }
+  }
+
+  // 需求强度 → 写入 userInsights 的一个 key-value（塞进 coreMetrics 表格）
+  const demand = field(fields, "需求强度");
+  if (demand) {
+    ui.coreMetrics = {
+      headers: ["指标", "数值"],
+      rows: [{ "指标": "需求强度", "数值": demand }]
+    };
+  }
+
+  if (Object.keys(ui).length > 0) result.userInsights = ui;
+  return result;
+}
+
+/**
+ * 从形如：
+ *   淘宝TOP3竞品：
+ *   百荷家居生活馆 | 衣柜隔板置物架宽可伸缩柜内分层架 | 售价¥36.90 | 月销3000+ | 主打免打孔、可伸缩
+ *   伊思家旗舰店 | 衣柜隔板置物架... | 售价¥36.90 | 月销3000+ | 同款不同店
+ *   爱家收纳 | 衣柜分层架... | 售价¥16.76 | 月销200+ | 低价款
+ * 这样的内容中，提取管道（|）分隔的行，组装成 ResearchTable。
+ * headerNames 是期望的列名。
+ */
+function extractPipeDelimitedTable(
+  lines: string[],
+  triggerHeaderKey: string,
+  headerNames: string[]
+): ResearchTable | undefined {
+  // 找到 "淘宝TOP3竞品：" 所在的行号
+  let triggerIdx = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim().startsWith(triggerHeaderKey)) {
+      triggerIdx = i;
+      break;
+    }
+  }
+  if (triggerIdx < 0) return undefined;
+
+  // 从下一行开始，扫描所有包含 "|" 的非表格（非 |---|）行
+  const rows: Array<Record<string, string>> = [];
+  for (let i = triggerIdx + 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // 如果碰到下一个章节标题（或 key：value 头）停止
+    if (/^[\u4e00-\u9fa5A-Za-z]{2,12}\s*[:：]/.test(line) && !line.includes("|")) break;
+    if (line.match(/^\s*\|/)) continue; // 跳过真正的 Markdown 表格
+    if (!line.includes("|")) continue;
+    // 是 "店铺 | 产品 | 售价 | 月销 | 卖点" 这种管道行
+    const cells = line.split(/[｜|]/).map((c) => c.trim()).filter((c) => c.length > 0);
+    if (cells.length < 2) continue;
+    const row: Record<string, string> = {};
+    headerNames.forEach((name, idx) => {
+      row[name] = cells[idx] ?? "";
+    });
+    rows.push(row);
+  }
+  if (rows.length === 0) return undefined;
+  return { headers: headerNames, rows };
 }
 
 function firstTable(lines: string[], recordConflict: ConflictRecorder): MarkdownTable {
@@ -821,9 +1326,14 @@ function labelValue(label: string, value: string | undefined): string | undefine
 
 function decisionStatus(value: string | undefined): ProductKnowledgeV2["decision"]["status"] {
   if (!value) return "undecided";
-  if (value.includes("待")) return "hold";
-  if (value.includes("否") || value.includes("不值得")) return "reject";
-  if (value.includes("是") || value.includes("继续")) return "proceed";
+  if (value.includes("待") || value.includes("HOLD") || value.includes("观察") || value.includes("hold")) return "hold";
+  if (value.includes("否") || value.includes("不值得") || value.includes("REJECT") || value.includes("NO") || value.includes("淘汰") || value.includes("reject")) return "reject";
+  if (
+    value.includes("是") || value.includes("继续") ||
+    value === "GO" || value.toUpperCase() === "GO" || value.includes("GO") ||
+    value.includes("PROCEED") || value.includes("proceed") ||
+    value.includes("推进") || value.includes("建议做")
+  ) return "proceed";
   return "undecided";
 }
 
