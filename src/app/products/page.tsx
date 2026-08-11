@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { LibraryToolbar, uniqueTags } from "@/components/workbench/library-toolbar";
 import { includesQuery, sortPinnedFirst, syncFromCloud, togglePinned } from "@/features/workbench/local-store";
-import { useWorkbenchData } from "@/features/workbench/workbench-store";
+import { setWorkbenchSnapshot, useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   LIFECYCLE_STAGE_OPTIONS,
   SIGNAL_STATUS_OPTIONS,
@@ -28,7 +28,9 @@ export default function ProductsPage() {
 
   // 页面加载时强制从云端同步，确保本地看到最新数据
   useEffect(() => {
-    void syncFromCloud().catch(() => {});
+    void syncFromCloud().then((data) => {
+      setWorkbenchSnapshot(data);
+    }).catch(() => {});
   }, []);
 
   const stageCounts = useMemo(() => {

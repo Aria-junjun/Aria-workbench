@@ -1,6 +1,5 @@
 import defaultData from "@/data/workbench-data.json";
 import { supabase } from "@/lib/supabase";
-import { setWorkbenchSnapshot } from "./workbench-store";
 import type { DraftExtraction } from "./schemas";
 import type { DecisionAnalysis, DecisionModelSection } from "./decision-analysis";
 import {
@@ -255,6 +254,7 @@ type LocalItem<C extends LocalCollectionName> = LocalWorkbenchData[C][number];
 const storageKey = "personal-commercial-workbench";
 
 export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
+  console.log("[Sync] loadWorkbenchData 开始执行");
   // 1. 尝试从 Supabase 读取
   try {
     const { data, error } = await supabase
@@ -264,31 +264,36 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
       .limit(1)
       .single();
 
+    console.log("[Sync] Supabase 响应:", { hasData: !!data, hasError: !!error, errorMessage: error?.message });
+
     if (!error && data?.data) {
       const parsed = normalizeWorkbenchData(data.data as Partial<LocalWorkbenchData>);
+      console.log("[Sync] Supabase 数据解析成功:", {
+        products: parsed.products.length,
+        productNames: parsed.products.map(p => p.name),
+        firstProductSpecs: parsed.products[0]?.specifications.length ?? 0,
+        firstProductQuotes: parsed.products[0]?.procurementQuotes.length ?? 0
+      });
       // 同时缓存到 localStorage
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(parsed));
       }
-      // 通知全局 store 更新（让所有页面看到最新云端数据）
-      setWorkbenchSnapshot(parsed);
       return parsed;
     }
     if (error) {
       console.warn("[Sync] Supabase 读取失败:", error.message);
     }
   } catch (e) {
-    console.warn("[Sync] Supabase 连接异常:", e);
+    console.warn("[Sync] Supabase 连接异常:", e instanceof Error ? e.message : e);
   }
 
-  // 2. 回退到 localStorage（但标记为"需要同步"，下次成功拉取后会覆盖）
+  // 2. 回退到 localStorage
   if (typeof window !== "undefined") {
     const stored = window.localStorage.getItem(storageKey);
     if (stored) {
       try {
         const data = normalizeWorkbenchData(JSON.parse(stored) as Partial<LocalWorkbenchData>);
-        // 重要：即使是本地数据也要更新全局 store，确保所有页面一致
-        setWorkbenchSnapshot(data);
+        console.log("[Sync] 回退到 localStorage:", { products: data.products.length });
         return data;
       } catch {
         // 解析失败
@@ -298,7 +303,7 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
 
   // 3. 使用默认数据
   const defaults = normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
-  setWorkbenchSnapshot(defaults);
+  console.log("[Sync] 使用默认数据");
   return defaults;
 }
 
@@ -557,8 +562,15 @@ export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   const normalized = normalizeWorkbenchData(data);
   window.localStorage.setItem(storageKey, JSON.stringify(normalized));
 
-  // 立即通知全局 store（所有页面即时刷新）
-  setWorkbenchSnapshot(normalized);
+  // 立即通知全局 store（所有页面即时刷新）—— 使用动态 require 避免循环依赖
+  try {
+    const { setWorkbenchSnapshot } = require("./workbench-store");
+    if (typeof setWorkbenchSnapshot === "function") {
+      setWorkbenchSnapshot(normalized);
+    }
+  } catch {
+    // workbench-store 尚未加载，忽略
+  }
 
   // 异步同步到 Supabase
   saveWorkbenchData(normalized).catch(() => {
@@ -1299,7 +1311,7 @@ function emptyData(): LocalWorkbenchData {
   };
 }
 
-function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): LocalWorkbenchData {
+export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): LocalWorkbenchData {
   const current = { ...emptyData(), ...data };
   const supplierIdByName = new Map(current.suppliers.map((supplier) => [normalizeText(supplier.name), supplier.id]));
   return {

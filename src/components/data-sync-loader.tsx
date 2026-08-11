@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadWorkbenchData } from "@/features/workbench/local-store";
+import { setWorkbenchSnapshot } from "@/features/workbench/workbench-store";
 
 export function DataSyncLoader() {
   const [synced, setSynced] = useState(false);
@@ -14,7 +15,11 @@ export function DataSyncLoader() {
       if (syncing) return;
       syncing = true;
       try {
-        await loadWorkbenchData();
+        const data = await loadWorkbenchData();
+        // 在调用方更新全局 store，避免 local-store → workbench-store 循环依赖
+        if (!cancelled) {
+          setWorkbenchSnapshot(data);
+        }
       } catch {
         // 同步失败不影响使用，页面会使用 localStorage 中的数据
       } finally {
