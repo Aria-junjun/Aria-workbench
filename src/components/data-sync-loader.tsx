@@ -8,26 +8,39 @@ export function DataSyncLoader() {
 
   useEffect(() => {
     let cancelled = false;
+    let syncing = false;
 
     async function sync() {
+      if (syncing) return;
+      syncing = true;
       try {
-        // 从 Supabase 拉取最新数据，成功后会自动调用 setWorkbenchSnapshot 更新全局 store
         await loadWorkbenchData();
       } catch {
         // 同步失败不影响使用，页面会使用 localStorage 中的数据
       } finally {
+        syncing = false;
         if (!cancelled) setSynced(true);
       }
     }
 
     sync();
 
-    // 定期从云端拉取最新数据（每 30 秒），确保多端数据一致
+    // 每 30 秒轮询一次，确保多端数据一致
     const interval = setInterval(sync, 30000);
+
+    // 窗口恢复聚焦时立即同步（从云端切换回本地时自动拉取）
+    const handleFocus = () => sync();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 
