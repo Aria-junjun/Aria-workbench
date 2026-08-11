@@ -255,10 +255,11 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
     });
   });
 
-  // 路径2：单行管道格式（如：来源：1688 | 规格：xxx | 页面标价：¥36 | MOQ：1件起批 | 运费：待确认 | 链接：xxx）
+  // 路径2：单行管道格式（如：来源：1688 | 规格：xxx | 价格：¥36 | MOQ：1件起批 | 运费：待确认 | 链接：xxx）
   // 也兼容无竖线的 bullet key:value 多行格式，每行一条报价
+  // 支持以任意报价相关字段开头（规格、来源、价格、批发报价等）
   const kvField = /(来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：]\s*([^｜|\n]*?)\s*(?=(?:\s*[｜|]\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：])|$)/g;
-  const headerPattern = /^[\s\-*\u2022]*\s*来源\s*[:=：]/i;
+  const headerPattern = /^[\s\-*\u2022]*\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：]/i;
 
   /** 对于"链接"字段额外清理：只取 http(s) URL，剔除反引号后的尾巴注释 */
   function cleanUrl(raw: string): string {
@@ -287,9 +288,10 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
       else if (key === "链接") found.sourceUrl = found.sourceUrl || value;
       else if (key === "备注") found.note = found.note || value;
     }
-    if (found.source && found.specification && found.price) {
+    // 如果有规格和价格，即使没有来源也生成报价（默认来源为"线上"）
+    if (found.specification && found.price) {
       pushQuote({
-        source: found.source,
+        source: found.source || "线上",
         specification: found.specification,
         price: found.price,
         moq: found.moq,
@@ -958,11 +960,17 @@ function parseDecisionGroupedFormat(
       recommendedPlatforms?: string;
     }
   | undefined {
-  // 只要检测到"初步结论：xx" 或 "核心优势" 或 "主要风险" 或 "判定依据" 任意一个分组头，就认为是此格式
+  // 检测情报机格式的分组头
   const hasGroupHeader = lines.some((l) =>
     /^\s*(初步结论|核心优势|主要风险|判定依据|建议零售价区间|成本区间|推荐主攻平台)\s*[:：]/.test(l)
   );
-  if (!hasGroupHeader) return undefined;
+
+  // 检测用户自定义的 ### 子标题格式（功能需求/性能要求/采购建议/风险评估）
+  const hasSubHeading = lines.some((l) =>
+    /^\s*###\s*(功能需求|性能要求|采购建议|风险评估|功能|性能|采购|风险)\s*$/.test(l)
+  );
+
+  if (!hasGroupHeader && !hasSubHeading) return undefined;
 
   const result = {
     coreAdvantages: [] as string[],
@@ -978,6 +986,58 @@ function parseDecisionGroupedFormat(
     recommendedPlatforms?: string;
   };
 
+  // 处理 ### 子标题格式
+  if (hasSubHeading) {
+    let currentSubGroup: "function" | "performance" | "procurement" | "risk" | undefined;
+    const functionItems: string[] = [];
+    const performanceItems: string[] = [];
+    const procurementItems: string[] = [];
+    const riskItems: string[] = [];
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+
+      // 识别 ### 子标题
+      const subHeading = line.match(/^###\s*(功能需求|性能要求|采购建议|风险评估|功能|性能|采购|风险)\s*$/);
+      if (subHeading) {
+        const name = subHeading[1];
+        if (name.startsWith("功能")) currentSubGroup = "function";
+        else if (name.startsWith("性能")) currentSubGroup = "performance";
+        else if (name.startsWith("采购")) currentSubGroup = "procurement";
+        else if (name.startsWith("风险")) currentSubGroup = "risk";
+        continue;
+      }
+
+      // 收集子标题下的条目
+      if (currentSubGroup) {
+        const item = parseBulletItem(line);
+        if (!item) continue;
+        if (currentSubGroup === "function") functionItems.push(item);
+        else if (currentSubGroup === "performance") performanceItems.push(item);
+        else if (currentSubGroup === "procurement") procurementItems.push(item);
+        else if (currentSubGroup === "risk") riskItems.push(item);
+      }
+    }
+
+    // 映射到标准字段
+    if (functionItems.length > 0) {
+      result.coreAdvantages.push(`功能需求：${functionItems.join("；")}`);
+    }
+    if (performanceItems.length > 0) {
+      result.coreAdvantages.push(`性能要求：${performanceItems.join("；")}`);
+    }
+    if (procurementItems.length > 0) {
+      result.judgementBasis.push(`采购建议：${procurementItems.join("；")}`);
+    }
+    if (riskItems.length > 0) {
+      result.mainRisks.push(...riskItems);
+    }
+
+    return result;
+  }
+
+  // 处理标准情报机分组格式
   let currentGroup: "advantages" | "risks" | "basis" | undefined;
 
   for (const raw of lines) {

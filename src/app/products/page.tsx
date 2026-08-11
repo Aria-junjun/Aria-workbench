@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { LibraryToolbar, uniqueTags } from "@/components/workbench/library-toolbar";
-import { includesQuery, sortPinnedFirst, togglePinned } from "@/features/workbench/local-store";
+import { includesQuery, sortPinnedFirst, syncFromCloud, togglePinned } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   LIFECYCLE_STAGE_OPTIONS,
@@ -25,6 +25,11 @@ export default function ProductsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const products = sortPinnedFirst(useWorkbenchData().products);
   const tags = uniqueTags(products.map((product) => [product.name]));
+
+  // 页面加载时强制从云端同步，确保本地看到最新数据
+  useEffect(() => {
+    void syncFromCloud().catch(() => {});
+  }, []);
 
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = { total: products.length };

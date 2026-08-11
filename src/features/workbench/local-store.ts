@@ -274,16 +274,22 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
       setWorkbenchSnapshot(parsed);
       return parsed;
     }
-  } catch {
-    // Supabase 读取失败，回退到本地
+    if (error) {
+      console.warn("[Sync] Supabase 读取失败:", error.message);
+    }
+  } catch (e) {
+    console.warn("[Sync] Supabase 连接异常:", e);
   }
 
-  // 2. 回退到 localStorage
+  // 2. 回退到 localStorage（但标记为"需要同步"，下次成功拉取后会覆盖）
   if (typeof window !== "undefined") {
     const stored = window.localStorage.getItem(storageKey);
     if (stored) {
       try {
-        return normalizeWorkbenchData(JSON.parse(stored) as Partial<LocalWorkbenchData>);
+        const data = normalizeWorkbenchData(JSON.parse(stored) as Partial<LocalWorkbenchData>);
+        // 重要：即使是本地数据也要更新全局 store，确保所有页面一致
+        setWorkbenchSnapshot(data);
+        return data;
       } catch {
         // 解析失败
       }
@@ -291,7 +297,9 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
   }
 
   // 3. 使用默认数据
-  return normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
+  const defaults = normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
+  setWorkbenchSnapshot(defaults);
+  return defaults;
 }
 
 // 保持同步版本用于兼容旧代码
@@ -309,6 +317,11 @@ export function loadLocalWorkbenchData(): LocalWorkbenchData {
   } catch {
     return normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
   }
+}
+
+/** 从云端强制同步到本地（在页面关键入口调用以确保数据新鲜） */
+export function syncFromCloud(): Promise<LocalWorkbenchData> {
+  return loadWorkbenchData();
 }
 
 export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
