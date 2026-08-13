@@ -293,14 +293,19 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
 
     const first = Array.isArray(proxyData) ? proxyData[0] : undefined;
     if (first?.data) {
-      const parsed = normalizeWorkbenchData(first.data);
+      const parsed = normalizeWorkbenchDataWithBridges(first.data);
       console.log("[Sync] 云端数据解析成功:", {
         products: parsed.products.length,
         productNames: parsed.products.map(p => p.name),
         firstProductSpecs: parsed.products[0]?.specifications.length ?? 0,
-        firstProductQuotes: parsed.products[0]?.procurementQuotes.length ?? 0
+        firstProductQuotes: parsed.products[0]?.procurementQuotes.length ?? 0,
+        autoBridged: {
+          totalTasks: parsed.tasks.length,
+          highPriority: parsed.tasks.filter(t => t.priority === 'high' && t.status !== 'done').length,
+          productsWithSuppliers: parsed.products.filter(p => (p.relatedSupplierIds ?? []).length > 0).length,
+          productsWithOffers: parsed.products.filter(p => (p.relatedOfferIds ?? []).length > 0).length
+        }
       });
-      // 同时缓存到 localStorage
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(parsed));
       }
@@ -315,7 +320,7 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
     const stored = window.localStorage.getItem(storageKey);
     if (stored) {
       try {
-        const data = normalizeWorkbenchData(JSON.parse(stored) as Partial<LocalWorkbenchData>);
+        const data = normalizeWorkbenchDataWithBridges(JSON.parse(stored) as Partial<LocalWorkbenchData>);
         console.log("[Sync] 回退到 localStorage:", { products: data.products.length });
         return data;
       } catch {
@@ -325,7 +330,7 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
   }
 
   // 3. 使用默认数据
-  const defaults = normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
+  const defaults = normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
   console.log("[Sync] 使用默认数据");
   return defaults;
 }
@@ -333,17 +338,17 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
 // 保持同步版本用于兼容旧代码
 export function loadLocalWorkbenchData(): LocalWorkbenchData {
   if (typeof window === "undefined") {
-    return normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
+    return normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
   }
   const stored = window.localStorage.getItem(storageKey);
   if (!stored) {
-    return normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
+    return normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
   }
 
   try {
-    return normalizeWorkbenchData(JSON.parse(stored) as Partial<LocalWorkbenchData>);
+    return normalizeWorkbenchDataWithBridges(JSON.parse(stored) as Partial<LocalWorkbenchData>);
   } catch {
-    return normalizeWorkbenchData(defaultData as Partial<LocalWorkbenchData>);
+    return normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
   }
 }
 
@@ -548,21 +553,21 @@ export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void>
 // 保持同步版本用于兼容旧代码
 export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   if (typeof window === "undefined") return;
-  const normalized = normalizeWorkbenchData(data);
-  window.localStorage.setItem(storageKey, JSON.stringify(normalized));
+  const bridged = autoBridgeCategoryData(data);
+  const normalized = normalizeWorkbenchData(bridged);
+  const withTasks = ensureProductStageTasks(normalized);
+  window.localStorage.setItem(storageKey, JSON.stringify(withTasks));
 
-  // 立即通知全局 store（所有页面即时刷新）—— 使用动态 require 避免循环依赖
   try {
     const { setWorkbenchSnapshot } = require("./workbench-store");
     if (typeof setWorkbenchSnapshot === "function") {
-      setWorkbenchSnapshot(normalized);
+      setWorkbenchSnapshot(withTasks);
     }
   } catch {
     // workbench-store 尚未加载，忽略
   }
 
-  // 异步同步到 Supabase
-  saveWorkbenchData(normalized).catch(() => {
+  saveWorkbenchData(withTasks).catch(() => {
     // 云端同步失败不影响本地操作
   });
 }
@@ -1367,6 +1372,12 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
   };
 }
 
+export function normalizeWorkbenchDataWithBridges(data: Partial<LocalWorkbenchData>): LocalWorkbenchData {
+  const normalized = normalizeWorkbenchData(data);
+  const bridged = autoBridgeCategoryData(normalized);
+  return ensureProductStageTasks(bridged);
+}
+
 function getApplicationVersions(applications: LocalKnowledgeApplication[], applicationId: string) {
   const selected = applications.find((item) => item.id === applicationId);
   const rootId = selected?.rootApplicationId ?? selected?.id ?? applicationId;
@@ -1585,4 +1596,150 @@ function mergeSupplier(
     notes: value(incoming.notes, existing?.notes),
     createdAt: existing?.createdAt ?? now
   };
+}
+
+// ========== 智能桥接：产品-供应商-货盘自动关联 ==========
+
+/** 从产品名、货盘名中提取关键词（2字及以上的连续中文字符） */
+function extractKeywords(text: string): Set<string> {
+  const kw = new Set<string>();
+  const matches = text.match(/[\u4e00-\u9fff]{2,}/g);
+  if (matches) {
+    for (const m of matches) {
+      kw.add(m);
+      if (m.length >= 3) {
+        for (let i = 0; i <= m.length - 2; i++) {
+          kw.add(m.slice(i, i + 2));
+        }
+      }
+    }
+  }
+  return kw;
+}
+
+/** 计算两个文本的关键词交集大小 */
+function keywordOverlap(a: string, b: string): number {
+  const ka = extractKeywords(a);
+  const kb = extractKeywords(b);
+  let count = 0;
+  for (const k of ka) if (kb.has(k)) count++;
+  return count;
+}
+
+/** 智能桥接：自动关联产品与供应商/货盘 */
+export function autoBridgeCategoryData(data: LocalWorkbenchData): LocalWorkbenchData {
+  const products = [...data.products];
+  const offers = [...data.offers];
+  const suppliers = [...data.suppliers];
+  const tasks = [...data.tasks];
+
+  const productIdByName = new Map(products.map((p) => [normalizeText(p.name), p.id]));
+
+  for (const product of products) {
+    const productKw = extractKeywords(product.name);
+
+    // 1. 桥接货盘：如果货盘名与产品名有关键词交集，且未关联 productId
+    for (const offer of offers) {
+      if (offer.productId && productIdByName.has(offer.productId)) continue;
+      const overlap = keywordOverlap(product.name, offer.name);
+      if (overlap >= 1 || productKw.has(offer.name)) {
+        offer.productId = product.id;
+        offer.productName = product.name;
+      }
+    }
+
+    // 2. 桥接供应商：如果供应商名与产品名有关键词交集，且产品未关联
+    for (const supplier of suppliers) {
+      if ((product.relatedSupplierIds ?? []).includes(supplier.id)) continue;
+      const overlap = keywordOverlap(product.name, supplier.name);
+      if (overlap >= 1) {
+        if (!product.relatedSupplierIds) product.relatedSupplierIds = [];
+        product.relatedSupplierIds!.push(supplier.id);
+        if (!supplier.categories.includes(product.category ?? "")) {
+          supplier.categories.push(product.category ?? "");
+        }
+      }
+    }
+
+    // 3. 桥接货ID到产品
+    const matchedOfferIds = offers
+      .filter((o) => o.productId === product.id)
+      .map((o) => o.id);
+    if (matchedOfferIds.length > 0) {
+      const existing = new Set(product.relatedOfferIds ?? []);
+      for (const id of matchedOfferIds) if (!existing.has(id)) {
+        if (!product.relatedOfferIds) product.relatedOfferIds = [];
+        product.relatedOfferIds!.push(id);
+      }
+    }
+
+    // 4. 按品类桥接：如果货盘的 category 与产品的 category 相同
+    for (const offer of offers) {
+      if (offer.productId) continue;
+      if (offer.category && offer.category === product.category) {
+        offer.productId = product.id;
+        offer.productName = product.name;
+        if (!product.relatedOfferIds) product.relatedOfferIds = [];
+        if (!product.relatedOfferIds!.includes(offer.id)) {
+          product.relatedOfferIds!.push(offer.id);
+        }
+      }
+    }
+  }
+
+  return { ...data, products, offers, suppliers, tasks };
+}
+
+// ========== 自动生成产品阶段待办 ==========
+
+const STAGE_TITLES: Record<string, string> = {
+  signal: "信号捕捉",
+  validated: "机会验证",
+  defined: "产品定义",
+  supply_locked: "供应链锁定",
+  listing: "上架准备",
+  evaluating: "评估决策",
+  archived: "归档",
+  discontinued: "终止"
+};
+
+const STAGE_ORDER = ["signal", "validated", "defined", "supply_locked", "listing", "evaluating", "archived"] as const;
+
+export function ensureProductStageTasks(data: LocalWorkbenchData): LocalWorkbenchData {
+  const tasks = [...data.tasks];
+  const existingTaskKeys = new Set(
+    tasks
+      .filter((t) => t.type === "product_stage" && t.status !== "done")
+      .map((t) => `${t.productId}::${t.productStage}`)
+  );
+
+  for (const product of data.products) {
+    const stage = product.lifecycleStage;
+    if (!stage || stage === "archived" || stage === "discontinued") continue;
+
+    const stageIdx = STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number]);
+    if (stageIdx === -1 || stageIdx >= STAGE_ORDER.length - 1) continue;
+
+    const nextStage = STAGE_ORDER[stageIdx + 1];
+    const key = `${product.id}::${nextStage}`;
+    if (existingTaskKeys.has(key)) continue;
+
+    const nextTitle = STAGE_TITLES[nextStage] ?? nextStage;
+    tasks.push({
+      id: randomId(),
+      title: `推进「${product.name}」到「${nextTitle}」阶段`,
+      priority: "high",
+      status: "open",
+      type: "product_stage",
+      productId: product.id,
+      productName: product.name,
+      productStage: nextStage,
+      createdAt: new Date().toISOString(),
+      dueText: "",
+      pinned: false
+    });
+    existingTaskKeys.add(key);
+  }
+
+  return { ...data, tasks };
 }
