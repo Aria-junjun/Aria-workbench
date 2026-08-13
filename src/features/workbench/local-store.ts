@@ -1606,7 +1606,16 @@ function mergeSupplier(
 
 // ========== 智能桥接：产品-供应商-货盘自动关联 ==========
 
-/** 从产品名、货盘名中提取关键词（2字及以上的连续中文字符） */
+/** 通用词排除表：这些词的交集不产生自动关联 */
+const GENERIC_KEYWORDS = new Set([
+  "保护", "收纳", "家居", "定制", "家用", "新款", "通用", "多功能",
+  "防滑", "防水", "免打孔", "加厚", "升级", "套装", "配件", "材料",
+  "产品", "用品", "工具", "设备", "解决方案", "全套", "系列", "简易",
+  "创意", "实用", "便携", "折叠", "可调", "智能", "环保", "安全",
+  "门后", "桌下", "落地", "夹缝", "工位"
+]);
+
+/** 从文本中提取关键词（2字及以上的连续中文字符） */
 function extractKeywords(text: string): Set<string> {
   const kw = new Set<string>();
   const matches = text.match(/[\u4e00-\u9fff]{2,}/g);
@@ -1623,77 +1632,178 @@ function extractKeywords(text: string): Set<string> {
   return kw;
 }
 
-/** 计算两个文本的关键词交集大小 */
-function keywordOverlap(a: string, b: string): number {
-  const ka = extractKeywords(a);
-  const kb = extractKeywords(b);
-  let count = 0;
-  for (const k of ka) if (kb.has(k)) count++;
-  return count;
+/** 获取非通用关键词 */
+function getSpecificKeywords(text: string): Set<string> {
+  const all = extractKeywords(text);
+  const specific = new Set<string>();
+  for (const k of all) {
+    if (!GENERIC_KEYWORDS.has(k)) specific.add(k);
+  }
+  return specific;
 }
 
-/** 智能桥接：自动关联产品与供应商/货盘 */
-export function autoBridgeCategoryData(data: LocalWorkbenchData): LocalWorkbenchData {
-  const products = [...data.products];
-  const offers = [...data.offers];
-  const suppliers = [...data.suppliers];
-  const tasks = [...data.tasks];
+/** 评分：计算两个文本的匹配分数（0-9） */
+function matchScore(a: string, b: string): number {
+  // 包含关系 → 9分（最强）
+  if (a.includes(b) || b.includes(a)) return 9;
 
-  const productIdByName = new Map(products.map((p) => [normalizeText(p.name), p.id]));
+  const ka = getSpecificKeywords(a);
+  const kb = getSpecificKeywords(b);
+
+  // 3字+关键词交集 → 每个交集词贡献 3 分，取最高
+  let bestScore = 0;
+  for (const k of ka) {
+    if (kb.has(k)) {
+      if (k.length >= 3) bestScore = Math.max(bestScore, 6);
+      else bestScore = Math.max(bestScore, 4);
+    }
+  }
+  return bestScore;
+}
+
+const BRIDGE_THRESHOLD = 6; // >=6 才自动关联
+
+/** 智能桥接：自动关联产品与供应商/货盘（尊重 confirmed/rejected） */
+export function autoBridgeCategoryData(data: LocalWorkbenchData): LocalWorkbenchData {
+  const products = data.products.map((p) => ({ ...p }));
+  const offers = data.offers.map((o) => ({ ...o }));
+  const suppliers = data.suppliers.map((s) => ({ ...s }));
 
   for (const product of products) {
-    const productKw = extractKeywords(product.name);
+    const rejectedOffers = new Set(product.rejectedOfferIds ?? []);
+    const rejectedSuppliers = new Set(product.rejectedSupplierIds ?? []);
+    const currentOfferIds = new Set(product.relatedOfferIds ?? []);
+    const currentSupplierIds = new Set(product.relatedSupplierIds ?? []);
 
-    // 1. 桥接货盘：如果货盘名与产品名有关键词交集，且未关联 productId
+    // 1. 桥接货盘：关键词评分 + 品类匹配
     for (const offer of offers) {
-      if (offer.productId && productIdByName.has(offer.productId)) continue;
-      const overlap = keywordOverlap(product.name, offer.name);
-      if (overlap >= 1 || productKw.has(offer.name)) {
+      if (offer.productId === product.id) continue; // 已关联本产品
+      if (rejectedOffers.has(offer.id)) continue;   // 用户拒绝过
+      if (currentOfferIds.has(offer.id)) continue;  // 已在列表
+
+      const score = matchScore(product.name, offer.name);
+      const categoryMatch = offer.category && product.category && offer.category === product.category;
+
+      if (score >= BRIDGE_THRESHOLD || categoryMatch) {
         offer.productId = product.id;
         offer.productName = product.name;
+        currentOfferIds.add(offer.id);
+        if (!product.relatedOfferIds) product.relatedOfferIds = [];
+        product.relatedOfferIds!.push(offer.id);
       }
     }
 
-    // 2. 桥接供应商：如果供应商名与产品名有关键词交集，且产品未关联
+    // 2. 桥接供应商：关键词评分
     for (const supplier of suppliers) {
-      if ((product.relatedSupplierIds ?? []).includes(supplier.id)) continue;
-      const overlap = keywordOverlap(product.name, supplier.name);
-      if (overlap >= 1) {
+      if (currentSupplierIds.has(supplier.id)) continue;
+      if (rejectedSuppliers.has(supplier.id)) continue;
+
+      const score = matchScore(product.name, supplier.name);
+      if (score >= BRIDGE_THRESHOLD) {
         if (!product.relatedSupplierIds) product.relatedSupplierIds = [];
         product.relatedSupplierIds!.push(supplier.id);
-        if (!supplier.categories.includes(product.category ?? "")) {
-          supplier.categories.push(product.category ?? "");
+        currentSupplierIds.add(supplier.id);
+        const cat = product.category ?? "";
+        if (cat && !supplier.categories.includes(cat)) {
+          supplier.categories.push(cat);
         }
       }
     }
 
-    // 3. 桥接货ID到产品
-    const matchedOfferIds = offers
-      .filter((o) => o.productId === product.id)
-      .map((o) => o.id);
-    if (matchedOfferIds.length > 0) {
-      const existing = new Set(product.relatedOfferIds ?? []);
-      for (const id of matchedOfferIds) if (!existing.has(id)) {
-        if (!product.relatedOfferIds) product.relatedOfferIds = [];
-        product.relatedOfferIds!.push(id);
-      }
-    }
-
-    // 4. 按品类桥接：如果货盘的 category 与产品的 category 相同
+    // 3. 货盘→供应商级联：已关联的货盘的供应商自动追加到产品
     for (const offer of offers) {
-      if (offer.productId) continue;
-      if (offer.category && offer.category === product.category) {
-        offer.productId = product.id;
-        offer.productName = product.name;
-        if (!product.relatedOfferIds) product.relatedOfferIds = [];
-        if (!product.relatedOfferIds!.includes(offer.id)) {
-          product.relatedOfferIds!.push(offer.id);
-        }
-      }
+      if (offer.productId !== product.id) continue;
+      if (!offer.supplierId) continue;
+      if (currentSupplierIds.has(offer.supplierId)) continue;
+      if (rejectedSuppliers.has(offer.supplierId)) continue;
+
+      if (!product.relatedSupplierIds) product.relatedSupplierIds = [];
+      product.relatedSupplierIds!.push(offer.supplierId);
+      currentSupplierIds.add(offer.supplierId);
     }
   }
 
-  return { ...data, products, offers, suppliers, tasks };
+  return { ...data, products, offers, suppliers, tasks: data.tasks };
+}
+
+/** 解除产品与货盘的关联（用户手动删除） */
+export function removeOfferFromProduct(data: LocalWorkbenchData, productId: string, offerId: string): LocalWorkbenchData {
+  const products = data.products.map((p) => {
+    if (p.id !== productId) return p;
+    return {
+      ...p,
+      relatedOfferIds: (p.relatedOfferIds ?? []).filter((id) => id !== offerId),
+      confirmedOfferIds: (p.confirmedOfferIds ?? []).filter((id) => id !== offerId),
+      rejectedOfferIds: [...new Set([...(p.rejectedOfferIds ?? []), offerId])]
+    };
+  });
+  const offers = data.offers.map((o) =>
+    o.id === offerId && o.productId === productId
+      ? { ...o, productId: undefined, productName: undefined }
+      : o
+  );
+  return { ...data, products, offers };
+}
+
+/** 解除产品与供应商的关联（用户手动删除） */
+export function removeSupplierFromProduct(data: LocalWorkbenchData, productId: string, supplierId: string): LocalWorkbenchData {
+  const products = data.products.map((p) => {
+    if (p.id !== productId) return p;
+    return {
+      ...p,
+      relatedSupplierIds: (p.relatedSupplierIds ?? []).filter((id) => id !== supplierId),
+      confirmedSupplierIds: (p.confirmedSupplierIds ?? []).filter((id) => id !== supplierId),
+      rejectedSupplierIds: [...new Set([...(p.rejectedSupplierIds ?? []), supplierId])]
+    };
+  });
+  return { ...data, products };
+}
+
+/** 手动添加货盘到产品（用户在品类页选择） */
+export function addOfferToProduct(data: LocalWorkbenchData, productId: string, offerId: string): LocalWorkbenchData {
+  const product = data.products.find((p) => p.id === productId);
+  const offer = data.offers.find((o) => o.id === offerId);
+  if (!product || !offer) return data;
+
+  const products = data.products.map((p) => {
+    if (p.id !== productId) return p;
+    const offerIds = new Set([...(p.relatedOfferIds ?? []), offerId]);
+    const confirmed = new Set([...(p.confirmedOfferIds ?? []), offerId]);
+    const rejected = (p.rejectedOfferIds ?? []).filter((id) => id !== offerId);
+    return { ...p, relatedOfferIds: [...offerIds], confirmedOfferIds: [...confirmed], rejectedOfferIds: rejected };
+  });
+  const offers = data.offers.map((o) =>
+    o.id === offerId ? { ...o, productId, productName: product.name } : o
+  );
+  // 级联供应商
+  let result = { ...data, products, offers };
+  if (offer.supplierId) {
+    const supplierProducts = products.map((p) => {
+      if (p.id !== productId) return p;
+      if ((p.relatedSupplierIds ?? []).includes(offer.supplierId!)) return p;
+      const sIds = [...(p.relatedSupplierIds ?? []), offer.supplierId!];
+      const confirmedS = [...new Set([...(p.confirmedSupplierIds ?? []), offer.supplierId!])];
+      return { ...p, relatedSupplierIds: sIds, confirmedSupplierIds: confirmedS };
+    });
+    result = { ...result, products: supplierProducts };
+  }
+  return result;
+}
+
+/** 手动添加供应商到产品 */
+export function addSupplierToProduct(data: LocalWorkbenchData, productId: string, supplierId: string): LocalWorkbenchData {
+  const product = data.products.find((p) => p.id === productId);
+  if (!product) return data;
+
+  const products = data.products.map((p) => {
+    if (p.id !== productId) return p;
+    if ((p.relatedSupplierIds ?? []).includes(supplierId)) return p;
+    const sIds = [...(p.relatedSupplierIds ?? []), supplierId];
+    const confirmed = [...new Set([...(p.confirmedSupplierIds ?? []), supplierId])];
+    const rejected = (p.rejectedSupplierIds ?? []).filter((id) => id !== supplierId);
+    return { ...p, relatedSupplierIds: sIds, confirmedSupplierIds: confirmed, rejectedSupplierIds: rejected };
+  });
+  return { ...data, products };
 }
 
 // ========== 自动生成产品阶段待办 ==========

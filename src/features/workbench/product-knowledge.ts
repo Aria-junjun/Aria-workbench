@@ -357,6 +357,12 @@ export type ProductKnowledgeV2 = {
   // ===== 闭环关联字段 =====
   relatedSupplierIds?: string[];
   relatedOfferIds?: string[];
+  // 用户确认的关联（锁定，不被自动匹配覆盖）
+  confirmedSupplierIds?: string[];
+  confirmedOfferIds?: string[];
+  // 用户拒绝的关联（不再自动推荐）
+  rejectedSupplierIds?: string[];
+  rejectedOfferIds?: string[];
   // ===== 阶段进度追踪 =====
   stageProgress?: StageProgress[];
   currentStageIndex?: number;
@@ -419,6 +425,10 @@ export const ProductKnowledgeV2Schema = z.object({
   // 闭环关联
   relatedSupplierIds: z.array(z.string()).optional(),
   relatedOfferIds: z.array(z.string()).optional(),
+  confirmedSupplierIds: z.array(z.string()).optional(),
+  confirmedOfferIds: z.array(z.string()).optional(),
+  rejectedSupplierIds: z.array(z.string()).optional(),
+  rejectedOfferIds: z.array(z.string()).optional(),
   // 阶段进度追踪
   stageProgress: z.array(StageProgressSchema).optional(),
   currentStageIndex: z.number().int().optional()
@@ -664,7 +674,11 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     supplyChainFindings: parseStructuredObject(candidate.supplyChainFindings, "supplyChainFindings", SupplyChainFindingsSchema, context),
     // 闭环关联
     relatedSupplierIds: normalizeStringArray(candidate.relatedSupplierIds, "relatedSupplierIds", context),
-    relatedOfferIds: normalizeStringArray(candidate.relatedOfferIds, "relatedOfferIds", context)
+    relatedOfferIds: normalizeStringArray(candidate.relatedOfferIds, "relatedOfferIds", context),
+    confirmedSupplierIds: normalizeStringArray(candidate.confirmedSupplierIds, "confirmedSupplierIds", context),
+    confirmedOfferIds: normalizeStringArray(candidate.confirmedOfferIds, "confirmedOfferIds", context),
+    rejectedSupplierIds: normalizeStringArray(candidate.rejectedSupplierIds, "rejectedSupplierIds", context),
+    rejectedOfferIds: normalizeStringArray(candidate.rejectedOfferIds, "rejectedOfferIds", context)
   };
 
   // 信号池默认值：未设 stage 的非品类调研报告 → 自动视为信号池活跃机会
@@ -941,7 +955,8 @@ const knownProductFields = new Set([
   // 品类调研扩展字段
   "researchDepth", "marketOverview", "competitiveLandscape", "productBenchmark", "userInsights", "supplyChainFindings",
   // 闭环关联字段
-  "relatedSupplierIds", "relatedOfferIds"
+  "relatedSupplierIds", "relatedOfferIds",
+  "confirmedSupplierIds", "confirmedOfferIds", "rejectedSupplierIds", "rejectedOfferIds"
 ]);
 
 function captureUnknownFields(candidate: Record<string, unknown>, context: NormalizationContext) {

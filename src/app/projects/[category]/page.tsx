@@ -10,15 +10,23 @@ import {
   FolderKanban,
   ListChecks,
   Package,
+  Plus,
   ScanSearch,
   Scale,
   Sparkles,
+  X,
   Zap
 } from "lucide-react";
 import {
   type LocalWorkbenchData,
-  saveProductKnowledge
+  saveLocalWorkbenchData,
+  saveProductKnowledge,
+  removeOfferFromProduct,
+  removeSupplierFromProduct,
+  addOfferToProduct,
+  addSupplierToProduct
 } from "@/features/workbench/local-store";
+import { getWorkbenchSnapshot } from "@/features/workbench/workbench-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import type { ProductKnowledgeV2 } from "@/features/workbench/product-knowledge";
 import {
@@ -177,6 +185,65 @@ export default function ProjectDetailPage() {
     saveProductKnowledge(activateSignal(product));
     setActivatedCount((x) => x + 1);
   }
+
+  // 添加/删除关联
+  const [showAddSupplier, setShowAddSupplier] = useState(false);
+  const [showAddOffer, setShowAddOffer] = useState(false);
+  const [searchSupplier, setSearchSupplier] = useState("");
+  const [searchOffer, setSearchOffer] = useState("");
+
+  function handleRemoveSupplier(supplierId: string) {
+    if (!detail) return;
+    const snapshot = getWorkbenchSnapshot();
+    for (const product of detail.products) {
+      if ((product.relatedSupplierIds ?? []).includes(supplierId)) {
+        const updated = removeSupplierFromProduct(snapshot, product.id, supplierId);
+        saveLocalWorkbenchData(updated);
+        break;
+      }
+    }
+  }
+
+  function handleRemoveOffer(offerId: string) {
+    if (!detail) return;
+    const snapshot = getWorkbenchSnapshot();
+    for (const product of detail.products) {
+      if ((product.relatedOfferIds ?? []).includes(offerId)) {
+        const updated = removeOfferFromProduct(snapshot, product.id, offerId);
+        saveLocalWorkbenchData(updated);
+        break;
+      }
+    }
+  }
+
+  function handleAddSupplier(supplierId: string) {
+    if (!detail || detail.products.length === 0) return;
+    const snapshot = getWorkbenchSnapshot();
+    const productId = detail.products[0].id;
+    const updated = addSupplierToProduct(snapshot, productId, supplierId);
+    saveLocalWorkbenchData(updated);
+    setShowAddSupplier(false);
+    setSearchSupplier("");
+  }
+
+  function handleAddOffer(offerId: string) {
+    if (!detail || detail.products.length === 0) return;
+    const snapshot = getWorkbenchSnapshot();
+    const productId = detail.products[0].id;
+    const updated = addOfferToProduct(snapshot, productId, offerId);
+    saveLocalWorkbenchData(updated);
+    setShowAddOffer(false);
+    setSearchOffer("");
+  }
+
+  const availableSuppliers = data.suppliers.filter(
+    (s) => !detail?.suppliers.some((ds) => ds.id === s.id) &&
+    (searchSupplier ? s.name.toLowerCase().includes(searchSupplier.toLowerCase()) : true)
+  );
+  const availableOffers = data.offers.filter(
+    (o) => !detail?.offers.some((do_) => do_.id === o.id) &&
+    (searchOffer ? o.name.toLowerCase().includes(searchOffer.toLowerCase()) : true)
+  );
 
   // ===== 以下才允许提前 return =====
 
@@ -400,53 +467,127 @@ export default function ProjectDetailPage() {
       </DetailSection>
 
       {/* Section 2: 供应商 */}
-      <DetailSection icon={<Building2 className="h-5 w-5 text-action" />} title="供应商">
+      <DetailSection icon={<Building2 className="h-5 w-5 text-action" />} title="供应商" action={
+        <button onClick={() => setShowAddSupplier(!showAddSupplier)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-muted hover:border-action hover:text-action transition-colors">
+          <Plus className="h-3 w-3" /> 添加
+        </button>
+      }>
+        {showAddSupplier && (
+          <div className="mb-3 rounded-xl border border-line bg-white p-3">
+            <input
+              autoFocus
+              type="text"
+              placeholder="搜索供应商名称..."
+              value={searchSupplier}
+              onChange={(e) => setSearchSupplier(e.target.value)}
+              className="w-full rounded-md border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-action/30 mb-2"
+            />
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {availableSuppliers.length === 0 ? (
+                <p className="text-xs text-muted text-center py-2">没有可添加的供应商</p>
+              ) : (
+                availableSuppliers.slice(0, 20).map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => handleAddSupplier(s.id)}
+                    className="flex w-full items-center justify-between rounded-md border border-line px-3 py-2 text-sm hover:border-action hover:bg-action-soft/30 transition-colors"
+                  >
+                    <span className="text-ink">{s.name}</span>
+                    <span className="text-xs text-muted">{s.categories.join(" / ") || "未分类"}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
         {detail.suppliers.length === 0 ? (
           <SectionEmpty label="暂无" />
         ) : (
           <div className="space-y-2">
             {detail.suppliers.map((supplier) => (
-              <Link
-                key={supplier.id}
-                href={`/suppliers/${supplier.id}`}
-                className="group flex items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3 transition-all hover:border-action/30 hover:shadow-card"
-              >
-                <div className="min-w-0 flex-1">
+              <div key={supplier.id} className="group flex items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3 transition-all hover:border-action/30 hover:shadow-card">
+                <Link href={`/suppliers/${supplier.id}`} className="min-w-0 flex-1">
                   <div className="font-medium text-ink group-hover:text-action">{supplier.name}</div>
                   <div className="mt-0.5 text-xs text-muted">
                     {supplier.categories.join(" / ") || "未分类"}
                     {supplier.location ? ` · ${supplier.location}` : ""}
                   </div>
+                </Link>
+                <div className="flex items-center gap-2">
+                  <ChevronRight className="h-4 w-4 text-muted-light" />
+                  <button
+                    onClick={() => handleRemoveSupplier(supplier.id)}
+                    className="rounded-md p-1 text-muted-light opacity-0 transition-all hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
+                    title="解除关联"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <ChevronRight className="h-4 w-4 text-muted-light transition-transform group-hover:translate-x-0.5" />
-              </Link>
+              </div>
             ))}
           </div>
         )}
       </DetailSection>
 
       {/* Section 3: 货盘 */}
-      <DetailSection icon={<Package className="h-5 w-5 text-warning" />} title="货盘">
+      <DetailSection icon={<Package className="h-5 w-5 text-warning" />} title="货盘" action={
+        <button onClick={() => setShowAddOffer(!showAddOffer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-muted hover:border-action hover:text-action transition-colors">
+          <Plus className="h-3 w-3" /> 添加
+        </button>
+      }>
+        {showAddOffer && (
+          <div className="mb-3 rounded-xl border border-line bg-white p-3">
+            <input
+              autoFocus
+              type="text"
+              placeholder="搜索货盘名称..."
+              value={searchOffer}
+              onChange={(e) => setSearchOffer(e.target.value)}
+              className="w-full rounded-md border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-action/30 mb-2"
+            />
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {availableOffers.length === 0 ? (
+                <p className="text-xs text-muted text-center py-2">没有可添加的货盘</p>
+              ) : (
+                availableOffers.slice(0, 20).map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => handleAddOffer(o.id)}
+                    className="flex w-full items-center justify-between rounded-md border border-line px-3 py-2 text-sm hover:border-action hover:bg-action-soft/30 transition-colors"
+                  >
+                    <span className="text-ink">{o.name}</span>
+                    <span className="text-xs text-muted">{o.supplierName || "未关联供应商"}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
         {detail.offers.length === 0 ? (
           <SectionEmpty label="暂无" />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {detail.offers.map((offer) => (
-              <Link
-                key={offer.id}
-                href={`/offers/${offer.id}`}
-                className="group rounded-2xl border border-line bg-white p-4 transition-all hover:-translate-y-0.5 hover:shadow-card-hover hover:border-warning/30"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-medium text-ink group-hover:text-action line-clamp-1">{offer.name}</h3>
-                  <span className="shrink-0 text-xs text-muted">{offer.supplierName || "未关联供应商"}</span>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                  <MiniStat label="报价" value={offer.quotedPrice} />
-                  <MiniStat label="MOQ" value={offer.moq} />
-                  <MiniStat label="交期" value={offer.leadTime} />
-                </div>
-              </Link>
+              <div key={offer.id} className="group relative rounded-2xl border border-line bg-white p-4 transition-all hover:-translate-y-0.5 hover:shadow-card-hover hover:border-warning/30">
+                <button
+                  onClick={() => handleRemoveOffer(offer.id)}
+                  className="absolute right-2 top-2 z-10 rounded-md p-1 text-muted-light opacity-0 transition-all hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
+                  title="解除关联"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+                <Link href={`/offers/${offer.id}`} className="block">
+                  <div className="flex items-start justify-between gap-2 pr-6">
+                    <h3 className="font-medium text-ink group-hover:text-action line-clamp-1">{offer.name}</h3>
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted">{offer.supplierName || "未关联供应商"}</div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <MiniStat label="报价" value={offer.quotedPrice} />
+                    <MiniStat label="MOQ" value={offer.moq} />
+                    <MiniStat label="交期" value={offer.leadTime} />
+                  </div>
+                </Link>
+              </div>
             ))}
           </div>
         )}
@@ -523,12 +664,13 @@ function BackLink() {
   );
 }
 
-function DetailSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function DetailSection({ icon, title, action, children }: { icon: React.ReactNode; title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
       <div className="mb-4 flex items-center gap-2">
         {icon}
         <h2 className="font-semibold text-ink">{title}</h2>
+        {action ? <div className="ml-auto">{action}</div> : null}
       </div>
       {children}
     </section>
