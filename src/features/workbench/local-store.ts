@@ -293,7 +293,35 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
 
     const first = Array.isArray(proxyData) ? proxyData[0] : undefined;
     if (first?.data) {
-      const parsed = normalizeWorkbenchDataWithBridges(first.data);
+      // 合并本地 rejected/confirmed 字段，防止云端旧代码丢失手动关联状态
+      // 场景：本地删除关联 → 写入 rejected → 同步到 Supabase → 云端旧代码
+      //       normalize 丢弃 rejected → autoBridge 重新关联 → 覆盖回 Supabase
+      // 修复：从云端拉取后，先把本地 localStorage 中的 rejected/confirmed 合并进去，再跑桥接
+      const cloudData = { ...first.data };
+      if (typeof window !== "undefined") {
+        const localStored = window.localStorage.getItem(storageKey);
+        if (localStored) {
+          try {
+            const localData = JSON.parse(localStored) as Partial<LocalWorkbenchData>;
+            const localProductMap = new Map((localData.products ?? []).map((p) => [p.id, p]));
+            const cloudProducts = (cloudData as Partial<LocalWorkbenchData>).products ?? [];
+            (cloudData as Partial<LocalWorkbenchData>).products = cloudProducts.map((p) => {
+              const localP = localProductMap.get(p.id);
+              if (!localP) return p;
+              return {
+                ...p,
+                rejectedSupplierIds: [...new Set([...(p.rejectedSupplierIds ?? []), ...(localP.rejectedSupplierIds ?? [])])],
+                rejectedOfferIds: [...new Set([...(p.rejectedOfferIds ?? []), ...(localP.rejectedOfferIds ?? [])])],
+                confirmedSupplierIds: [...new Set([...(p.confirmedSupplierIds ?? []), ...(localP.confirmedSupplierIds ?? [])])],
+                confirmedOfferIds: [...new Set([...(p.confirmedOfferIds ?? []), ...(localP.confirmedOfferIds ?? [])])]
+              };
+            });
+          } catch {
+            // 本地数据解析失败，直接用云端数据
+          }
+        }
+      }
+      const parsed = normalizeWorkbenchDataWithBridges(cloudData);
       const hadBridging = parsed.tasks.length > (first.data.tasks?.length ?? 0) ||
         parsed.products.some((p, i) =>
           (p.relatedSupplierIds ?? []).length > ((first.data.products?.[i]?.relatedSupplierIds as string[] | undefined)?.length ?? 0) ||

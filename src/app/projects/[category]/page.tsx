@@ -8,7 +8,6 @@ import {
   Building2,
   ChevronRight,
   FolderKanban,
-  ListChecks,
   Package,
   Plus,
   ScanSearch,
@@ -272,8 +271,6 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const openTasks = detail.tasks.filter((t) => t.status !== "done");
-  const doneTasks = detail.tasks.filter((t) => t.status === "done");
   const researchReports = detail.products.filter((p) => p.researchDepth === "category");
 
   return (
@@ -290,16 +287,14 @@ export default function ProjectDetailPage() {
             <h1 className="text-2xl font-semibold text-ink">{detail.category}</h1>
             <p className="mt-1 text-sm text-slate-600">
               {detail.products.length} 份调研/产品 · {detail.suppliers.length} 家供应商 ·{" "}
-              {detail.offers.length} 个货盘 · {detail.tasks.length} 个待办 ·{" "}
-              {detail.decisionCases.length} 个决策案例
+              {detail.offers.length} 个货盘 · {detail.decisionCases.length} 个决策案例
             </p>
           </div>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard icon={<BookOpen className="h-4 w-4" />} label="调研/产品" value={detail.products.length} color="action" />
           <StatCard icon={<Building2 className="h-4 w-4" />} label="供应商" value={detail.suppliers.length} color="action" />
           <StatCard icon={<Package className="h-4 w-4" />} label="货盘" value={detail.offers.length} color="warning" />
-          <StatCard icon={<ListChecks className="h-4 w-4" />} label="待办" value={detail.tasks.length} color="success" />
           <StatCard icon={<Scale className="h-4 w-4" />} label="决策案例" value={detail.decisionCases.length} color="muted" />
         </div>
       </section>
@@ -593,40 +588,6 @@ export default function ProjectDetailPage() {
         )}
       </DetailSection>
 
-      {/* Section 4: 待办（按状态分组） */}
-      <DetailSection icon={<ListChecks className="h-5 w-5 text-success" />} title="待办">
-        {detail.tasks.length === 0 ? (
-          <SectionEmpty label="暂无" />
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <GroupLabel text={`进行中（${openTasks.length}）`} />
-              {openTasks.length === 0 ? (
-                <SectionEmpty label="暂无" />
-              ) : (
-                <div className="space-y-2">
-                  {openTasks.map((task) => (
-                    <TaskRow key={task.id} task={task} />
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <GroupLabel text={`已完成（${doneTasks.length}）`} />
-              {doneTasks.length === 0 ? (
-                <SectionEmpty label="暂无" />
-              ) : (
-                <div className="space-y-2">
-                  {doneTasks.map((task) => (
-                    <TaskRow key={task.id} task={task} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </DetailSection>
-
       {/* Section 5: 决策案例 */}
       <DetailSection icon={<Scale className="h-5 w-5 text-muted" />} title="决策案例">
         {detail.decisionCases.length === 0 ? (
@@ -739,27 +700,6 @@ function ProductRow({
         )}
       </div>
       <ChevronRight className="h-4 w-4 text-muted-light shrink-0 transition-transform group-hover:translate-x-0.5" />
-    </Link>
-  );
-}
-
-function TaskRow({ task }: { task: LocalWorkbenchData["tasks"][number] }) {
-  const priorityColor = task.priority === "high" ? "bg-danger" : task.priority === "medium" ? "bg-warning" : "bg-success";
-  const isDone = task.status === "done";
-  return (
-    <Link
-      href="/tasks"
-      className={`group flex items-center gap-3 rounded-xl border border-line bg-white px-4 py-3 transition-all hover:border-success/30 hover:shadow-card ${isDone ? "opacity-50" : ""}`}
-    >
-      <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${priorityColor}`} />
-      <span className={`flex-1 text-sm ${isDone ? "line-through text-muted" : "text-ink"}`}>{task.title}</span>
-      {task.supplierName ? (
-        <span className="hidden sm:inline shrink-0 rounded-md bg-paper-warm px-2 py-0.5 text-[11px] text-muted border border-line-soft">
-          {task.supplierName}
-        </span>
-      ) : null}
-      {task.dueText ? <span className="shrink-0 text-xs text-muted">{task.dueText}</span> : null}
-      {isDone ? <span className="shrink-0 rounded bg-success-soft px-1.5 py-0.5 text-[10px] text-success font-semibold">已完成</span> : null}
     </Link>
   );
 }
