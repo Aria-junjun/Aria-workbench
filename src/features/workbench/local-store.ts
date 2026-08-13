@@ -294,20 +294,26 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
     const first = Array.isArray(proxyData) ? proxyData[0] : undefined;
     if (first?.data) {
       const parsed = normalizeWorkbenchDataWithBridges(first.data);
+      const hadBridging = parsed.tasks.length > (first.data.tasks?.length ?? 0) ||
+        parsed.products.some((p, i) =>
+          (p.relatedSupplierIds ?? []).length > ((first.data.products?.[i]?.relatedSupplierIds as string[] | undefined)?.length ?? 0) ||
+          (p.relatedOfferIds ?? []).length > ((first.data.products?.[i]?.relatedOfferIds as string[] | undefined)?.length ?? 0)
+        );
       console.log("[Sync] 云端数据解析成功:", {
         products: parsed.products.length,
-        productNames: parsed.products.map(p => p.name),
-        firstProductSpecs: parsed.products[0]?.specifications.length ?? 0,
-        firstProductQuotes: parsed.products[0]?.procurementQuotes.length ?? 0,
         autoBridged: {
           totalTasks: parsed.tasks.length,
           highPriority: parsed.tasks.filter(t => t.priority === 'high' && t.status !== 'done').length,
           productsWithSuppliers: parsed.products.filter(p => (p.relatedSupplierIds ?? []).length > 0).length,
-          productsWithOffers: parsed.products.filter(p => (p.relatedOfferIds ?? []).length > 0).length
+          productsWithOffers: parsed.products.filter(p => (p.relatedOfferIds ?? []).length > 0).length,
+          persistedToCloud: hadBridging
         }
       });
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(parsed));
+      }
+      if (hadBridging) {
+        saveWorkbenchData(parsed).catch(() => {});
       }
       return parsed;
     }
