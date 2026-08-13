@@ -30,21 +30,45 @@ import {
 const STANDARD_SECTIONS = [
   "产品与规格",
   "产品定位",
+  "产品定位与核心规格",
+  "产品定义与规格",
   "关键规格",
+  "关键参数与规格",
   "1688采购参考",
+  "1688采购参考与供应链",
+  "1688供应链",
   "原料与结构",
+  "原材料与结构",
+  "原料结构与成本",
   "材料与产品硬成本",
+  "材料硬成本与BOM",
+  "BOM与硬成本",
   "生产流程与设备",
+  "生产工艺与设备",
+  "生产流程与工艺",
+  "制造与设备",
   "制造方式",
+  "制造流程与设备",
   "成熟替代与优化",
   "替代与优化",
+  "优化方向",
   "缺陷与风险",
   "风险与缺陷",
+  "风险提示",
+  "风险预警",
+  "产品风险与缺陷",
   "采购与验证",
+  "采购建议与验证",
   "延伸机会",
+  "延伸与机会",
+  "机会延伸",
   "决策摘要",
+  "采购决策",
+  "决策建议",
   "市场与竞争",
-  "用户与需求"
+  "市场竞争与竞品",
+  "用户与需求",
+  "用户需求与洞察"
 ] as const;
 
 type StandardSection = typeof STANDARD_SECTIONS[number];
@@ -145,6 +169,7 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
   const optimizationSection: StandardSection = sections.has("成熟替代与优化") ? "成熟替代与优化" : "替代与优化";
   const riskSection: StandardSection = sections.has("缺陷与风险") ? "缺陷与风险" : "风险与缺陷";
   const stableId = `product-research-${fingerprint((name ?? "未命名产品").trim().toLowerCase())}`;
+  const manufacturing = parseManufacturing(manufacturingLines, recordConflict(manufacturingSection));
   const product: ProductKnowledgeV2 = {
     schemaVersion: 2,
     id: stableId,
@@ -163,7 +188,7 @@ export function parseProductResearchMarkdown(rawText: string, source: ProductRes
     costItems: costs.items,
     ...(hardCostConfirmed && calculatedCost.total !== undefined ? { hardCostTotal: calculatedCost.total } : {}),
     hardCostStatus: hardCostConfirmed ? "confirmed" : "pending",
-    manufacturing: parseManufacturing(manufacturingLines, recordConflict(manufacturingSection)),
+    manufacturing,
     optimizationOptions: parseOptimizationOptions(sections.get(optimizationSection) ?? [], recordConflict(optimizationSection)),
     risks: parseRisks(sections.get(riskSection) ?? [], recordConflict(riskSection)),
     opportunities: parseOpportunities(sections.get("延伸机会") ?? [], recordConflict("延伸机会")),
@@ -322,23 +347,69 @@ function parseMaterialStructures(lines: string[], recordConflict: ConflictRecord
 function splitSections(rawText: string): SectionMap {
   const sections: SectionMap = new Map();
   let currentSection: StandardSection | undefined;
+  // 兼容多种写法的章节名：把不同写法映射到标准章节
+  const sectionAliases: Record<string, StandardSection> = {
+    "产品定位与核心规格": "产品与规格",
+    "产品定义与规格": "产品与规格",
+    "关键参数与规格": "关键规格",
+    "1688采购参考与供应链": "1688采购参考",
+    "1688供应链": "1688采购参考",
+    "原材料与结构": "原料与结构",
+    "原料结构与成本": "原料与结构",
+    "材料硬成本与BOM": "材料与产品硬成本",
+    "BOM与硬成本": "材料与产品硬成本",
+    "生产工艺与设备": "生产流程与设备",
+    "生产流程与工艺": "生产流程与设备",
+    "制造与设备": "生产流程与设备",
+    "制造流程与设备": "生产流程与设备",
+    "优化方向": "成熟替代与优化",
+    "风险提示": "缺陷与风险",
+    "风险预警": "缺陷与风险",
+    "产品风险与缺陷": "缺陷与风险",
+    "采购建议与验证": "采购与验证",
+    "延伸与机会": "延伸机会",
+    "机会延伸": "延伸机会",
+    "采购决策": "决策摘要",
+    "决策建议": "决策摘要",
+    "市场竞争与竞品": "市场与竞争",
+    "用户需求与洞察": "用户与需求"
+  };
+
+  function canonicalize(name: string): StandardSection | undefined {
+    if (isStandardSection(name)) return name;
+    return sectionAliases[name];
+  }
+
+  function headingFrom(line: string): string | undefined {
+    const trimmed = line.trim();
+    // ## / ### / #### Markdown 标题
+    const md = trimmed.match(/^#{1,4}\s+(.+?)\s*$/)?.[1].trim();
+    if (md) return md;
+    // 「Xxxx：」独占一行且长度 ≤ 24 的情况也识别为小节名（如报告的排版）
+    if (trimmed.length >= 2 && trimmed.length <= 24 && /^[\u4e00-\u9fa5A-Za-z·\-–—\s0-9]+$/.test(trimmed)) {
+      // 再用字段名探测：如果含有 "核心工艺/所需机器/原材料风险" 等强提示字段，不识别为章节
+      const strong = [
+        "核心工艺", "所需机器", "质量控制点", "主要产业带", "生产难点", "生产周期", "最小起订量", "MOQ",
+        "原材料风险", "合规风险", "使用风险", "产品售后风险", "产品缺陷", "工艺风险"
+      ];
+      if (!strong.some((k) => trimmed.includes(k))) {
+        // 章节倾向：末尾是"与""和""及""流程""设备""成本""结构""规格""风险""决策""验证""采购""机会""摘要""竞争""需求""市场""用户""优化""替代"之一
+        const chapterLike = /(与|和|及|流程|设备|成本|结构|规格|风险|决策|验证|采购|机会|摘要|竞争|需求|市场|用户|优化|替代|工艺|原料|材料|缺陷|采购参考|定位)$/.test(trimmed);
+        if (chapterLike) return trimmed;
+      }
+    }
+    return undefined;
+  }
 
   rawText.replace(/\r\n/g, "\n").split("\n").forEach((line) => {
-    // 路径1：标准 Markdown ## 标题
-    const heading = line.match(/^##\s+(.+?)\s*$/)?.[1].trim();
+    const heading = headingFrom(line);
     if (heading) {
-      currentSection = isStandardSection(heading) ? heading : undefined;
-      if (currentSection && !sections.has(currentSection)) sections.set(currentSection, []);
-      return;
-    }
-    // 路径2：纯文本章节标题（整行去掉空白后精确匹配章节名）
-    // 启发式：整行字符数 ≤ 15（避免把正文里的"关键规格"等词误判为章节）
-    const trimmed = line.trim();
-    if (trimmed.length > 0 && trimmed.length <= 15 && isStandardSection(trimmed)) {
-      // 再确认一下：这行只包含章节名，没有其他内容（允许前后空白）
-      currentSection = trimmed;
-      if (!sections.has(currentSection)) sections.set(currentSection, []);
-      return;
+      const canonical = canonicalize(heading);
+      if (canonical) {
+        currentSection = canonical;
+        if (!sections.has(currentSection)) sections.set(currentSection, []);
+        return;
+      }
     }
     if (currentSection) sections.get(currentSection)?.push(line);
   });
@@ -825,13 +896,30 @@ function parseCosts(
 
 function parseManufacturing(lines: string[], recordConflict: ConflictRecorder) {
   const fields = fieldsIn(lines, recordConflict);
+  const leadTime =
+    field(fields, "生产周期") ??
+    // 有些报告会写成 "生产周期：xxx 天（不含打样）" 这种多行
+    firstNonEmpty(fields.get("生产周期")?.values ?? []);
+  const minimumOrderQuantity = field(fields, "最小起订量");
+
   const notes = ["所需机器", "生产难点", "质量控制点", "主要产业带"]
-    .map((name) => {
-      const value = field(fields, name);
-      return value ? `${name}：${value}` : undefined;
-    })
-    .filter(isDefined);
-  return { processes: values(field(fields, "核心工艺")), notes: notes.join("\n") || undefined };
+    .flatMap((name) => {
+      const linesForSection = values(field(fields, name));
+      if (linesForSection.length === 0) return [];
+      return [`${name}：${linesForSection.join("；")}`];
+    });
+
+  const processes = values(field(fields, "核心工艺"));
+  return {
+    processes,
+    leadTime: leadTime || undefined,
+    minimumOrderQuantity: minimumOrderQuantity || undefined,
+    notes: notes.join("\n") || undefined
+  };
+}
+
+function firstNonEmpty(arr: string[]): string | undefined {
+  return arr.find((s) => s && s.trim().length > 0)?.trim();
 }
 
 function parseOptimizationOptions(lines: string[], recordConflict: ConflictRecorder): ProductOptimizationOption[] {
@@ -1329,12 +1417,163 @@ function column(row: MarkdownRow, name: string): string | undefined {
   return value && value !== "待确认" ? value : undefined;
 }
 
+const FIELD_ALIASES: Record<string, string> = {
+  // 产品与规格
+  "产品名": "产品名称",
+  "品名": "产品名称",
+  "名称": "产品名称",
+  "品牌": "产品名称",
+  "品类": "产品品类",
+  "产品类别": "产品品类",
+  "分类": "产品品类",
+  "用途": "核心用途",
+  "功能用途": "核心用途",
+  "核心功能": "核心用途",
+  "用户": "目标用户",
+  "用户群": "目标用户",
+  "人群": "目标用户",
+  "用户画像": "目标用户",
+  "场景": "使用场景",
+  "应用场景": "使用场景",
+  "使用环境": "使用场景",
+  "单位": "默认计量单位",
+  "计量单位": "默认计量单位",
+
+  // 关键规格（别名处理在 normalizeHeader + 独立 parseSpecifications 内完成）
+
+  // 原料与结构（表格专用别名在 parseMaterialStructures 中）
+
+  // 生产流程与设备
+  "工艺": "核心工艺",
+  "生产工艺": "核心工艺",
+  "工艺流程": "核心工艺",
+  "工艺流程说明": "核心工艺",
+  "核心工艺流程": "核心工艺",
+  "生产流程": "核心工艺",
+  "制程": "核心工艺",
+  "加工工艺": "核心工艺",
+  "制造工艺": "核心工艺",
+  "关键工艺": "核心工艺",
+  "主要工艺": "核心工艺",
+  "工艺要求": "核心工艺",
+  "生产流程说明": "核心工艺",
+  "交期": "生产周期",
+  "交付周期": "生产周期",
+  "交货周期": "生产周期",
+  "生产交期": "生产周期",
+  "大货周期": "生产周期",
+  "leadtime": "生产周期",
+  "lead_time": "生产周期",
+  "LeadTime": "生产周期",
+  "起订量": "最小起订量",
+  "最低起订量": "最小起订量",
+  "MOQ": "最小起订量",
+  "moq": "最小起订量",
+  "最小订货量": "最小起订量",
+  "机器设备": "所需机器",
+  "所需设备": "所需机器",
+  "机器": "所需机器",
+  "设备": "所需机器",
+  "生产设备": "所需机器",
+  "生产机器": "所需机器",
+  "检测设备": "所需机器",
+  "质检设备": "所需机器",
+  "核心设备": "所需机器",
+  "质量控制": "质量控制点",
+  "品控要点": "质量控制点",
+  "品质控制点": "质量控制点",
+  "质检重点": "质量控制点",
+  "质检要点": "质量控制点",
+  "QC要点": "质量控制点",
+  "重点检测项": "质量控制点",
+  "产地": "主要产业带",
+  "产业带": "主要产业带",
+  "主要产区": "主要产业带",
+  "生产产地": "主要产业带",
+  "集中产地": "主要产业带",
+  "地域分布": "主要产业带",
+  "供应链分布": "主要产业带",
+
+  // 风险与缺陷
+  "质量风险": "产品缺陷",
+  "质量缺陷": "产品缺陷",
+  "常见问题": "产品缺陷",
+  "通病": "产品缺陷",
+  "常见缺陷": "产品缺陷",
+  "设计缺陷": "产品缺陷",
+  "质量问题": "产品缺陷",
+  "工艺难点": "工艺风险",
+  "制造风险": "工艺风险",
+  "生产风险": "工艺风险",
+  "工艺问题": "工艺风险",
+  "生产难点": "工艺风险",
+  "制造难点": "工艺风险",
+  "加工难点": "工艺风险",
+  "原材料供应风险": "原材料风险",
+  "供应风险": "原材料风险",
+  "原料风险": "原材料风险",
+  "材料风险": "原材料风险",
+  "物料风险": "原材料风险",
+  "采购风险": "原材料风险",
+  "上游风险": "原材料风险",
+  "供应稳定性": "原材料风险",
+  "法规风险": "合规风险",
+  "监管风险": "合规风险",
+  "法律风险": "合规风险",
+  "认证风险": "合规风险",
+  "资质风险": "合规风险",
+  "标准风险": "合规风险",
+  "环保风险": "合规风险",
+  "ROHS": "合规风险",
+  "RoHS": "合规风险",
+  "REACH": "合规风险",
+  "使用安全": "使用风险",
+  "安全风险": "使用风险",
+  "用户风险": "使用风险",
+  "消费风险": "使用风险",
+  "使用场景风险": "使用风险",
+  "误用风险": "使用风险",
+  "售后": "产品售后风险",
+  "售后问题": "产品售后风险",
+  "退货风险": "产品售后风险",
+  "售后风险": "产品售后风险",
+  "客诉风险": "产品售后风险",
+  "投诉风险": "产品售后风险",
+  "差评风险": "产品售后风险",
+  "与产品本身直接相关的售后": "产品售后风险",
+  "产品售后": "产品售后风险",
+  "售后服务风险": "产品售后风险"
+};
+
 function normalizeHeader(value: string): string {
-  return value.replace(/[\s：:]/g, "").trim();
+  let key = value
+    .replace(/[\s：:·（）()【】\[\]\""''`]/g, "")
+    .replace(/[（(].*?[）)]/g, "")
+    .trim();
+  if (FIELD_ALIASES[key]) return FIELD_ALIASES[key];
+  return key;
 }
 
 function values(value: string | undefined): string[] {
-  return value ? value.split(/[；;、，,\n]/).map((item) => item.trim()).filter(Boolean) : [];
+  if (!value) return [];
+  const raw = value
+    .replace(/\r\n/g, "\n")
+    // 把 ｜ 和 | 也当成分隔符（你报告里是竖线多值）
+    .replace(/[｜|]/g, "；")
+    // 把 "— - · *" 开头的 bullet 换行
+    .replace(/\n[\s]*([\-*•·–—])\s*/g, "\n")
+    .split(/\n/);
+
+  const out: string[] = [];
+  raw.forEach((block) => {
+    const blockTrimmed = block.trim().replace(/^[\-*•·–—]+\s*/, "");
+    if (!blockTrimmed) return;
+    const items = blockTrimmed.split(/[；;、，,]+/).map((s) => s.trim()).filter(Boolean);
+    items.forEach((it) => {
+      if (it && !out.includes(it)) out.push(it);
+    });
+  });
+  return out;
 }
 
 function isDefined<T>(value: T | undefined): value is T {

@@ -4,7 +4,10 @@ import { useRef, useState, useEffect } from "react";
 import { exportLocalWorkbenchData, importLocalWorkbenchData } from "@/features/workbench/local-store";
 import { exportProductImportDrafts } from "@/features/workbench/product-import-store";
 import { presetThemes, applyTheme, saveTheme, type ThemeConfig } from "@/lib/theme";
-import { Palette, Check } from "lucide-react";
+import { Palette, Check, Upload, User, Trash2, Loader2 } from "lucide-react";
+import Image from "next/image";
+
+const DEFAULT_AVATAR = "/images/avatar.jpg";
 
 export default function SettingsPage() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -12,6 +15,76 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [exportingProgram, setExportingProgram] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<ThemeConfig>(presetThemes[0]);
+
+  // Avatar state
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string>(DEFAULT_AVATAR);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarMessage, setAvatarMessage] = useState("");
+  const [avatarError, setAvatarError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/avatar")
+      .then((r) => r.json())
+      .then((data: { url: string | null }) => {
+        if (data.url) setAvatarUrl(data.url);
+      })
+      .catch(() => setAvatarUrl(DEFAULT_AVATAR));
+  }, []);
+
+  function broadcastAvatar(url: string | null) {
+    const evt = new CustomEvent("workbench:avatar-updated", { detail: url });
+    window.dispatchEvent(evt);
+  }
+
+  async function handleAvatarSelect(file?: File) {
+    if (!file) return;
+    // Local preview
+    const reader = new FileReader();
+    reader.onload = () => setAvatarPreview(reader.result as string);
+    reader.readAsDataURL(file);
+
+    // Upload
+    setAvatarUploading(true);
+    setAvatarError("");
+    setAvatarMessage("");
+    try {
+      const formData = new FormData();
+      formData.append("avatar", file);
+      const resp = await fetch("/api/avatar", { method: "POST", body: formData });
+      const data = await resp.json();
+      if (!resp.ok || data.error) throw new Error(data.error || "上传失败");
+      setAvatarUrl(data.url);
+      setAvatarPreview(null);
+      broadcastAvatar(data.url);
+      setAvatarMessage("头像已更新，侧边栏已同步刷新。");
+      setTimeout(() => setAvatarMessage(""), 3500);
+    } catch (caught) {
+      setAvatarPreview(null);
+      setAvatarError(caught instanceof Error ? caught.message : "头像上传失败。");
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
+
+  async function handleAvatarReset() {
+    const confirmed = window.confirm("确定要恢复为默认头像吗？");
+    if (!confirmed) return;
+    setAvatarError("");
+    setAvatarMessage("");
+    try {
+      await fetch("/api/avatar", { method: "DELETE" });
+      setAvatarUrl(DEFAULT_AVATAR);
+      setAvatarPreview(null);
+      broadcastAvatar(null);
+      setAvatarMessage("已恢复为默认头像。");
+      setTimeout(() => setAvatarMessage(""), 3000);
+    } catch {
+      setAvatarError("恢复默认头像失败。");
+    }
+  }
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -105,6 +178,84 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold" style={{ fontFamily: "var(--font-display)" }}>设置</h1>
         <p className="mt-1 text-sm text-muted">可以分别备份业务数据，或导出包含全部页面代码和数据的完整程序。</p>
       </div>
+
+      {/* 个人头像 */}
+      <section className="rounded-3xl border border-line bg-surface p-5">
+        <div className="flex items-center gap-2.5">
+          <User className="h-5 w-5 text-action" />
+          <h2 className="font-semibold">个人头像</h2>
+        </div>
+        <p className="mt-1 text-sm text-muted">上传你的自定义头像，侧边栏与登录页会同步显示。</p>
+
+        <div className="mt-5 flex flex-col items-center gap-5 sm:flex-row sm:items-start">
+          {/* Avatar preview */}
+          <div className="relative shrink-0">
+            <div className="h-28 w-28 overflow-hidden rounded-3xl border border-line shadow-card bg-paper-warm">
+              <Image
+                alt="头像预览"
+                className="h-full w-full object-cover"
+                height={112}
+                src={avatarPreview || avatarUrl}
+                width={112}
+                unoptimized
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  target.src = DEFAULT_AVATAR;
+                }}
+              />
+            </div>
+            {avatarUploading && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-black/40 text-white">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex-1 space-y-3 text-center sm:text-left">
+            <div>
+              <p className="text-sm font-medium text-ink">当前头像</p>
+              <p className="mt-0.5 text-xs text-muted">支持 JPG / PNG / WebP / GIF / HEIC（iPhone 原片），大小不超过 5MB。</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
+              <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-action px-4 py-2.5 text-sm font-medium text-white transition-all hover:shadow-glow disabled:opacity-60 disabled:cursor-wait"
+                style={{ borderRadius: "var(--radius-button)" }}
+              >
+                <Upload className="h-4 w-4" />
+                {avatarUploading ? "上传中..." : "上传新头像"}
+                <input
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/bmp,image/jpg"
+                  className="hidden"
+                  disabled={avatarUploading}
+                  onChange={(e) => handleAvatarSelect(e.target.files?.[0])}
+                  ref={avatarInputRef}
+                  type="file"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={handleAvatarReset}
+                disabled={avatarUploading}
+                className="inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2.5 text-sm text-muted transition-all hover:bg-paper-warm hover:text-danger disabled:opacity-60 disabled:cursor-wait"
+                style={{ borderRadius: "var(--radius-button)" }}
+              >
+                <Trash2 className="h-4 w-4" />
+                恢复默认
+              </button>
+            </div>
+            {avatarMessage ? (
+              <div className="rounded-xl px-3 py-2 text-sm" style={{ background: "var(--color-success-soft)", color: "var(--color-success)" }}>
+                {avatarMessage}
+              </div>
+            ) : null}
+            {avatarError ? (
+              <div className="rounded-xl px-3 py-2 text-sm" style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}>
+                {avatarError}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       {/* 主题外观 */}
       <section className="rounded-3xl border border-line bg-surface p-5">

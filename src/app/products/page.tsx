@@ -13,6 +13,19 @@ import {
   labelLifecycleStage,
   labelSignalStatus
 } from "@/features/workbench/display-labels";
+import { getStageMeta, getAllStages, getStageIndex } from "@/features/workbench/stage-checklist-template";
+import { ChevronRight } from "lucide-react";
+
+const stageColors: Record<string, { bg: string; text: string; border: string; hex: string }> = {
+  signal: { bg: "bg-slate-400", text: "text-slate-600", border: "border-slate-300", hex: "#94a3b8" },
+  validated: { bg: "bg-blue-400", text: "text-blue-600", border: "border-blue-300", hex: "#60a5fa" },
+  defined: { bg: "bg-indigo-400", text: "text-indigo-600", border: "border-indigo-300", hex: "#818cf8" },
+  supply_locked: { bg: "bg-amber-400", text: "text-amber-600", border: "border-amber-300", hex: "#fbbf24" },
+  listing: { bg: "bg-emerald-400", text: "text-emerald-600", border: "border-emerald-300", hex: "#34d399" },
+  evaluating: { bg: "bg-purple-400", text: "text-purple-600", border: "border-purple-300", hex: "#c084fc" },
+  archived: { bg: "bg-green-500", text: "text-green-600", border: "border-green-300", hex: "#22c55e" },
+  discontinued: { bg: "bg-red-400", text: "text-red-600", border: "border-red-300", hex: "#f87171" }
+};
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -26,7 +39,6 @@ export default function ProductsPage() {
   const products = sortPinnedFirst(useWorkbenchData().products);
   const tags = uniqueTags(products.map((product) => [product.name]));
 
-  // 页面加载时强制从云端同步，确保本地看到最新数据
   useEffect(() => {
     void syncFromCloud().then((data) => {
       setWorkbenchSnapshot(data);
@@ -91,7 +103,7 @@ export default function ProductsPage() {
         </Link>
       </div>
 
-      {/* 漏斗：阶段分段概览 + 快速筛选 */}
+      {/* Funnel visualization */}
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-800">产品机会漏斗</h2>
@@ -106,7 +118,6 @@ export default function ProductsPage() {
             onClick={() => { setStageFilter(""); setSignalStatusFilter(""); }}
           />
           {LIFECYCLE_STAGE_OPTIONS.map((opt) => {
-            const meta = labelLifecycleStage(opt.value);
             return (
               <FunnelChip
                 key={opt.value}
@@ -119,7 +130,6 @@ export default function ProductsPage() {
             );
           })}
         </div>
-        {/* 信号池时显示二级状态筛选 */}
         {(stageFilter === "signal" || stageFilter === "") && (
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-dashed border-line pt-3">
             <span className="text-xs text-slate-500">信号状态：</span>
@@ -130,19 +140,16 @@ export default function ProductsPage() {
               tone="default"
               onClick={() => setSignalStatusFilter("")}
             />
-            {SIGNAL_STATUS_OPTIONS.map((opt) => {
-              const meta = labelSignalStatus(opt.value);
-              return (
-                <FunnelChip
-                  key={opt.value}
-                  label={opt.label}
-                  count={products.filter((p) => p.signalStatus === opt.value).length}
-                  active={signalStatusFilter === opt.value}
-                  tone={opt.value === "dormant" ? "muted" : "default"}
-                  onClick={() => setSignalStatusFilter(opt.value)}
-                />
-              );
-            })}
+            {SIGNAL_STATUS_OPTIONS.map((opt) => (
+              <FunnelChip
+                key={opt.value}
+                label={opt.label}
+                count={products.filter((p) => p.signalStatus === opt.value).length}
+                active={signalStatusFilter === opt.value}
+                tone={opt.value === "dormant" ? "muted" : "default"}
+                onClick={() => setSignalStatusFilter(opt.value)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -158,6 +165,7 @@ export default function ProductsPage() {
         tags={tags}
         title="产品知识库"
       />
+
       {products.length === 0 ? (
         <EmptyState
           title="还没有产品知识"
@@ -168,10 +176,23 @@ export default function ProductsPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((product) => {
-            const stage = labelLifecycleStage(product.lifecycleStage);
             const signal = labelSignalStatus(product.signalStatus);
+            const currentStage = product.lifecycleStage ?? "signal";
+            const progress = product.stageProgress?.find((sp) => sp.stage === currentStage);
+            const checklist = progress?.checklist ?? [];
+            const completedCount = checklist.filter((c) => c.checked).length;
+            const totalCount = checklist.length;
+            const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+            const colors = stageColors[currentStage] ?? stageColors.signal;
+            const meta = getStageMeta(currentStage);
+            const stages = getAllStages();
+            const currentIdx = getStageIndex(currentStage);
+
             return (
-              <article className="rounded-lg border border-line bg-white p-4" key={product.id}>
+              <article
+                className="group rounded-xl border border-line bg-white p-4 shadow-card hover:shadow-card-hover transition-all hover:-translate-y-0.5"
+                key={product.id}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <label className="flex min-w-0 flex-1 items-start gap-2">
                     <input
@@ -182,28 +203,84 @@ export default function ProductsPage() {
                         : current.filter((id) => id !== product.id))}
                       type="checkbox"
                     />
-                    <Link className="min-w-0 font-medium hover:text-action" href={`/products/${product.id}`}>{product.name}</Link>
+                    <Link className="min-w-0 font-medium hover:text-action line-clamp-2" href={`/products/${product.id}`}>
+                      {product.name}
+                    </Link>
                   </label>
                   <button className="shrink-0 whitespace-nowrap rounded border border-line px-2 py-1 text-xs" onClick={() => pin(product.id)} type="button">
                     {product.pinned ? "取消置顶" : "置顶"}
                   </button>
                 </div>
-                {/* 阶段标签 + 信号标签（如果是信号池） */}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ring-1 ring-inset ${stage.tone}`}>
-                    {stage.label}
-                  </span>
-                  {(!product.lifecycleStage || product.lifecycleStage === "signal") && product.signalStatus && (
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ring-1 ring-inset ${signal.tone}`}>
-                      {signal.label}
+
+                {/* Stage progress visualization */}
+                <div className="mt-3 rounded-lg border border-line-soft bg-paper-warm/40 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${colors.bg} text-white`}>
+                        {meta.title}
+                      </span>
+                      {(!product.lifecycleStage || product.lifecycleStage === "signal") && product.signalStatus && (
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${signal.tone}`}>
+                          {signal.label}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-muted font-semibold">{progressPercent}%</span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-paper-warm">
+                    <div
+                      className={`h-full rounded-full transition-all ${colors.bg}`}
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+
+                  {/* Stage dots */}
+                  <div className="mt-2 flex items-center gap-0.5">
+                    {stages.map((s, i) => {
+                      const stageColor = stageColors[s];
+                      const isCurrent = s === currentStage;
+                      const isPast = i < currentIdx;
+                      return (
+                        <div key={s} className="flex items-center">
+                          <div
+                            className={`h-2 w-2 rounded-full transition-all ${
+                              isCurrent
+                                ? `${stageColor.bg} ring-2 ring-offset-1 ring-offset-white`
+                                : isPast
+                                  ? stageColor.bg
+                                  : "bg-muted-light/30"
+                            }`}
+                          />
+                          {i < stages.length - 1 && (
+                            <div className={`w-2 h-px ${isPast ? stageColor.bg : "bg-line-soft"}`} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between text-[11px]">
+                    <span className="text-muted">
+                      {totalCount > 0
+                        ? `${completedCount}/${totalCount} 检查项`
+                        : "检查项待生成"}
                     </span>
-                  )}
+                    <div className="flex items-center gap-0.5 text-muted-light group-hover:text-action transition-colors">
+                      <span>查看</span>
+                      <ChevronRight className="h-3 w-3" />
+                    </div>
+                  </div>
                 </div>
-                <p className="mt-2 line-clamp-2 text-sm text-slate-600">{product.decision.summary || product.coreUse || "未记录摘要"}</p>
-                <div className="mt-3 space-y-1 text-sm">
-                  <Info label="品类" value={product.category} />
-                  <Info label="主要原料" value={product.materialStructures.map((item) => item.name).slice(0, 3).join("、")} />
-                  <Info label="采购报价" value={product.procurementQuotes.length ? `${product.procurementQuotes.length} 条真实报价` : "待询价"} />
+
+                {/* Quick info */}
+                <p className="mt-3 line-clamp-2 text-sm text-slate-600">{product.decision.summary || product.coreUse || "未记录摘要"}</p>
+                <div className="mt-2 space-y-1 text-xs text-muted">
+                  {product.category && <div>品类：{product.category}</div>}
+                  <div>
+                    报价 {product.procurementQuotes.length} 条 · 原料 {product.materialStructures.length} 种
+                  </div>
                 </div>
               </article>
             );
@@ -251,14 +328,5 @@ function FunnelChip({
         {count}
       </span>
     </button>
-  );
-}
-
-function Info({ label, value }: { label: string; value?: string }) {
-  return (
-    <div>
-      <span className="text-slate-500">{label}：</span>
-      {value || "未记录"}
-    </div>
   );
 }

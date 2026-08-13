@@ -18,7 +18,8 @@ const taskTypeLabels: Record<string, string> = {
   supplement_product_knowledge: "补充产品知识",
   review_supplier: "复盘供应商",
   follow_up: "继续跟进",
-  knowledge_action: "知识应用"
+  knowledge_action: "知识应用",
+  product_stage: "产品阶段推进"
 };
 
 const reviewOutcomeLabels: Record<string, string> = {

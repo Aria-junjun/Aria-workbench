@@ -5,12 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ProductKnowledgeEditor } from "@/components/workbench/product-knowledge-editor";
 import { SectionActions } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
-import { useWorkbenchData } from "@/features/workbench/workbench-store";
-import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable, ProductLifecycleStage, ProductSignalStatus } from "@/features/workbench/product-knowledge";
+import { deleteLocalItem, saveLocalWorkbenchData, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
+import { useWorkbenchData, getWorkbenchSnapshot } from "@/features/workbench/workbench-store";
+import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable, ProductLifecycleStage, ProductSignalStatus, ProductDormantReason } from "@/features/workbench/product-knowledge";
+import { StageProcessCard } from "@/components/workbench/stage-process-card";
+import { DecisionTimeline } from "@/components/workbench/decision-timeline";
 import { buildProductTechnologyPrompt } from "@/features/workbench/product-technology-prompt";
 import { labelLifecycleStage, labelSignalStatus, LIFECYCLE_STAGE_OPTIONS, SIGNAL_STATUS_OPTIONS, labelDormantReason } from "@/features/workbench/display-labels";
-import type { ProductDormantReason } from "@/features/workbench/product-knowledge";
+import { randomId } from "@/lib/random-id";
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -66,8 +68,42 @@ export default function ProductDetailPage() {
           </div>
           <SectionActions editing={editing} onCancel={() => { setDraft(product); setEditing(false); }} onDelete={remove} onEdit={() => setEditing(true)} onSave={save} />
         </div>
-        <LifecycleStatusBar product={product} onUpdate={(next) => { setDraft(next); saveProductKnowledge(next); setVersion((v) => v + 1); }} />
+        <StageProcessCard
+          product={product}
+          onUpdate={(updater) => {
+            const next = updater(product);
+            setDraft(next);
+            saveProductKnowledge(next);
+            setVersion((v) => v + 1);
+          }}
+          onAddTask={(title, priority, productId, productName, stage) => {
+            const currentData = getWorkbenchSnapshot();
+            const newTask = {
+              id: randomId(),
+              title,
+              priority,
+              status: "open" as const,
+              type: "product_stage",
+              productId,
+              productName,
+              productStage: stage,
+              createdAt: new Date().toISOString(),
+              dueText: "",
+              pinned: false
+            };
+            saveLocalWorkbenchData({
+              ...currentData,
+              tasks: [newTask, ...currentData.tasks]
+            });
+          }}
+        />
       </section>
+
+      {/* Decision Timeline */}
+      <DecisionTimeline
+        stageProgresses={product.stageProgress ?? []}
+        currentStage={product.lifecycleStage ?? "signal"}
+      />
 
       {editing ? (
         <div className="rounded-md border border-line bg-white p-4">

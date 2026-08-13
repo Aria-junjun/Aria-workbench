@@ -211,6 +211,68 @@ export const PRODUCT_LIFECYCLE_STAGES = [
 ] as const;
 export type ProductLifecycleStage = typeof PRODUCT_LIFECYCLE_STAGES[number];
 
+// ===== 阶段进度追踪 =====
+export interface StageChecklistProgress {
+  id: string;
+  label: string;
+  priority: "required" | "recommended";
+  reason: string;
+  checked: boolean;
+  checkedAt?: string;
+  note?: string;
+}
+
+export interface StageDecisionRecord {
+  id: string;
+  stage: ProductLifecycleStage;
+  decision: "go" | "hold" | "cancel";
+  reason: string;
+  decidedAt: string;
+  decidedBy?: string;
+  missingItems?: string[];
+  /** 决策时的检查清单快照（勾选+备注），方便回溯 */
+  checklistSnapshot?: StageChecklistProgress[];
+}
+
+export interface StageProgress {
+  stage: ProductLifecycleStage;
+  enteredAt?: string;
+  completedAt?: string;
+  checklist: StageChecklistProgress[];
+  decisions: StageDecisionRecord[];
+  notes?: string;
+}
+
+export const StageChecklistProgressSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  priority: z.enum(["required", "recommended"]),
+  reason: z.string(),
+  checked: z.boolean(),
+  checkedAt: z.string().optional(),
+  note: z.string().optional()
+});
+
+export const StageDecisionRecordSchema = z.object({
+  id: z.string(),
+  stage: z.enum(PRODUCT_LIFECYCLE_STAGES),
+  decision: z.enum(["go", "hold", "cancel"]),
+  reason: z.string(),
+  decidedAt: z.string(),
+  decidedBy: z.string().optional(),
+  missingItems: z.array(z.string()).optional(),
+  checklistSnapshot: z.array(StageChecklistProgressSchema).optional()
+});
+
+export const StageProgressSchema = z.object({
+  stage: z.enum(PRODUCT_LIFECYCLE_STAGES),
+  enteredAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  checklist: z.array(StageChecklistProgressSchema),
+  decisions: z.array(StageDecisionRecordSchema),
+  notes: z.string().optional()
+});
+
 export const SIGNAL_STATUSES = ["active", "dormant", "rejected"] as const;
 export type ProductSignalStatus = typeof SIGNAL_STATUSES[number];
 
@@ -295,6 +357,9 @@ export type ProductKnowledgeV2 = {
   // ===== 闭环关联字段 =====
   relatedSupplierIds?: string[];
   relatedOfferIds?: string[];
+  // ===== 阶段进度追踪 =====
+  stageProgress?: StageProgress[];
+  currentStageIndex?: number;
 } & LegacyProductKnowledgeFields;
 
 export const ProductKnowledgeV2Schema = z.object({
@@ -353,7 +418,10 @@ export const ProductKnowledgeV2Schema = z.object({
   supplyChainFindings: SupplyChainFindingsSchema.optional(),
   // 闭环关联
   relatedSupplierIds: z.array(z.string()).optional(),
-  relatedOfferIds: z.array(z.string()).optional()
+  relatedOfferIds: z.array(z.string()).optional(),
+  // 阶段进度追踪
+  stageProgress: z.array(StageProgressSchema).optional(),
+  currentStageIndex: z.number().int().optional()
 });
 
 export function calculateHardCost(items: ProductCostItem[]): { total?: number; status: "confirmed" | "pending" } {

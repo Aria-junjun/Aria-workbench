@@ -13,11 +13,11 @@ import {
   FolderKanban,
   BookOpen,
   Settings,
-  Sparkles,
   ShieldCheck,
   LogOut
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Image from "next/image";
 
 type NavItem = {
   href: string;
@@ -27,27 +27,31 @@ type NavItem = {
 
 const navGroups: { title: string; items: NavItem[] }[] = [
   {
-    title: "今日行动",
+    title: "工作台",
     items: [
-      { href: "/tasks", label: "待办事项", icon: CheckSquare },
-      { href: "/intake", label: "快速录入", icon: Zap },
-      { href: "/", label: "工作台", icon: LayoutDashboard }
+      { href: "/", label: "首页", icon: LayoutDashboard }
     ]
   },
   {
-    title: "业务推进",
+    title: "产品全周期管理",
     items: [
-      { href: "/suppliers", label: "供应商库", icon: Truck },
-      { href: "/offers", label: "货盘报价", icon: Package },
+      { href: "/tasks", label: "待办提醒", icon: CheckSquare },
+      { href: "/products", label: "产品进程", icon: Lightbulb },
       { href: "/projects", label: "品类项目", icon: FolderKanban }
     ]
   },
   {
-    title: "知识沉淀",
+    title: "供应商管理",
     items: [
-      { href: "/products", label: "产品知识", icon: Lightbulb },
-      { href: "/research", label: "深度调研", icon: FlaskConical },
-      { href: "/knowledge", label: "商业知识", icon: BookOpen }
+      { href: "/suppliers", label: "供应商档案", icon: Truck },
+      { href: "/offers", label: "货盘报价", icon: Package }
+    ]
+  },
+  {
+    title: "储备区",
+    items: [
+      { href: "/knowledge", label: "商业知识", icon: BookOpen },
+      { href: "/research", label: "产品调研", icon: FlaskConical }
     ]
   },
   {
@@ -58,9 +62,37 @@ const navGroups: { title: string; items: NavItem[] }[] = [
   }
 ];
 
+const DEFAULT_AVATAR = "/images/avatar.jpg";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [showLogout, setShowLogout] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>(DEFAULT_AVATAR);
+
+  useEffect(() => {
+    fetch("/api/avatar")
+      .then((r) => r.json())
+      .then((data: { url: string | null }) => {
+        if (data.url) {
+          setAvatarUrl(data.url);
+        } else {
+          setAvatarUrl(DEFAULT_AVATAR);
+        }
+      })
+      .catch(() => setAvatarUrl(DEFAULT_AVATAR));
+
+    // 监听设置页面的头像变化
+    function handleAvatarUpdate(evt: Event) {
+      const customEvt = evt as CustomEvent<string>;
+      if (customEvt.detail) {
+        setAvatarUrl(customEvt.detail);
+      } else {
+        setAvatarUrl(DEFAULT_AVATAR);
+      }
+    }
+    window.addEventListener("workbench:avatar-updated", handleAvatarUpdate);
+    return () => window.removeEventListener("workbench:avatar-updated", handleAvatarUpdate);
+  }, []);
 
   function handleLogout() {
     sessionStorage.removeItem("workbench_authenticated");
@@ -73,11 +105,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 hidden w-64 z-30 border-r border-line bg-surface md:flex md:flex-col">
         {/* Brand */}
         <div className="flex items-center gap-3 px-5 py-5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-action to-action-strong text-white shadow-glow">
-            <Sparkles className="h-5 w-5" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-action to-action-strong text-white shadow-glow">
+            <Image
+              alt="Aria"
+              className="h-full w-full object-cover"
+              height={44}
+              src={avatarUrl}
+              width={44}
+              unoptimized
+              onError={() => setAvatarUrl(DEFAULT_AVATAR)}
+            />
           </div>
           <div className="flex flex-col">
-            <span className="font-display text-base font-bold leading-tight tracking-wide">个人工作台</span>
+            <span className="font-display text-base font-bold leading-tight tracking-wide">Aria的工作台</span>
             <span className="mt-0.5 text-[11px] text-muted-light font-medium">商业 · 供应链</span>
           </div>
         </div>
@@ -92,7 +132,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
                   return (
                     <Link
                       key={item.href}
@@ -126,12 +166,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all hover:bg-paper-warm"
               onClick={() => setShowLogout(!showLogout)}
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-action to-action-strong text-white text-xs font-bold">
-                S
+              <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full">
+                <Image
+                  alt="Aria"
+                  className="h-full w-full object-cover"
+                  height={32}
+                  src={avatarUrl}
+                  width={32}
+                  unoptimized
+                  onError={() => setAvatarUrl(DEFAULT_AVATAR)}
+                />
               </div>
               <div className="flex-1 text-left">
-                <p className="text-xs font-semibold text-ink">供应链操盘手</p>
-                <p className="text-[10px] text-muted-light">个人工作台</p>
+                <p className="text-xs font-semibold text-ink">Aria</p>
+                <p className="text-[10px] text-muted-light">Aria的工作台</p>
               </div>
               <ShieldCheck className="h-4 w-4 text-muted-light" />
             </button>
@@ -154,10 +202,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur-md md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-action to-action-strong text-white">
-              <Sparkles className="h-4 w-4" />
+            <div className="h-8 w-8 overflow-hidden rounded-xl">
+              <Image
+                alt="Aria"
+                className="h-full w-full object-cover"
+                height={32}
+                src={avatarUrl}
+                width={32}
+                unoptimized
+                onError={() => setAvatarUrl(DEFAULT_AVATAR)}
+              />
             </div>
-            <span className="font-display text-sm font-bold tracking-wide">个人工作台</span>
+            <span className="font-display text-sm font-bold tracking-wide">Aria的工作台</span>
           </div>
         </div>
       </header>

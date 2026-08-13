@@ -1,5 +1,4 @@
 import defaultData from "@/data/workbench-data.json";
-import { supabase } from "@/lib/supabase";
 import type { DraftExtraction } from "./schemas";
 import type { DecisionAnalysis, DecisionModelSection } from "./decision-analysis";
 import {
@@ -125,6 +124,9 @@ export type LocalTask = {
   communicationId?: string;
   offerId?: string;
   offerName?: string;
+  productId?: string;
+  productName?: string;
+  productStage?: string;
   title: string;
   dueText?: string;
   priority: string;
@@ -252,23 +254,47 @@ export type LocalCollectionName = keyof LocalWorkbenchData;
 type LocalItem<C extends LocalCollectionName> = LocalWorkbenchData[C][number];
 
 const storageKey = "personal-commercial-workbench";
+const PROXY_URL = "/api/supabase-proxy";
+
+/** 代理访问 Supabase：绕开浏览器网络限制，走本地 Next.js 服务器转发 */
+async function proxyFetch<T = unknown>(
+  action: "latest" | "count" | "upsert" | "insert" | "update",
+  payload?: Record<string, unknown>
+): Promise<T> {
+  const url = action === "latest" || action === "count"
+    ? `${PROXY_URL}?action=${action}`
+    : PROXY_URL;
+  const res = await fetch(url, {
+    method: action === "latest" || action === "count" ? "GET" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: action === "latest" || action === "count" ? undefined : JSON.stringify({ action, ...payload }),
+    cache: "no-store"
+  });
+  if (!res.ok) {
+    throw new Error(`Proxy HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as { ok: boolean; status: number; data: T };
+  if (!json.ok) {
+    throw new Error(`Proxy error: ${JSON.stringify(json.data)}`);
+  }
+  return json.data;
+}
 
 export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
-  console.log("[Sync] loadWorkbenchData 开始执行");
-  // 1. 尝试从 Supabase 读取
+  console.log("[Sync] loadWorkbenchData 开始执行（走服务端代理）");
+  // 1. 尝试从 Supabase 读取（通过本地代理，绕开浏览器网络限制）
   try {
-    const { data, error } = await supabase
-      .from("workbench_data")
-      .select("data")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .single();
+    const proxyData = await proxyFetch<Array<{ data: LocalWorkbenchData }> | null>("latest");
 
-    console.log("[Sync] Supabase 响应:", { hasData: !!data, hasError: !!error, errorMessage: error?.message });
+    console.log("[Sync] 代理响应:", {
+      type: Array.isArray(proxyData) ? "array" : typeof proxyData,
+      length: Array.isArray(proxyData) ? proxyData.length : 0
+    });
 
-    if (!error && data?.data) {
-      const parsed = normalizeWorkbenchData(data.data as Partial<LocalWorkbenchData>);
-      console.log("[Sync] Supabase 数据解析成功:", {
+    const first = Array.isArray(proxyData) ? proxyData[0] : undefined;
+    if (first?.data) {
+      const parsed = normalizeWorkbenchData(first.data);
+      console.log("[Sync] 云端数据解析成功:", {
         products: parsed.products.length,
         productNames: parsed.products.map(p => p.name),
         firstProductSpecs: parsed.products[0]?.specifications.length ?? 0,
@@ -280,11 +306,8 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
       }
       return parsed;
     }
-    if (error) {
-      console.warn("[Sync] Supabase 读取失败:", error.message);
-    }
   } catch (e) {
-    console.warn("[Sync] Supabase 连接异常:", e instanceof Error ? e.message : e);
+    console.warn("[Sync] 代理/Supabase 读取失败:", e instanceof Error ? e.message : e);
   }
 
   // 2. 回退到 localStorage
@@ -512,46 +535,12 @@ export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void>
     window.localStorage.setItem(storageKey, JSON.stringify(data));
   }
 
-  // 2. 写入 Supabase
+  // 2. 写入 Supabase（通过本地代理，绕开浏览器网络限制）
   try {
-    // 查询是否已有记录
-    const { data: existing, error: selectError } = await supabase
-      .from("workbench_data")
-      .select("id")
-      .limit(1)
-      .single();
-
-    if (selectError) {
-      console.error("[Sync] 查询 Supabase 记录失败:", selectError.message);
-      throw selectError;
-    }
-
-    if (existing?.id) {
-      // 更新已有记录
-      const { error: updateError } = await supabase
-        .from("workbench_data")
-        .update({ data: data as unknown as Record<string, unknown>, updated_at: new Date().toISOString() })
-        .eq("id", existing.id);
-      
-      if (updateError) {
-        console.error("[Sync] 更新 Supabase 记录失败:", updateError.message);
-        throw updateError;
-      }
-      console.log("[Sync] 更新 Supabase 成功");
-    } else {
-      // 插入新记录
-      const { error: insertError } = await supabase
-        .from("workbench_data")
-        .insert({ data: data as unknown as Record<string, unknown> });
-      
-      if (insertError) {
-        console.error("[Sync] 插入 Supabase 记录失败:", insertError.message);
-        throw insertError;
-      }
-      console.log("[Sync] 插入 Supabase 成功");
-    }
+    await proxyFetch("upsert", { data });
+    console.log("[Sync] 代理写入 Supabase 成功");
   } catch (e) {
-    console.error("[Sync] Supabase 写入失败:", e);
+    console.error("[Sync] 代理/Supabase 写入失败:", e instanceof Error ? e.message : e);
     console.error("[Sync] 本地已保存，不影响使用");
   }
 }
