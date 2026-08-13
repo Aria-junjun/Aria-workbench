@@ -1850,7 +1850,26 @@ const STAGE_TITLES: Record<string, string> = {
 const STAGE_ORDER = ["signal", "validated", "defined", "supply_locked", "listing", "evaluating", "archived"] as const;
 
 export function ensureProductStageTasks(data: LocalWorkbenchData): LocalWorkbenchData {
-  const tasks = [...data.tasks];
+  const signalProductIds = new Set(
+    data.products
+      .filter((p) => p.lifecycleStage === "signal" || !p.lifecycleStage)
+      .map((p) => p.id)
+  );
+
+  // 清理：已经处于 signal 阶段或未分阶段的产品，之前遗留的 product_stage 推进待办
+  // （因策略变更不再自动生成）标记为 done，避免列表堆积
+  const tasks = data.tasks.map((t) => {
+    if (
+      t.type === "product_stage" &&
+      t.status !== "done" &&
+      t.productId &&
+      signalProductIds.has(t.productId)
+    ) {
+      return { ...t, status: "done" as const };
+    }
+    return t;
+  });
+
   const existingTaskKeys = new Set(
     tasks
       .filter((t) => t.type === "product_stage" && t.status !== "done")
@@ -1859,7 +1878,9 @@ export function ensureProductStageTasks(data: LocalWorkbenchData): LocalWorkbenc
 
   for (const product of data.products) {
     const stage = product.lifecycleStage;
-    if (!stage || stage === "archived" || stage === "discontinued") continue;
+    // 信号池阶段不自动生成推进待办：即使系统判定为 active/GO，
+    // 用户也不一定实际打算推进，避免信号池产品把待办列表塞爆
+    if (!stage || stage === "signal" || stage === "archived" || stage === "discontinued") continue;
 
     const stageIdx = STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number]);
     if (stageIdx === -1 || stageIdx >= STAGE_ORDER.length - 1) continue;
