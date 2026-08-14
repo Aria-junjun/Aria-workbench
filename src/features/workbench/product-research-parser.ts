@@ -716,17 +716,81 @@ function isStandardSection(value: string): value is StandardSection {
 
 function fieldsIn(lines: string[], recordConflict: ConflictRecorder): FieldMap {
   const fields: FieldMap = new Map();
-  lines.forEach((line) => {
-    if (line.trim().startsWith("|")) return;
-    const match = line.trim().replace(/^-\s*/, "").match(/^([^：:]+)[：:]\s*(.*)$/);
-    if (!match) return;
-    const label = match[1].trim();
-    const value = match[2].trim();
-    const key = normalizeHeader(label);
-    const entry = fields.get(key) ?? { label, values: [] };
-    if (!entry.values.includes(value)) entry.values.push(value);
-    fields.set(key, entry);
-  });
+  let pendingLabel: { label: string; key: string; valueLines: string[] } | null = null;
+
+  function flushPending() {
+    if (!pendingLabel) return;
+    const value = pendingLabel.valueLines.join("\n").trim();
+    if (value) {
+      const entry = fields.get(pendingLabel.key) ?? { label: pendingLabel.label, values: [] };
+      if (!entry.values.includes(value)) entry.values.push(value);
+      fields.set(pendingLabel.key, entry);
+    } else {
+      // 纯 label 行（无值）也需要占位，让下游能检测到该字段存在但无值
+      if (!fields.has(pendingLabel.key)) {
+        fields.set(pendingLabel.key, { label: pendingLabel.label, values: [] });
+      }
+    }
+    pendingLabel = null;
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("|")) {
+      flushPending();
+      continue;
+    }
+    // 识别 heading 行（### 子标题），遇之终止当前多行收集
+    if (/^#{1,4}\s/.test(trimmed)) {
+      flushPending();
+      continue;
+    }
+    const match = trimmed.replace(/^-\s*/, "").match(/^([^：:]+)[：:]\s*(.*)$/);
+    if (match) {
+      flushPending();
+      const label = match[1].trim();
+      const value = match[2].trim();
+      const key = normalizeHeader(label);
+      if (value) {
+        const entry = fields.get(key) ?? { label, values: [] };
+        if (!entry.values.includes(value)) entry.values.push(value);
+        fields.set(key, entry);
+      } else {
+        // label 独占一行，后续行作为 value 收集
+        pendingLabel = { label, key, valueLines: [] };
+      }
+    } else if (pendingLabel) {
+      // 正在收集多行值，把当前行追加进去
+      if (trimmed) pendingLabel.valueLines.push(trimmed);
+    } else {
+      // 无冒号的短标签行：如果当前行看起来像一个字段名（短文本、不含 bullet 前缀），
+      // 且后续行是短值（如 GO/继续/是/否），把它当作 label: value 对处理
+      // 典型场景：采购与验证章节里 "是否值得继续询价或打样\nGO" 这种格式
+      const noColonLabel = trimmed.replace(/^-\s*/, "").trim();
+      if (
+        noColonLabel
+        && noColonLabel.length <= 20
+        && !noColonLabel.startsWith("-")
+        && !noColonLabel.startsWith("*")
+        && !noColonLabel.startsWith("•")
+        && /^[\u4e00-\u9fa5A-Za-z\s]+$/.test(noColonLabel)
+      ) {
+        const nextIdx = lines.indexOf(line) + 1;
+        const nextLine = nextIdx < lines.length ? lines[nextIdx].trim() : "";
+        if (nextLine && nextLine.length <= 10 && !nextLine.startsWith("|")) {
+          // 把无冒号标签转为 "label：value" 格式
+          const key = normalizeHeader(noColonLabel);
+          const entry = fields.get(key) ?? { label: noColonLabel, values: [] };
+          if (!entry.values.includes(nextLine)) entry.values.push(nextLine);
+          fields.set(key, entry);
+          // 跳过已被消耗的下一行
+          lines[nextIdx] = "";
+        }
+      }
+    }
+  }
+  flushPending();
+
   fields.forEach(({ label, values: candidates }) => {
     if (candidates.length > 1) recordConflict(label, candidates);
   });
@@ -1542,7 +1606,23 @@ const FIELD_ALIASES: Record<string, string> = {
   "差评风险": "产品售后风险",
   "与产品本身直接相关的售后": "产品售后风险",
   "产品售后": "产品售后风险",
-  "售后服务风险": "产品售后风险"
+  "售后服务风险": "产品售后风险",
+
+  // 采购与验证
+  "是否值得继续询价或打样": "是否值得继续",
+  "是否值得继续做": "是否值得继续",
+  "是否GO": "是否值得继续",
+  "GO/NOGO": "是否值得继续",
+  "初步结论": "是否值得继续",
+  "必须确认与关键变量": "必须确认",
+  "关键变量": "必须确认",
+  "影响报价和质量的因素": "影响报价和质量的关键变量",
+  "影响报价的关键因素": "影响报价和质量的关键变量",
+  "打样与验货重点": "打样重点",
+  "打样、验货与下一步行动": "打样重点",
+  "下一步行动建议": "下一步行动",
+  "后续步骤": "下一步行动",
+  "当前决策状态": "是否值得继续"
 };
 
 function normalizeHeader(value: string): string {
