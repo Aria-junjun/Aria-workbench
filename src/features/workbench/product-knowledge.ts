@@ -29,10 +29,11 @@ export const ProductProcurementQuoteSchema = z.object({
   source: z.string().min(1),
   specification: z.string().min(1),
   price: z.string().min(1),
+  supplier: z.string().optional(),
+  sourceUrl: z.string().optional(),
   moq: z.string().optional(),
   freight: z.string().optional(),
   quotedAt: z.string().optional(),
-  sourceUrl: z.string().optional(),
   note: z.string().optional()
 });
 

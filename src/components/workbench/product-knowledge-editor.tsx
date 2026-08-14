@@ -95,11 +95,13 @@ export function ProductKnowledgeEditor({
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <TextInput label="来源" onChange={(source) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { source }) })} value={quote.source} />
+                <TextInput label="供应商" onChange={(supplier) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { supplier }) })} value={quote.supplier} />
                 <TextInput label="对应规格" onChange={(specification) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { specification }) })} value={quote.specification} />
                 <TextInput label="批发报价" onChange={(price) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { price }) })} value={quote.price} />
                 <TextInput label="MOQ" onChange={(moq) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { moq }) })} value={quote.moq} />
                 <TextInput label="运费口径" onChange={(freight) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { freight }) })} value={quote.freight} />
                 <TextInput label="报价时间" onChange={(quotedAt) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { quotedAt }) })} value={quote.quotedAt} />
+                <TextInput label="链接" onChange={(sourceUrl) => onChange({ ...value, procurementQuotes: patchRow(value.procurementQuotes, index, { sourceUrl }) })} value={quote.sourceUrl} placeholder="https://..." />
               </div>
             </div>
           ))}

@@ -274,6 +274,8 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
       source,
       specification,
       price,
+      supplier: column(row, "供应商") ?? column(row, "店铺") ?? column(row, "公司"),
+      sourceUrl: column(row, "链接") ?? column(row, "URL") ?? column(row, "详情链接"),
       moq: column(row, "MOQ"),
       freight: column(row, "运费口径"),
       quotedAt: column(row, "报价时间")
@@ -283,8 +285,8 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
   // 路径2：单行管道格式（如：来源：1688 | 规格：xxx | 价格：¥36 | MOQ：1件起批 | 运费：待确认 | 链接：xxx）
   // 也兼容无竖线的 bullet key:value 多行格式，每行一条报价
   // 支持以任意报价相关字段开头（规格、来源、价格、批发报价等）
-  const kvField = /(来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：]\s*([^｜|\n]*?)\s*(?=(?:\s*[｜|]\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：])|$)/g;
-  const headerPattern = /^[\s\-*\u2022]*\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注)\s*[:=：]/i;
+  const kvField = /(来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注|供应商|店铺|公司)\s*[:=：]\s*([^｜|\n]*?)\s*(?=(?:\s*[｜|]\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注|供应商|店铺|公司)\s*[:=：])|$)/g;
+  const headerPattern = /^[\s\-*\u2022]*\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注|供应商|店铺|公司)\s*[:=：]/i;
 
   /** 对于"链接"字段额外清理：只取 http(s) URL，剔除反引号后的尾巴注释 */
   function cleanUrl(raw: string): string {
@@ -312,6 +314,7 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
       else if (key === "报价时间") found.quotedAt = found.quotedAt || value;
       else if (key === "链接") found.sourceUrl = found.sourceUrl || value;
       else if (key === "备注") found.note = found.note || value;
+      else if (key === "供应商" || key === "店铺" || key === "公司") found.supplier = found.supplier || value;
     }
     // 如果有规格和价格，即使没有来源也生成报价（默认来源为"线上"）
     if (found.specification && found.price) {
@@ -745,7 +748,17 @@ function fieldsIn(lines: string[], recordConflict: ConflictRecorder): FieldMap {
       flushPending();
       continue;
     }
-    const match = trimmed.replace(/^-\s*/, "").match(/^([^：:]+)[：:]\s*(.*)$/);
+    // 判断当前行是否为 bullet 行（- / * / • 开头，或带全角短横线）
+    const isBulletLine = /^\s*[-*•·–—]\s+/.test(line);
+    const bulletStripped = trimmed.replace(/^[-*•·–—]\s*/, "");
+
+    if (pendingLabel && isBulletLine) {
+      // 在多行值收集中遇到 bullet 行，无论是否含冒号都作为值的一部分
+      pendingLabel.valueLines.push(trimmed);
+      continue;
+    }
+
+    const match = bulletStripped.match(/^([^：:]+)[：:]\s*(.*)$/);
     if (match) {
       flushPending();
       const label = match[1].trim();
@@ -760,30 +773,27 @@ function fieldsIn(lines: string[], recordConflict: ConflictRecorder): FieldMap {
         pendingLabel = { label, key, valueLines: [] };
       }
     } else if (pendingLabel) {
-      // 正在收集多行值，把当前行追加进去
+      // 正在收集多行值，把当前行追加进去（无 bullet 的行也要保留）
       if (trimmed) pendingLabel.valueLines.push(trimmed);
     } else {
       // 无冒号的短标签行：如果当前行看起来像一个字段名（短文本、不含 bullet 前缀），
       // 且后续行是短值（如 GO/继续/是/否），把它当作 label: value 对处理
       // 典型场景：采购与验证章节里 "是否值得继续询价或打样\nGO" 这种格式
-      const noColonLabel = trimmed.replace(/^-\s*/, "").trim();
       if (
-        noColonLabel
-        && noColonLabel.length <= 20
-        && !noColonLabel.startsWith("-")
-        && !noColonLabel.startsWith("*")
-        && !noColonLabel.startsWith("•")
-        && /^[\u4e00-\u9fa5A-Za-z\s]+$/.test(noColonLabel)
+        bulletStripped
+        && bulletStripped.length <= 20
+        && !bulletStripped.startsWith("-")
+        && !bulletStripped.startsWith("*")
+        && !bulletStripped.startsWith("•")
+        && /^[\u4e00-\u9fa5A-Za-z\s]+$/.test(bulletStripped)
       ) {
         const nextIdx = lines.indexOf(line) + 1;
         const nextLine = nextIdx < lines.length ? lines[nextIdx].trim() : "";
         if (nextLine && nextLine.length <= 10 && !nextLine.startsWith("|")) {
-          // 把无冒号标签转为 "label：value" 格式
-          const key = normalizeHeader(noColonLabel);
-          const entry = fields.get(key) ?? { label: noColonLabel, values: [] };
+          const key = normalizeHeader(bulletStripped);
+          const entry = fields.get(key) ?? { label: bulletStripped, values: [] };
           if (!entry.values.includes(nextLine)) entry.values.push(nextLine);
           fields.set(key, entry);
-          // 跳过已被消耗的下一行
           lines[nextIdx] = "";
         }
       }
@@ -966,19 +976,20 @@ function parseManufacturing(lines: string[], recordConflict: ConflictRecorder) {
     firstNonEmpty(fields.get("生产周期")?.values ?? []);
   const minimumOrderQuantity = field(fields, "最小起订量");
 
-  const notes = ["所需机器", "生产难点", "质量控制点", "主要产业带"]
-    .flatMap((name) => {
-      const linesForSection = values(field(fields, name));
-      if (linesForSection.length === 0) return [];
-      return [`${name}：${linesForSection.join("；")}`];
-    });
+  // 所需机器、质量控制点、主要产业带已经有独立的顶层字段（machinery / qualityControls / industryClusters）
+  // 和对应的 UI 输入框，notes 只保留"生产难点"和其他补充说明，避免重复与错位
+  const notesParts: string[] = [];
+  const difficultyLines = values(field(fields, "生产难点"));
+  if (difficultyLines.length > 0) notesParts.push(difficultyLines.join("\n"));
+  const supplement = field(fields, "补充说明") ?? field(fields, "备注");
+  if (supplement) notesParts.push(supplement);
 
   const processes = values(field(fields, "核心工艺"));
   return {
     processes,
     leadTime: leadTime || undefined,
     minimumOrderQuantity: minimumOrderQuantity || undefined,
-    notes: notes.join("\n") || undefined
+    notes: notesParts.join("\n") || undefined
   };
 }
 
