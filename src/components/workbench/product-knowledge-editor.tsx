@@ -695,7 +695,7 @@ function EditorSection({
   );
 }
 
-function TextInput({ label, value, onChange }: { label: string; value?: string; onChange: (value: string) => void }) {
+function TextInput({ label, value, onChange, placeholder }: { label: string; value?: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <label className="block">
       <span className="text-xs text-slate-500">{label}</span>
@@ -703,6 +703,7 @@ function TextInput({ label, value, onChange }: { label: string; value?: string; 
         className="mt-1 w-full rounded-md border border-line px-3 py-2 text-sm"
         onChange={(event) => onChange(event.target.value)}
         value={value || ""}
+        placeholder={placeholder}
       />
     </label>
   );
