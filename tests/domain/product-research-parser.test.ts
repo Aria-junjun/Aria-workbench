@@ -533,3 +533,272 @@ function markdownTable(headers: string[], rows: string[][]): string {
     ...rows.map((row) => `| ${row.join(" | ")} |`)
   ].join("\n");
 }
+
+describe("supplier field extraction from pipe format", () => {
+  it("extracts supplier and link from pipe-format 1688 quotes", () => {
+    const rawText = `## 产品与规格
+产品名称：分格抽屉式儿童玩具收纳箱
+产品品类：家居收纳
+核心用途：儿童玩具整理
+
+## 1688采购参考
+- 来源：1688 | BNBS百纳邦首 | 规格：PP材质100%新料，27.5×16×30cm | 页面标价：¥49.50-54.60 | MOQ：1件起批 | 运费：待确认 | 供应商：揭阳（品牌BNBS百纳邦首，2025年上市） | 链接：https://detail.1688.com/offer/8987610924.html
+
+- 来源：1688 | 规格：抽屉式收纳箱，侧开透明 | 页面标价：¥13.21 | MOQ：待确认 | 运费：待确认 | 供应商：台州市黄岩文航家居用品有限公司 | 链接：https://www.1688.com/chanpin/-B6F9CADFC83F7CDE6BEDFCAD5C4C9CFE4.html
+
+## 生产流程与设备
+核心工艺：
+- 分格抽屉式收纳箱：PP注塑成型 → 分格隔板与主体一体注塑 → 质检 → 包装
+
+所需机器：
+- 注塑成型机（锁模力100-300吨级）
+- CNC精密模具
+
+生产难点：
+- PP半结晶结构带来各向异性收缩 → 导致翘曲变形
+
+质量控制点：
+- 尺寸公差（±0.3mm）
+
+主要产业带：
+- 浙江台州
+
+## 缺陷与风险
+产品缺陷：顶板加强筋缺失
+
+## 采购与验证
+是否值得继续询价或打样：GO`;
+
+    const parsed = parseProductResearchMarkdown(rawText);
+    const quotes = parsed.product.procurementQuotes;
+
+    // 供应商字段应该被识别
+    expect(quotes.length).toBeGreaterThan(0);
+    expect(quotes[0].supplier).toBeDefined();
+    expect(quotes[0].supplier).toContain("揭阳");
+
+    // 链接字段应该被识别
+    expect(quotes[0].sourceUrl).toBeDefined();
+    expect(quotes[0].sourceUrl).toContain("detail.1688.com");
+
+    // 第二条报价的供应商
+    expect(quotes[1].supplier).toContain("台州市黄岩文航家居用品");
+
+    // 核心工艺应该被识别（多行bullet值）
+    expect(parsed.product.manufacturing.processes.length).toBeGreaterThan(0);
+    expect(parsed.product.manufacturing.processes.join("")).toContain("PP注塑成型");
+
+    // 主要产业带应该被识别
+    expect(parsed.product.industryClusters.length).toBeGreaterThan(0);
+    expect(parsed.product.industryClusters.join("")).toContain("浙江台州");
+
+    // 所需机器应该被识别（独立顶层字段）
+    expect(parsed.product.machinery.length).toBeGreaterThan(0);
+    expect(parsed.product.machinery.join("")).toContain("注塑成型机");
+
+    // 生产难点应该在 notes 中
+    expect(parsed.product.manufacturing.notes).toBeDefined();
+    expect(parsed.product.manufacturing.notes).toContain("PP半结晶结构");
+
+    // 生产难点 notes 不应包含所需机器内容
+    expect(parsed.product.manufacturing.notes).not.toContain("CNC精密模具");
+  });
+
+  it("extracts supplier and link from table-format 1688 quotes", () => {
+    const rawText = `## 产品与规格
+产品名称：测试产品
+
+## 1688采购参考
+| 来源 | 供应商 | 对应规格 | 批发报价 | MOQ | 链接 |
+| --- | --- | --- | --- | --- | --- |
+| 1688 | 揭阳BNBS工厂 | PP材质收纳箱 | ¥49.50 | 100件 | https://detail.1688.com/123.html |
+
+## 生产流程与设备
+核心工艺：
+- 注塑成型 → 组装
+主要产业带：
+- 浙江`;
+
+    const parsed = parseProductResearchMarkdown(rawText);
+    const quotes = parsed.product.procurementQuotes;
+
+    expect(quotes.length).toBe(1);
+    expect(quotes[0].supplier).toBe("揭阳BNBS工厂");
+    expect(quotes[0].sourceUrl).toBe("https://detail.1688.com/123.html");
+  });
+
+  it("parses supplier when only partial pipe keys are present (non-key segments tolerated)", () => {
+    const rawText = `## 产品与规格
+产品名称：测试产品B
+
+## 1688采购参考
+- 规格：PET透明瓶 500ml | 价格：¥0.85 | 供应商：义乌XX塑料制品厂 | 链接：https://detail.1688.com/offer/abc.html | MOQ：1000个`;
+
+    const parsed = parseProductResearchMarkdown(rawText);
+    const quotes = parsed.product.procurementQuotes;
+
+    expect(quotes.length).toBeGreaterThan(0);
+    expect(quotes[0].source).toBe("线上");
+    expect(quotes[0].supplier).toContain("义乌");
+    expect(quotes[0].sourceUrl).toContain("detail.1688.com");
+  });
+
+  it("parses multi-line bullet values for 核心工艺 and 主要产业带 with nested sub-bullets", () => {
+    const rawText = `## 产品与规格
+产品名称：测试产品C
+
+## 生产流程与设备
+核心工艺：
+- 原料预处理
+- 注塑成型
+  - 锁模 200 吨
+  - 保压 5 秒
+- 表面处理
+- 组装
+
+所需机器：
+- 注塑机
+- 喷涂线
+
+质量控制点：
+- 外观无划痕
+- 尺寸公差 ±0.2mm
+
+主要产业带：
+- 浙江台州
+- 广东东莞
+
+生产难点：
+- 注塑易出现银丝`;
+
+    const parsed = parseProductResearchMarkdown(rawText);
+
+    // 核心工艺: 多行 bullet 值（含嵌套子 bullet）应全部收集
+    const processes = parsed.product.manufacturing.processes.join("\n");
+    expect(processes).toContain("原料预处理");
+    expect(processes).toContain("注塑成型");
+    expect(processes).toContain("锁模 200 吨");
+    expect(processes).toContain("表面处理");
+    expect(processes).toContain("组装");
+
+    expect(parsed.product.industryClusters).toEqual(expect.arrayContaining(["浙江台州", "广东东莞"]));
+    expect(parsed.product.machinery).toEqual(expect.arrayContaining(["注塑机", "喷涂线"]));
+    const qualityControls = parsed.product.qualityControls.join("\n");
+    expect(qualityControls).toContain("外观无划痕");
+    expect(qualityControls).toContain("尺寸公差");
+    expect(parsed.product.manufacturing.notes).toContain("银丝");
+  });
+
+  it("parses supplier through normalizeProductKnowledge without dropping supplier or manufacturing fields", async () => {
+    const { normalizeProductKnowledge } = await import("@/features/workbench/product-knowledge");
+    const rawText = `## 产品与规格
+产品名称：测试产品D
+
+## 1688采购参考
+- 来源：1688 | 规格：PP盒 | 价格：¥10 | 供应商：汕头澄海玩具厂 | 链接：https://detail.1688.com/offer/xyz.html
+
+## 生产流程与设备
+核心工艺：
+- 注塑
+- 喷漆
+主要产业带：
+- 广东汕头`;
+
+    const parsed = parseProductResearchMarkdown(rawText);
+    const normalized = normalizeProductKnowledge(parsed.product);
+
+    expect(normalized.procurementQuotes[0]).toMatchObject({
+      supplier: expect.stringContaining("澄海"),
+      sourceUrl: expect.stringContaining("detail.1688.com")
+    });
+    expect(normalized.manufacturing.processes.join("\n")).toContain("注塑");
+    expect(normalized.manufacturing.processes.join("\n")).toContain("喷漆");
+    expect(normalized.industryClusters).toEqual(expect.arrayContaining(["广东汕头"]));
+  });
+
+  it("recognizes supplier in table via aliases (厂家/工厂/供货方)", () => {
+    const t1 = `## 产品与规格
+产品名称：测试T1
+
+## 1688采购参考
+| 来源 | 厂家 | 对应规格 | 批发报价 | 商品链接 |
+| --- | --- | --- | --- | --- |
+| 1688 | 揭阳XX塑料厂 | PP收纳 | ¥15 | https://detail.1688.com/offer/t1.html |`;
+    const p1 = parseProductResearchMarkdown(t1).product.procurementQuotes[0];
+    expect(p1.supplier).toBe("揭阳XX塑料厂");
+    expect(p1.sourceUrl).toBe("https://detail.1688.com/offer/t1.html");
+
+    const t2 = `## 产品与规格
+产品名称：测试T2
+
+## 1688采购参考
+| 平台 | 供货方 | 型号 | 单价 | 详情页 |
+| --- | --- | --- | --- | --- |
+| 1688 | 义乌XX箱包厂 | 20寸拉杆箱 | ¥89 | https://detail.1688.com/offer/t2.html |`;
+    const p2 = parseProductResearchMarkdown(t2).product.procurementQuotes[0];
+    expect(p2.supplier).toBe("义乌XX箱包厂");
+    expect(p2.sourceUrl).toBe("https://detail.1688.com/offer/t2.html");
+  });
+
+  it("recognizes supplier in pipe line via aliases (厂家/工厂/生产厂家)", () => {
+    const raw = `## 产品与规格
+产品名称：测试P1
+
+## 1688采购参考
+- 来源：1688 | 规格：A4文件夹 | 价格：¥3.5 | 厂家：温州XX文具厂 | 详情：https://detail.1688.com/offer/a.html
+- 来源：1688 | 规格：B5活页本 | 页面标价：¥5.8 | 生产厂家：东莞XX纸品厂 | 商品链接：https://detail.1688.com/offer/b.html`;
+    const quotes = parseProductResearchMarkdown(raw).product.procurementQuotes;
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0].supplier).toBe("温州XX文具厂");
+    expect(quotes[0].sourceUrl).toContain("detail.1688.com/offer/a.html");
+    expect(quotes[1].supplier).toBe("东莞XX纸品厂");
+    expect(quotes[1].sourceUrl).toContain("detail.1688.com/offer/b.html");
+  });
+
+  it("recognizes supplier in multi-line bullet key:value format (one key per line)", () => {
+    const raw = `## 产品与规格
+产品名称：测试M1
+
+## 1688采购参考
+- 来源：1688
+- 规格：儿童书包 35×25×15cm
+- 批发报价：¥42
+- MOQ：50个
+- 厂家：白沟XX箱包厂
+- 链接：https://detail.1688.com/offer/m1.html
+
+- 来源：1688
+- 规格：成人双肩包
+- 单价：¥68
+- 供货方：广州XX皮具厂
+- 商品链接：https://detail.1688.com/offer/m2.html`;
+    const quotes = parseProductResearchMarkdown(raw).product.procurementQuotes;
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0]).toMatchObject({
+      source: "1688",
+      specification: "儿童书包 35×25×15cm",
+      price: "¥42",
+      moq: "50个",
+      supplier: "白沟XX箱包厂",
+      sourceUrl: "https://detail.1688.com/offer/m1.html"
+    });
+    expect(quotes[1]).toMatchObject({
+      specification: "成人双肩包",
+      price: "¥68",
+      supplier: "广州XX皮具厂",
+      sourceUrl: "https://detail.1688.com/offer/m2.html"
+    });
+  });
+
+  it("accepts bare URL segment in pipe line as sourceUrl (no explicit 链接: prefix)", () => {
+    const raw = `## 产品与规格
+产品名称：测试U1
+
+## 1688采购参考
+- 规格：硅胶铲 | 价格：¥8.9 | 工厂：阳江XX硅胶制品厂 | https://detail.1688.com/offer/u1.html | 来源：1688`;
+    const quotes = parseProductResearchMarkdown(raw).product.procurementQuotes;
+    expect(quotes).toHaveLength(1);
+    expect(quotes[0].supplier).toBe("阳江XX硅胶制品厂");
+    expect(quotes[0].sourceUrl).toBe("https://detail.1688.com/offer/u1.html");
+  });
+});

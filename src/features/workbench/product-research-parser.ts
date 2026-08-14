@@ -264,29 +264,110 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
     results.push(quote);
   }
 
+  // 供应商与链接的常见写法（表格列名 + 行内 key）
+  const supplierColumnAliases = ["供应商", "店铺", "公司", "厂家", "工厂", "供货方", "生产厂家", "厂商", "供应商名称", "店铺名称", "公司名称"];
+  const linkColumnAliases = ["链接", "URL", "详情链接", "商品链接", "产品链接", "链接地址", "详情页", "详情"];
+  const sourceAliases = ["来源", "渠道", "平台"];
+  const specAliases = ["规格", "对应规格", "产品规格", "型号"];
+  const priceAliases = ["页面标价", "批发报价", "售价", "价格", "单价", "拿货价"];
+  const moqAliases = ["MOQ", "起订量", "最小起订量", "最低起订量"];
+  const freightAliases = ["运费", "运费口径", "运费说明"];
+  const quoteTimeAliases = ["报价时间", "报价日期", "更新时间"];
+  const noteAliases = ["备注", "说明", "其他说明"];
+
+  function supplierFromColumns(row: MarkdownRow): string | undefined {
+    for (const alias of supplierColumnAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function linkFromColumns(row: MarkdownRow): string | undefined {
+    for (const alias of linkColumnAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function sourceFrom(row: MarkdownRow): string | undefined {
+    for (const alias of sourceAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function specFrom(row: MarkdownRow): string | undefined {
+    for (const alias of specAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function priceFrom(row: MarkdownRow): string | undefined {
+    for (const alias of priceAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function moqFrom(row: MarkdownRow): string | undefined {
+    for (const alias of moqAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function freightFrom(row: MarkdownRow): string | undefined {
+    for (const alias of freightAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+  function quotedAtFrom(row: MarkdownRow): string | undefined {
+    for (const alias of quoteTimeAliases) {
+      const v = column(row, alias);
+      if (v) return v;
+    }
+    return undefined;
+  }
+
   // 路径1：标准表格
   table.rows.forEach(({ values: row }) => {
-    const source = column(row, "来源");
-    const specification = column(row, "对应规格");
-    const price = column(row, "批发报价");
+    const source = sourceFrom(row);
+    const specification = specFrom(row);
+    const price = priceFrom(row);
     if (!source || !specification || !price) return;
     pushQuote({
       source,
       specification,
       price,
-      supplier: column(row, "供应商") ?? column(row, "店铺") ?? column(row, "公司"),
-      sourceUrl: column(row, "链接") ?? column(row, "URL") ?? column(row, "详情链接"),
-      moq: column(row, "MOQ"),
-      freight: column(row, "运费口径"),
-      quotedAt: column(row, "报价时间")
+      supplier: supplierFromColumns(row),
+      sourceUrl: linkFromColumns(row),
+      moq: moqFrom(row),
+      freight: freightFrom(row),
+      quotedAt: quotedAtFrom(row)
     });
   });
 
-  // 路径2：单行管道格式（如：来源：1688 | 规格：xxx | 价格：¥36 | MOQ：1件起批 | 运费：待确认 | 链接：xxx）
-  // 也兼容无竖线的 bullet key:value 多行格式，每行一条报价
-  // 支持以任意报价相关字段开头（规格、来源、价格、批发报价等）
-  const kvField = /(来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注|供应商|店铺|公司)\s*[:=：]\s*([^｜|\n]*?)\s*(?=(?:\s*[｜|]\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注|供应商|店铺|公司)\s*[:=：])|$)/g;
-  const headerPattern = /^[\s\-*\u2022]*\s*(?:来源|规格|页面标价|批发报价|售价|价格|MOQ|起订量|运费|链接|报价时间|备注|供应商|店铺|公司)\s*[:=：]/i;
+  // 报价 key:value 的统一别名集合（用于管道与多行 bullet 格式）
+  const allKeys = {
+    source: sourceAliases,
+    specification: specAliases,
+    price: priceAliases,
+    moq: moqAliases,
+    freight: freightAliases,
+    quotedAt: quoteTimeAliases,
+    sourceUrl: linkColumnAliases,
+    note: noteAliases,
+    supplier: supplierColumnAliases
+  } as const;
+
+  const allKeyLiterals = Object.values(allKeys).flat();
+  const quoteKeyPattern = new RegExp(`^(${allKeyLiterals.join("|")})\\s*[:=：]\\s*(.+)$`);
+  const headerPattern = new RegExp(`^[\\s\\-*\u2022]*\\s*(?:${allKeyLiterals.join("|")})\\s*[:=：]`, "i");
+  // 用于分组多行 bullet 的识别：行开头是 bullet，去掉 bullet 后匹配一个报价 key
+  const bulletQuoteKeyPattern = new RegExp(`^\\s*[-*•·–—]\\s*(?:${allKeyLiterals.join("|")})\\s*[:=：]`, "i");
 
   /** 对于"链接"字段额外清理：只取 http(s) URL，剔除反引号后的尾巴注释 */
   function cleanUrl(raw: string): string {
@@ -295,41 +376,132 @@ function parseProcurementQuotes(lines: string[], recordConflict: ConflictRecorde
     return urlMatch ? urlMatch[0] : s;
   }
 
-  lines.forEach((rawLine) => {
-    if (rawLine.match(/^\s*\|/)) return;
-    if (!headerPattern.test(rawLine)) return;
-    const line = rawLine.trim();
+  /** 把原始 key 映射到标准字段名 */
+  function canonicalizeQuoteKey(raw: string): keyof typeof allKeys | undefined {
+    for (const canonical of Object.keys(allKeys) as Array<keyof typeof allKeys>) {
+      if (allKeys[canonical].includes(raw)) return canonical;
+    }
+    return undefined;
+  }
+
+  /** 从一段文字（单个 | 段或整行 key:value）里提取 {canonicalKey: value} */
+  function parseKeyValueSegment(seg: string): Record<string, string> {
     const found: Record<string, string> = {};
-    let m: RegExpExecArray | null;
-    while ((m = kvField.exec(line)) !== null) {
-      const key = m[1];
+    const m = seg.match(quoteKeyPattern);
+    if (m) {
+      const rawKey = m[1];
+      const canonical = canonicalizeQuoteKey(rawKey);
+      if (!canonical) return found;
       const rawValue = m[2].trim();
-      const value = key === "链接" ? cleanUrl(rawValue) : rawValue.replace(/^`|`$/g, "");
-      if (!value) continue;
-      if (key === "来源") found.source = found.source || value;
-      else if (key === "规格") found.specification = found.specification || value;
-      else if (key === "页面标价" || key === "批发报价" || key === "售价" || key === "价格") found.price = found.price || value;
-      else if (key === "MOQ" || key === "起订量") found.moq = found.moq || value;
-      else if (key === "运费") found.freight = found.freight || value;
-      else if (key === "报价时间") found.quotedAt = found.quotedAt || value;
-      else if (key === "链接") found.sourceUrl = found.sourceUrl || value;
-      else if (key === "备注") found.note = found.note || value;
-      else if (key === "供应商" || key === "店铺" || key === "公司") found.supplier = found.supplier || value;
+      const value = canonical === "sourceUrl"
+        ? cleanUrl(rawValue)
+        : rawValue.replace(/^`|`$/g, "");
+      if (!value) return found;
+      found[canonical] = value;
+      return found;
     }
-    // 如果有规格和价格，即使没有来源也生成报价（默认来源为"线上"）
-    if (found.specification && found.price) {
-      pushQuote({
-        source: found.source || "线上",
-        specification: found.specification,
-        price: found.price,
-        moq: found.moq,
-        freight: found.freight,
-        quotedAt: found.quotedAt,
-        sourceUrl: found.sourceUrl,
-        note: found.note
-      });
+    // 非 key 段兜底：裸 URL 当作链接
+    const urlOnly = seg.match(/^\s*`?(https?:\/\/[^\s`'"（）()【】\[\]]+)`?\s*$/i);
+    if (urlOnly) {
+      found.sourceUrl = cleanUrl(urlOnly[1]);
     }
+    return found;
+  }
+
+  function mergeInto(target: Record<string, string>, incoming: Record<string, string>) {
+    for (const key of Object.keys(incoming)) {
+      if (!target[key]) target[key] = incoming[key];
+    }
+  }
+
+  /** 把一行按 | 或 ｜ 分段，每段尝试匹配 key:value；非 key 段保留裸 URL 兜底 */
+  function parsePipeLine(line: string): Record<string, string> {
+    const found: Record<string, string> = {};
+    const segments = line.split(/[｜|]/);
+    for (const segment of segments) {
+      const seg = segment.trim().replace(/^[-*•·–—]\s*/, "");
+      if (!seg) continue;
+      mergeInto(found, parseKeyValueSegment(seg));
+    }
+    return found;
+  }
+
+  function buildQuote(found: Record<string, string>): ProductProcurementQuote | undefined {
+    const { source, specification, price } = found;
+    if (!specification || !price) return undefined;
+    return {
+      source: source || "线上",
+      specification,
+      price,
+      supplier: found.supplier,
+      sourceUrl: found.sourceUrl,
+      moq: found.moq,
+      freight: found.freight,
+      quotedAt: found.quotedAt,
+      note: found.note
+    };
+  }
+
+  // ====== 收集非表格行，区分 "单行管道" 与 "多行 bullet 分组" ======
+  const nonTableLines: Array<{ raw: string; index: number }> = [];
+  lines.forEach((raw, index) => {
+    if (raw.match(/^\s*\|/)) return;
+    nonTableLines.push({ raw, index });
   });
+
+  // 路径2：单行管道/单条 k:v 格式（一行内包含完整规格和价格）
+  // 路径3：多行 bullet 聚合为一条报价——连续若干个 bullet k:v 行共享同一条报价，直至空行/非报价行
+
+  let pending: Record<string, string> | null = null;
+  const flushPending = () => {
+    if (!pending) return;
+    pushQuote(buildQuote(pending));
+    pending = null;
+  };
+
+  for (const { raw } of nonTableLines) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      flushPending();
+      continue;
+    }
+
+    const isBulletRow = /^\s*[-*•·–—]\s+/.test(raw);
+    const bulletStripped = trimmed.replace(/^[-*•·–—]\s*/, "");
+    const looksLikeQuoteKv = headerPattern.test(raw);
+    const isBulletQuoteKv = bulletQuoteKeyPattern.test(raw);
+    const hasPipe = /[｜|]/.test(trimmed);
+
+    // 路径A：管道分隔格式（一行含多个 key 段）→ 尝试整行解析为完整报价；不完整的 pending 聚合仅当是同一条记录（拆到多行管道时）
+    if (hasPipe) {
+      const found = parsePipeLine(raw);
+      if (pending && (found.specification || found.price)) {
+        mergeInto(pending, found);
+      } else if (found.specification && found.price) {
+        pushQuote(buildQuote(found));
+      } else if (isBulletQuoteKv) {
+        if (!pending) pending = {};
+        mergeInto(pending, found);
+      }
+      continue;
+    }
+
+    // 路径B：单 key 行（无管道分隔）→ 只有是 bullet + quoteKv 形式才聚合到 pending，非 bullet 的 quoteKv（如 "规格：xxx" 裸行）也作为待聚合
+    if (looksLikeQuoteKv && bulletStripped.match(quoteKeyPattern)) {
+      if (!pending) pending = {};
+      mergeInto(pending, parseKeyValueSegment(bulletStripped));
+      continue;
+    }
+    if (isBulletRow && isBulletQuoteKv) {
+      if (!pending) pending = {};
+      mergeInto(pending, parseKeyValueSegment(bulletStripped));
+      continue;
+    }
+
+    // 非报价 key 行：结束当前 pending 组
+    flushPending();
+  }
+  flushPending();
 
   return results;
 }
