@@ -108,6 +108,74 @@ export const TaskDraftSchema = z.object({
   ])
 });
 
+// ============== 供应商聊天/评估相关 Draft ==============
+export const SupplierOrderRecordDraftSchema = z.object({
+  supplierNameGuess: z.string().optional(),
+  productName: z.string().optional(),
+  skuSpec: z.string().optional(),
+  orderedAt: z.string().optional(),
+  promisedDeliveryAt: z.string().optional(),
+  actualDeliveryAt: z.string().optional(),
+  orderQuantity: z.number().optional(),
+  deliveredQuantity: z.number().optional(),
+  isPeak: z.boolean().default(false),
+  unitPrice: z.number().optional(),
+  status: z.enum(["pending", "partial", "fulfilled", "overdue", "cancelled"]).optional(),
+  note: z.string().optional(),
+  sourceLineText: z.string().optional()
+});
+export type SupplierOrderRecordDraft = z.infer<typeof SupplierOrderRecordDraftSchema>;
+
+export const SupplierQualityIssueDraftSchema = z.object({
+  supplierNameGuess: z.string().optional(),
+  productName: z.string().optional(),
+  issueCount: z.number().default(1),
+  totalBatchSize: z.number().optional(),
+  issueDescription: z.string().optional(),
+  isClosed: z.boolean().default(false),
+  repeated: z.boolean().default(false),
+  sourceLineText: z.string().optional()
+});
+export type SupplierQualityIssueDraft = z.infer<typeof SupplierQualityIssueDraftSchema>;
+
+export const SupplierServiceEventDraftSchema = z.object({
+  supplierNameGuess: z.string().optional(),
+  type: z.enum(["promise", "price_change", "response", "cooperation_rating"]),
+  content: z.string(),
+  promisedAt: z.string().optional(),
+  expectedAt: z.string().optional(),
+  actualAt: z.string().optional(),
+  fulfilled: z.boolean().optional(),
+  priceBefore: z.number().optional(),
+  priceAfter: z.number().optional(),
+  marketPriceChangedAt: z.string().optional(),
+  responseHours: z.number().optional(),
+  cooperationScore: z.number().optional(),
+  sourceLineText: z.string().optional()
+});
+export type SupplierServiceEventDraft = z.infer<typeof SupplierServiceEventDraftSchema>;
+
+export const SupplierCostReductionDraftSchema = z.object({
+  supplierNameGuess: z.string().optional(),
+  productName: z.string().optional(),
+  priceBefore: z.number(),
+  priceAfter: z.number(),
+  method: z.string().optional(),
+  note: z.string().optional()
+});
+export type SupplierCostReductionDraft = z.infer<typeof SupplierCostReductionDraftSchema>;
+
+export const SupplierChatExtractionDraftSchema = z.object({
+  period: z.string().optional(),
+  orders: z.array(SupplierOrderRecordDraftSchema).default([]),
+  qualityIssues: z.array(SupplierQualityIssueDraftSchema).default([]),
+  serviceEvents: z.array(SupplierServiceEventDraftSchema).default([]),
+  costReductions: z.array(SupplierCostReductionDraftSchema).default([]),
+  suppliersMentioned: z.array(z.string()).default([]),
+  uncertaintyNotes: z.array(z.string()).default([])
+});
+export type SupplierChatExtractionDraft = z.infer<typeof SupplierChatExtractionDraftSchema>;
+
 export const DraftExtractionSchema = z.object({
   supplier: SupplierDraftSchema.optional(),
   communication: CommunicationDraftSchema,
@@ -128,7 +196,8 @@ export const DraftExtractionSchema = z.object({
       })
     )
     .default([]),
-  uncertaintyNotes: z.array(z.string()).default([])
+  uncertaintyNotes: z.array(z.string()).default([]),
+  supplierChat: SupplierChatExtractionDraftSchema.optional()
 });
 
 export type DraftExtraction = z.infer<typeof DraftExtractionSchema>;
