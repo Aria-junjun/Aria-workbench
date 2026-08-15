@@ -14,10 +14,12 @@ import {
   importLocalWorkbenchData,
   loadLocalWorkbenchData,
   loadDecisionCases,
+  mergeSuppliers,
   repairKnowledgeBookFromRawText,
   saveDraftToLocalWorkbench,
   saveBookPackage,
   saveLocalWorkbenchData,
+  saveSupplierEvaluation,
   updateLocalItem,
   type LocalWorkbenchData
 } from "@/features/workbench/local-store";
@@ -799,17 +801,19 @@ describe("local-store operations", () => {
   });
 });
 
+function sampleSupplier(overrides: Partial<{ id: string; name: string; categories: string[]; createdAt: string }> = {}) {
+  return {
+    id: overrides.id ?? "supplier-1",
+    name: overrides.name ?? "测试供应商",
+    categories: overrides.categories ?? ["包装"],
+    riskTags: [] as string[],
+    createdAt: overrides.createdAt ?? "2026-07-09T00:00:00.000Z"
+  };
+}
+
 function sampleData(): LocalWorkbenchData {
   return {
-    suppliers: [
-      {
-        id: "supplier-1",
-        name: "测试供应商",
-        categories: ["包装"],
-        riskTags: [],
-        createdAt: "2026-07-09T00:00:00.000Z"
-      }
-    ],
+    suppliers: [sampleSupplier()],
     communications: [],
     offers: [
       {
@@ -897,3 +901,85 @@ function productKnowledge(overrides: Partial<ProductKnowledgeV2> = {}): ProductK
     ...overrides
   };
 }
+
+describe("supplier evaluation storage", () => {
+  it("saveSupplierEvaluation appends evaluation and syncs cached total/grade", () => {
+    saveLocalWorkbenchData({
+      ...sampleData(),
+      suppliers: [{ ...sampleSupplier(), id: "sup-1", name: "浙江xx厂" }]
+    });
+
+    const ev = saveSupplierEvaluation({
+      supplierId: "sup-1",
+      period: "2026-Q3",
+      rawData: {
+        orders: [{ id: "PO001", orderQuantity: 100, promisedDeliveryAt: "2026-08-01", actualDeliveryAt: "2026-07-31" }],
+        qualityIssues: [], serviceEvents: [], costReduction: []
+      },
+      metrics: { onTimeDeliveryRate: 90, qualityPassRate: 98, promiseFulfillmentRate: 90 },
+      scores: { delivery: 90, cost: 82, quality: 95, service: 88, total: 90, grade: "A" },
+      riskLabels: ["无风险"]
+    });
+    expect(ev.scores.grade).toBe("A");
+    const loaded = loadLocalWorkbenchData().suppliers.find((s) => s.id === "sup-1")!;
+    expect(loaded.latestEvaluationGrade).toBe("A");
+    expect(loaded.latestEvaluationScore).toBeCloseTo(90);
+    expect(loaded.evaluations).toHaveLength(1);
+    expect(loaded.evaluations?.[0].period).toBe("2026-Q3");
+  });
+
+  it("normalizes legacy suppliers (no evaluations/records) without crashing", () => {
+    const legacy = { ...sampleSupplier(), id: "old-1", name: "老供应商" };
+    saveLocalWorkbenchData({
+      ...sampleData(),
+      suppliers: [legacy]
+    });
+    const loaded = loadLocalWorkbenchData();
+    const sup = loaded.suppliers.find((s) => s.id === "old-1")!;
+    expect(Array.isArray(sup.evaluations)).toBe(true);
+    expect(Array.isArray(sup.orderRecords)).toBe(true);
+    expect(sup.latestEvaluationGrade).toBeUndefined();
+  });
+
+  it("mergeSuppliers aggregates evaluations and records", () => {
+    saveLocalWorkbenchData({
+      ...sampleData(),
+      suppliers: [
+        { ...sampleSupplier(), id: "a-1", name: "A厂", categories: ["x"],
+          evaluations: [{ supplierId: "a-1", period: "2026-Q1", metrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [] }],
+          orderRecords: [{ id: "A-PO1", orderQuantity: 10 } as any]
+        },
+        { ...sampleSupplier(), id: "a-2", name: "A厂同主体", categories: ["y"],
+          evaluations: [{ supplierId: "a-2", period: "2026-Q2", metrics: {}, scores: { delivery: 70, cost: 80, quality: 80, service: 70, total: 75, grade: "B" }, riskLabels: [] }],
+          orderRecords: [{ id: "A-PO2", orderQuantity: 20 } as any]
+        }
+      ]
+    });
+    const merged = mergeSuppliers("a-1", "a-2");
+    const t = merged.suppliers.find((s) => s.id === "a-1")!;
+    expect(t.evaluations).toHaveLength(2);
+    expect(t.orderRecords).toHaveLength(2);
+    expect(t.categories).toEqual(expect.arrayContaining(["x", "y"]));
+  });
+
+  it("mergeSupplier (draft) preserves existing evaluations and records", () => {
+    saveLocalWorkbenchData({
+      ...sampleData(),
+      suppliers: [{
+        ...sampleSupplier(),
+        id: "s1", name: "文航家居", categories: [],
+        evaluations: [{ supplierId: "s1", period: "2026-Q2", metrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [] }],
+        orderRecords: [{ id: "PO-HISTORY", orderQuantity: 500 } as any]
+      }]
+    });
+    saveDraftToLocalWorkbench({
+      supplier: { name: "文航家居", categories: ["收纳"], riskTags: [], location: "台州" },
+      communication: { summary: "补充品类信息", promises: [], questions: [], risks: [], nextActions: [] },
+      offers: [], tasks: [], knowledgeCards: []
+    });
+    const loaded = loadLocalWorkbenchData().suppliers.find((s) => s.name === "文航家居")!;
+    expect(loaded.evaluations).toHaveLength(1);
+    expect(loaded.orderRecords?.[0]?.id).toBe("PO-HISTORY");
+    expect(loaded.categories).toEqual(expect.arrayContaining(["收纳"]));
+  });
+});

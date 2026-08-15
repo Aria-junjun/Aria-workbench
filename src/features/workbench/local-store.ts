@@ -16,6 +16,19 @@ import {
   ProductKnowledgeV2Schema,
   type ProductKnowledgeV2
 } from "./product-knowledge";
+import type {
+  SupplierEvaluationRecord,
+  SupplierOrderRecord,
+  SupplierQualityIssue,
+  SupplierServiceEvent,
+  SupplierCostReductionRecord,
+  SupplierEvaluationMetrics,
+  SupplierEvaluationScores
+} from "./supplier-evaluation";
+import {
+  evaluateSupplierFromRaw,
+  SupplierEvaluationRecordSchema
+} from "./supplier-evaluation";
 import { randomId } from "@/lib/random-id";
 import {
   canonicalizeKnowledgeListItem,
@@ -39,6 +52,15 @@ export type LocalSupplier = {
   riskTags: string[];
   notes?: string;
   createdAt: string;
+  // 供应商 QCDS 评估扩展字段
+  evaluations?: SupplierEvaluationRecord[];
+  orderRecords?: SupplierOrderRecord[];
+  qualityRecords?: SupplierQualityRecord[];
+  serviceRecords?: SupplierServiceRecord[];
+  costReductionRecords?: SupplierCostReductionRecord[];
+  latestEvaluationScore?: number;
+  latestEvaluationGrade?: SupplierEvaluationRecord["scores"]["grade"];
+  latestEvaluationPeriod?: string;
 };
 
 export type OfferSku = {
@@ -1277,8 +1299,28 @@ export function mergeSuppliers(targetId: string, sourceId: string): LocalWorkben
     cooperationLevel: target.cooperationLevel || source.cooperationLevel,
     riskTags: Array.from(new Set([...target.riskTags, ...source.riskTags])),
     notes: [target.notes, source.notes].filter(Boolean).join("；"),
-    pinned: target.pinned || source.pinned
+    pinned: target.pinned || source.pinned,
+    // 合并评估和原始记录：按 period / orderCode / 各自主键去重，再重算 latest 缓存
+    evaluations: dedupeRecordsByKey(
+      [
+        ...(Array.isArray(target.evaluations) ? target.evaluations : []),
+        ...(Array.isArray(source.evaluations) ? source.evaluations : [])
+      ],
+      "period"
+    ),
+    orderRecords: concatDedupedRecords(target.orderRecords, source.orderRecords, "id"),
+    qualityRecords: concatDedupedRecords(target.qualityRecords, source.qualityRecords, "id"),
+    serviceRecords: concatDedupedRecords(target.serviceRecords, source.serviceRecords, "id"),
+    costReductionRecords: concatDedupedRecords(target.costReductionRecords, source.costReductionRecords, "id")
   };
+
+  // 根据合并后的 evaluations 重新计算 latest 快照，以最新 period 为准
+  const mergedEvaluations = sortEvaluationsNewestFirst(updatedTarget.evaluations ?? []);
+  if (mergedEvaluations[0]) {
+    updatedTarget.latestEvaluationScore = mergedEvaluations[0].scores.total;
+    updatedTarget.latestEvaluationGrade = mergedEvaluations[0].scores.grade;
+    updatedTarget.latestEvaluationPeriod = mergedEvaluations[0].period;
+  }
 
   // 迁移所有关联数据：offer / communication / task
   const updatedOffers = data.offers.map((o) =>
@@ -1317,6 +1359,104 @@ export function sortPinnedFirst<T extends { pinned?: boolean; createdAt: string 
   });
 }
 
+// ---------- 供应商 QCDS 评估写入 ----------
+export type SaveSupplierEvaluationInput = {
+  supplierId: string;
+  period: string;
+  periodType?: "month" | "quarter" | "year";
+  rawData?: {
+    orders?: SupplierOrderRecord[];
+    qualityIssues?: SupplierQualityIssue[];
+    serviceEvents?: SupplierServiceEvent[];
+    costReduction?: SupplierCostReductionRecord[];
+  };
+  metrics?: Partial<SupplierEvaluationMetrics>;
+  // 允许直接传入外部算好的 scores + 风险标签
+  scores?: SupplierEvaluationScores;
+  riskLabels?: string[];
+  note?: string;
+  evaluatedAt?: string;
+};
+
+/**
+ * 保存一份供应商评估：
+ * - 如果传入 metrics，会通过 evaluateSupplierFromRaw 用 QCDS 公式生成完整评估
+ * - 否则允许直接传入 scores + riskLabels 作为外部算分结果
+ * - 追加到 supplier.evaluations（按 period 去重，同周期覆盖），同时写入 4 类原始 records
+ * - 更新 latestEvaluationScore / Grade / Period 缓存，便于列表快速排序筛选
+ */
+export function saveSupplierEvaluation(input: SaveSupplierEvaluationInput): SupplierEvaluationRecord {
+  const current = loadLocalWorkbenchData();
+  const { supplierId } = input;
+  const now = new Date().toISOString();
+
+  let evaluation: SupplierEvaluationRecord;
+  if (input.metrics && Object.keys(input.metrics).length > 0) {
+    evaluation = evaluateSupplierFromRaw({
+      supplierId,
+      period: input.period,
+      periodType: input.periodType,
+      metrics: input.metrics as SupplierEvaluationMetrics,
+      note: input.note,
+      evaluatedAt: input.evaluatedAt
+    });
+    if (input.riskLabels && input.riskLabels.length > 0) {
+      // 允许调用方指定的风险标签覆盖 / 叠加公式结果
+      evaluation = { ...evaluation, riskLabels: Array.from(new Set([...evaluation.riskLabels, ...input.riskLabels])) };
+    }
+    if (input.scores) {
+      // 手动修正过的分数以传入值为准
+      evaluation = { ...evaluation, scores: { ...evaluation.scores, ...input.scores } };
+    }
+  } else if (input.scores) {
+    evaluation = SupplierEvaluationRecordSchema.parse({
+      id: "ev_" + Math.random().toString(36).slice(2, 10),
+      supplierId,
+      period: input.period,
+      periodType: input.periodType ?? "quarter",
+      scores: input.scores,
+      rawMetrics: input.metrics ?? {},
+      riskLabels: input.riskLabels ?? ["无风险"],
+      note: input.note,
+      evaluatedAt: input.evaluatedAt ?? now.slice(0, 10)
+    });
+  } else {
+    throw new Error("saveSupplierEvaluation 需要 metrics 或 scores 之一");
+  }
+
+  // 找到对应供应商，追加评估 + 原始记录，更新缓存
+  const updatedSuppliers = current.suppliers.map((s) => {
+    if (s.id !== supplierId) return s;
+
+    const existingEvaluations = Array.isArray(s.evaluations) ? s.evaluations : [];
+    const restEvaluations = existingEvaluations.filter((ev) => ev.period !== evaluation.period);
+    const mergedEvaluations = [...restEvaluations, evaluation];
+
+    const mergedOrders = concatDedupedRecords(s.orderRecords, input.rawData?.orders, "id");
+    const mergedQuality = concatDedupedRecords(s.qualityRecords, input.rawData?.qualityIssues, "id");
+    const mergedService = concatDedupedRecords(s.serviceRecords, input.rawData?.serviceEvents, "id");
+    const mergedCostReduction = concatDedupedRecords(s.costReductionRecords, input.rawData?.costReduction, "id");
+
+    const sorted = sortEvaluationsNewestFirst(mergedEvaluations);
+    return {
+      ...s,
+      evaluations: mergedEvaluations,
+      orderRecords: mergedOrders,
+      qualityRecords: mergedQuality,
+      serviceRecords: mergedService,
+      costReductionRecords: mergedCostReduction,
+      latestEvaluationScore: sorted[0]?.scores.total,
+      latestEvaluationGrade: sorted[0]?.scores.grade,
+      latestEvaluationPeriod: sorted[0]?.period
+    };
+  });
+
+  const result: LocalWorkbenchData = { ...current, suppliers: updatedSuppliers };
+  saveLocalWorkbenchData(result);
+  return evaluation;
+}
+
+
 export function includesQuery(values: Array<string | undefined>, query: string) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
@@ -1339,15 +1479,64 @@ function emptyData(): LocalWorkbenchData {
   };
 }
 
+// ---------- 供应商 QCDS 评估辅助 ----------
+function sortEvaluationsNewestFirst(evals: SupplierEvaluationRecord[]): SupplierEvaluationRecord[] {
+  return [...evals].sort((a, b) => {
+    const ta = a.evaluatedAt || a.period || "";
+    const tb = b.evaluatedAt || b.period || "";
+    return tb.localeCompare(ta);
+  });
+}
+function pickLatestEvaluationScore(evals: SupplierEvaluationRecord[]): number | undefined {
+  const sorted = sortEvaluationsNewestFirst(evals);
+  return sorted[0]?.scores?.total;
+}
+function pickLatestEvaluationGrade(evals: SupplierEvaluationRecord[]): SupplierEvaluationRecord["scores"]["grade"] | undefined {
+  const sorted = sortEvaluationsNewestFirst(evals);
+  return sorted[0]?.scores?.grade;
+}
+function pickLatestEvaluationPeriod(evals: SupplierEvaluationRecord[]): string | undefined {
+  const sorted = sortEvaluationsNewestFirst(evals);
+  return sorted[0]?.period;
+}
+function dedupeRecordsByKey<T extends { [k: string]: any }>(records: T[], key: keyof T & string): T[] {
+  const seen = new Set<T[typeof key]>();
+  const result: T[] = [];
+  for (const r of records) {
+    const k = r[key];
+    if (k === undefined || k === null) { result.push(r); continue; }
+    if (!seen.has(k)) { seen.add(k); result.push(r); }
+  }
+  return result;
+}
+function concatDedupedRecords<T extends { [k: string]: any }>(arrA: T[] | undefined, arrB: T[] | undefined, key: keyof T & string): T[] {
+  const a = Array.isArray(arrA) ? arrA : [];
+  const b = Array.isArray(arrB) ? arrB : [];
+  return dedupeRecordsByKey([...a, ...b], key);
+}
+
 export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): LocalWorkbenchData {
   const current = { ...emptyData(), ...data };
   const supplierIdByName = new Map(current.suppliers.map((supplier) => [normalizeText(supplier.name), supplier.id]));
   return {
-    suppliers: current.suppliers.map((supplier) => ({
-      ...supplier,
-      categories: Array.isArray(supplier.categories) ? supplier.categories : [],
-      riskTags: Array.isArray(supplier.riskTags) ? supplier.riskTags : []
-    })),
+    suppliers: current.suppliers.map((supplier) => {
+      // 迁移 legacy supplier：补齐新字段的默认值，防止历史数据因缺字段导致访问 undefined 崩溃
+      const normalizedEvaluations = Array.isArray((supplier as any).evaluations) ? (supplier as any).evaluations : [];
+      return {
+        ...supplier,
+        categories: Array.isArray(supplier.categories) ? supplier.categories : [],
+        riskTags: Array.isArray(supplier.riskTags) ? supplier.riskTags : [],
+        evaluations: normalizedEvaluations,
+        orderRecords: Array.isArray((supplier as any).orderRecords) ? (supplier as any).orderRecords : [],
+        qualityRecords: Array.isArray((supplier as any).qualityRecords) ? (supplier as any).qualityRecords : [],
+        serviceRecords: Array.isArray((supplier as any).serviceRecords) ? (supplier as any).serviceRecords : [],
+        costReductionRecords: Array.isArray((supplier as any).costReductionRecords) ? (supplier as any).costReductionRecords : [],
+        // 如果还没缓存 latest 快照，从 evaluations 里推导一次
+        latestEvaluationScore: (supplier as any).latestEvaluationScore ?? pickLatestEvaluationScore(normalizedEvaluations),
+        latestEvaluationGrade: (supplier as any).latestEvaluationGrade ?? pickLatestEvaluationGrade(normalizedEvaluations),
+        latestEvaluationPeriod: (supplier as any).latestEvaluationPeriod ?? pickLatestEvaluationPeriod(normalizedEvaluations)
+      };
+    }),
     communications: current.communications.map((communication) => ({
       ...communication,
       supplierId: communication.supplierId ?? (communication.supplierName ? supplierIdByName.get(normalizeText(communication.supplierName)) : undefined),
@@ -1628,6 +1817,15 @@ function mergeSupplier(
     cooperationLevel: value(incoming.cooperationLevel, existing?.cooperationLevel),
     riskTags: Array.from(new Set([...(existing?.riskTags ?? []), ...incoming.riskTags])),
     notes: value(incoming.notes, existing?.notes),
+    // draft merge 不丢历史评估
+    evaluations: existing?.evaluations ?? [],
+    orderRecords: existing?.orderRecords ?? [],
+    qualityRecords: existing?.qualityRecords ?? [],
+    serviceRecords: existing?.serviceRecords ?? [],
+    costReductionRecords: existing?.costReductionRecords ?? [],
+    latestEvaluationScore: existing?.latestEvaluationScore,
+    latestEvaluationGrade: existing?.latestEvaluationGrade,
+    latestEvaluationPeriod: existing?.latestEvaluationPeriod,
     createdAt: existing?.createdAt ?? now
   };
 }
