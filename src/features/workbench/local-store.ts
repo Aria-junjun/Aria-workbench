@@ -27,8 +27,22 @@ import type {
 } from "./supplier-evaluation";
 import {
   evaluateSupplierFromRaw,
-  SupplierEvaluationRecordSchema
+  SupplierEvaluationRecordSchema,
+  aggregateMetricsFromRecords,
+  calculateDeliveryScore,
+  calculateCostScore,
+  calculateQualityScore,
+  calculateServiceScore,
+  calculateTotalScoreAndGrade
 } from "./supplier-evaluation";
+import { parseSupplierChat } from "./supplier-chat-parser";
+import type {
+  SupplierChatExtractionDraft,
+  SupplierOrderRecordDraft,
+  SupplierQualityIssueDraft,
+  SupplierServiceEventDraft,
+  SupplierCostReductionDraft
+} from "./schemas";
 import { randomId } from "@/lib/random-id";
 import {
   canonicalizeKnowledgeListItem,
@@ -2105,4 +2119,209 @@ export function ensureProductStageTasks(data: LocalWorkbenchData): LocalWorkbenc
   }
 
   return { ...data, tasks };
+}
+
+// =====================================================================
+// Task 5: 聊天原文 → 草稿预览 → 正式评估 (快速录入 AI 提取管道)
+// =====================================================================
+
+export type ChatAnalyzeInput = {
+  supplierId: string;
+  chatText: string;
+  period: string;
+  referenceDate?: string;
+  /** 允许调用方先把草稿返回给 UI 改完后再传回 commit */
+  reviewerName?: string;
+};
+
+export type ChatAnalyzeResult = {
+  supplierId: string;
+  period: string;
+  evaluatorName?: string;
+  /** 原始聊天文本快照，便于追溯 */
+  rawChatText: string;
+  referenceDate?: string;
+  /** 由解析器产出的未定稿 records（可编辑） */
+  draft: SupplierChatExtractionDraft;
+  /** 基于 draft 预聚合的指标（未做指标默认值填充，仅用于 UI 预览） */
+  previewMetrics: Partial<SupplierEvaluationMetrics>;
+  /** 基于 previewMetrics 给出的分数预览（仅用于 UI 预览） */
+  previewScores?: SupplierEvaluationScores;
+};
+
+export function analyzeChatAsDraft(input: ChatAnalyzeInput): ChatAnalyzeResult {
+  const draft = parseSupplierChat(input.chatText, { referenceDate: input.referenceDate });
+  const orders = draft.orders.map(finalizeOrderRecord);
+  const qualityIssues = draft.qualityIssues.map(finalizeQualityRecord);
+  const serviceEvents = draft.serviceEvents.map(finalizeServiceEvent);
+  const previewMetrics = aggregateMetricsFromRecords({
+    orders, qualityIssues, serviceEvents
+  }) as Partial<SupplierEvaluationMetrics>;
+  const previewScores = calculateScoresFromPartialMetrics(previewMetrics);
+  return {
+    supplierId: input.supplierId,
+    period: input.period,
+    evaluatorName: input.reviewerName,
+    rawChatText: input.chatText,
+    referenceDate: input.referenceDate,
+    draft,
+    previewMetrics,
+    previewScores
+  };
+}
+
+export function commitChatAnalysis(analyzed: ChatAnalyzeResult): SupplierEvaluationRecord {
+  const orders = analyzed.draft.orders.map(finalizeOrderRecord).map((o) => ({ ...o, supplierId: analyzed.supplierId }));
+  const qualityIssues = analyzed.draft.qualityIssues.map(finalizeQualityRecord);
+  const serviceEvents = analyzed.draft.serviceEvents.map(finalizeServiceEvent);
+  const costReduction = analyzed.draft.costReductions.map(finalizeCostReductionRecord);
+
+  const metrics = aggregateMetricsFromRecords({ orders, qualityIssues, serviceEvents });
+  const scores = calculateScoresFromMetrics(metrics);
+
+  return saveSupplierEvaluation({
+    supplierId: analyzed.supplierId,
+    period: analyzed.period,
+    evaluatorName: analyzed.evaluatorName,
+    metrics,
+    scores,
+    rawData: { orders, qualityIssues, serviceEvents, costReduction },
+    extraEvidence: [
+      { type: "chat_text", label: "聊天原文", content: analyzed.rawChatText },
+      ...(analyzed.draft.uncertaintyNotes && analyzed.draft.uncertaintyNotes.length > 0
+        ? [{ type: "note" as const, label: "解析不确定项", content: analyzed.draft.uncertaintyNotes.join(" | ") }]
+        : [])
+    ],
+    notes: analyzed.draft.uncertaintyNotes && analyzed.draft.uncertaintyNotes.length > 0
+      ? `解析自动备注：${analyzed.draft.uncertaintyNotes.join("；")}`
+      : undefined
+  });
+}
+
+export type QuickCaptureInput = ChatAnalyzeInput & { autoSave?: boolean };
+
+export function quickCaptureSupplierChat(input: QuickCaptureInput): SupplierEvaluationRecord {
+  const analyzed = analyzeChatAsDraft(input);
+  if (input.autoSave === false) {
+    // 调用方不想自动保存时，仍需一个返回值；这里仅用 preview 等级数据 + 当前 supplier 构造 record
+    // 但不写入 localStorage；实际实现里若要严格分离，可以返回一个临时的未保存 record。
+    throw new Error(
+      "autoSave=false 需要在 UI 层展示 analyzed.previewScores 后由用户调用 commitChatAnalysis 保存"
+    );
+  }
+  return commitChatAnalysis(analyzed);
+}
+
+// ===== Draft → 正式 Records（补齐 id/timestamps） =====
+
+function finalizeOrderRecord(d: SupplierOrderRecordDraft): SupplierOrderRecord {
+  return {
+    id: d.id && d.id.length > 4 ? d.id : randomId(),
+    supplierId: "", // 记录层不强制 supplierId，保存函数会补齐
+    createdAt: d.createdAt ?? new Date().toISOString(),
+    orderDate: d.orderDate,
+    productName: d.productName,
+    productCategory: d.productCategory,
+    unitPrice: d.unitPrice,
+    quantity: d.quantity,
+    quantityUnit: d.quantityUnit,
+    promisedDeliveryAt: d.promisedDeliveryAt,
+    actualDeliveryAt: d.actualDeliveryAt,
+    delayDays: d.delayDays ?? computeDelayDays(d.promisedDeliveryAt, d.actualDeliveryAt),
+    priceStabilityScore: d.priceStabilityScore
+  };
+}
+
+function finalizeQualityRecord(d: SupplierQualityIssueDraft): SupplierQualityIssue {
+  return {
+    id: d.id && d.id.length > 4 ? d.id : randomId(),
+    createdAt: d.createdAt ?? new Date().toISOString(),
+    happenedAt: d.happenedAt,
+    productName: d.productName,
+    issueCategory: d.issueCategory ?? "质量问题未分类",
+    issueDescription: d.issueDescription,
+    batchSize: d.batchSize,
+    defectCount: d.defectCount,
+    defectRate: d.defectRate ?? (d.batchSize && d.defectCount && d.batchSize > 0 ? d.defectCount / d.batchSize : undefined),
+    closed: d.closed ?? false,
+    repeated: d.repeated ?? false
+  };
+}
+
+function finalizeServiceEvent(d: SupplierServiceEventDraft): SupplierServiceEvent {
+  return {
+    id: d.id && d.id.length > 4 ? d.id : randomId(),
+    createdAt: d.createdAt ?? new Date().toISOString(),
+    happenedAt: d.happenedAt,
+    type: d.type,
+    subject: d.subject,
+    detail: d.detail,
+    responseMinutes: d.responseMinutes,
+    promisedAt: d.promisedAt,
+    expectedAt: d.expectedAt,
+    fulfilled: d.fulfilled,
+    cooperationScore: d.cooperationScore,
+    priceBefore: d.priceBefore,
+    priceAfter: d.priceAfter
+  };
+}
+
+function finalizeCostReductionRecord(d: SupplierCostReductionDraft): SupplierCostReductionRecord {
+  return {
+    id: d.id && d.id.length > 4 ? d.id : randomId(),
+    createdAt: d.createdAt ?? new Date().toISOString(),
+    agreedAt: d.agreedAt,
+    productName: d.productName,
+    originalPrice: d.originalPrice,
+    newPrice: d.newPrice,
+    reductionPercent: d.reductionPercent ?? (
+      d.originalPrice && d.newPrice
+        ? Math.round(((d.originalPrice - d.newPrice) / d.originalPrice) * 1000) / 10
+        : undefined
+    ),
+    negotiator: d.negotiator
+  };
+}
+
+function computeDelayDays(promised?: string, actual?: string): number | undefined {
+  if (!promised || !actual) return undefined;
+  const p = new Date(promised).getTime();
+  const a = new Date(actual).getTime();
+  if (Number.isNaN(p) || Number.isNaN(a)) return undefined;
+  return Math.max(0, Math.round((a - p) / 86400000));
+}
+
+// 把 partial metrics 转为 scores（用于预览/保存前预览，缺失字段直接按默认分算）
+function calculateScoresFromPartialMetrics(partial: Partial<SupplierEvaluationMetrics>): SupplierEvaluationScores | undefined {
+  // 用 undefined → 转换默认分的函数在 calculateXxxScore 里内部处理(m()函数)
+  const asMetrics = {
+    onTimeDeliveryRate: partial.onTimeDeliveryRate,
+    peakDeliveryRate: partial.peakDeliveryRate,
+    orderFulfillmentRate: partial.orderFulfillmentRate,
+    expediteOnTimeRate: partial.expediteOnTimeRate,
+    averageDelayDays: partial.averageDelayDays,
+    delayPenaltyTotal: partial.delayPenaltyTotal,
+    defectRate: partial.defectRate,
+    defectDeduction: partial.defectDeduction,
+    repeatedQualityRate: partial.repeatedQualityRate,
+    closedIssueRate: partial.closedIssueRate,
+    complaintResponseMinutes: partial.complaintResponseMinutes,
+    responseSLACompliance: partial.responseSLACompliance,
+    promiseFulfillmentRate: partial.promiseFulfillmentRate,
+    cooperationAvgScore: partial.cooperationAvgScore,
+    priceStabilityScore: partial.priceStabilityScore,
+    quoteAccuracyScore: partial.quoteAccuracyScore,
+    costReductionScore: partial.costReductionScore,
+    priceCompetitivenessVsMarket: partial.priceCompetitivenessVsMarket
+  } as SupplierEvaluationMetrics;
+  return calculateScoresFromMetrics(asMetrics);
+}
+
+function calculateScoresFromMetrics(metrics: SupplierEvaluationMetrics): SupplierEvaluationScores {
+  const delivery = calculateDeliveryScore(metrics);
+  const cost = calculateCostScore(metrics);
+  const quality = calculateQualityScore(metrics);
+  const service = calculateServiceScore(metrics);
+  const { total, grade } = calculateTotalScoreAndGrade({ delivery, cost, quality, service });
+  return { delivery, cost, quality, service, total, grade };
 }
