@@ -12,6 +12,8 @@ export const SupplierDraftSchema = z.object({
   storeUrl: z.string().optional(),
   sourcePlatform: z.string().optional(),
   supplierType: z.enum(["factory", "trader", "unknown"]).default("unknown"),
+  // 合作模式：入仓型(我方仓)/代发型(供应商直发)/混合
+  businessModel: z.enum(["inbound", "dropship", "hybrid"]).default("inbound"),
   cooperationLevel: z.string().optional(),
   priceLevel: z.string().optional(),
   qualityJudgement: z.string().optional(),
@@ -132,6 +134,8 @@ export const SupplierQualityIssueDraftSchema = z.object({
   issueCount: z.number().default(1),
   totalBatchSize: z.number().optional(),
   issueDescription: z.string().optional(),
+  isCustomerReturn: z.boolean().optional(),
+  wrongShipIssue: z.boolean().optional(),
   isClosed: z.boolean().default(false),
   repeated: z.boolean().default(false),
   sourceLineText: z.string().optional()
@@ -140,7 +144,10 @@ export type SupplierQualityIssueDraft = z.infer<typeof SupplierQualityIssueDraft
 
 export const SupplierServiceEventDraftSchema = z.object({
   supplierNameGuess: z.string().optional(),
-  type: z.enum(["promise", "price_change", "response", "cooperation_rating"]),
+  type: z.enum([
+    "promise", "price_change", "response", "cooperation_rating",
+    "attitude", "solution_proposal", "solution_fulfilled", "evasion"
+  ]),
   content: z.string(),
   promisedAt: z.string().optional(),
   expectedAt: z.string().optional(),
@@ -151,6 +158,12 @@ export const SupplierServiceEventDraftSchema = z.object({
   marketPriceChangedAt: z.string().optional(),
   responseHours: z.number().optional(),
   cooperationScore: z.number().optional(),
+  // ——— 综合分析扩展字段（attitude / solution_* / evasion）———
+  attitudeScore: z.number().optional(), // 1=极差 5=极好
+  solutionRequested: z.boolean().optional(), // 我方是否提了问题/请求
+  solutionProvided: z.boolean().optional(), // 对方是否给了方案
+  solutionDelivered: z.boolean().optional(), // 方案后续是否落地
+  evasionSeverity: z.number().optional(), // 推诿严重度 0-2（0=无 1=轻微 2=严重）
   sourceLineText: z.string().optional()
 });
 export type SupplierServiceEventDraft = z.infer<typeof SupplierServiceEventDraftSchema>;

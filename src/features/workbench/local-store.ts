@@ -21,9 +21,10 @@ import type {
   SupplierOrderRecord,
   SupplierQualityIssue,
   SupplierServiceEvent,
-  SupplierCostReductionRecord,
+  SupplierCostReduction,
   SupplierEvaluationMetrics,
-  SupplierEvaluationScores
+  SupplierEvaluationScores,
+  ManualDeduction
 } from "./supplier-evaluation";
 import {
   evaluateSupplierFromRaw,
@@ -58,6 +59,8 @@ export type LocalSupplier = {
   categories: string[];
   location?: string;
   supplierType?: string;
+  // 合作模式：入仓型(inbound) / 代发型(dropship) / 混合型(hybrid)
+  businessModel?: "inbound" | "dropship" | "hybrid";
   contactName?: string;
   contactMethod?: string;
   storeUrl?: string;
@@ -69,9 +72,10 @@ export type LocalSupplier = {
   // 供应商 QCDS 评估扩展字段
   evaluations?: SupplierEvaluationRecord[];
   orderRecords?: SupplierOrderRecord[];
-  qualityRecords?: SupplierQualityRecord[];
-  serviceRecords?: SupplierServiceRecord[];
-  costReductionRecords?: SupplierCostReductionRecord[];
+  qualityRecords?: SupplierQualityIssue[];
+  serviceRecords?: SupplierServiceEvent[];
+  costReductionRecords?: SupplierCostReduction[];
+  manualDeductions?: ManualDeduction[];
   latestEvaluationScore?: number;
   latestEvaluationGrade?: SupplierEvaluationRecord["scores"]["grade"];
   latestEvaluationPeriod?: string;
@@ -462,7 +466,7 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
     const isPrimary = extraction.supplier && name === extraction.supplier.name;
     const draftSupplier = isPrimary && extraction.supplier
       ? extraction.supplier
-      : { name, categories: [] as string[], supplierType: "unknown" as const, riskTags: [] as string[] };
+      : { name, categories: [] as string[], supplierType: "unknown" as const, businessModel: "inbound" as const, riskTags: [] as string[] };
     const supplier = mergeSupplier(existing, draftSupplier, id, now);
     supplierByName.set(name, { id, supplier });
     supplierById.set(id, supplier);
@@ -1129,6 +1133,12 @@ export function updateLocalItem<C extends LocalCollectionName>(collection: C, id
       });
     }
   }
+  // 供应商合作模式变更会改变评分权重，需触发评分重算
+  if (collection === "suppliers" && patch && "businessModel" in patch) {
+    const recalced = recalcEvaluationsWithDeductions(next);
+    saveLocalWorkbenchData(recalced);
+    return recalced[collection].find((item) => item.id === id);
+  }
   saveLocalWorkbenchData(next);
   return next[collection].find((item) => item.id === id);
 }
@@ -1382,7 +1392,7 @@ export type SaveSupplierEvaluationInput = {
     orders?: SupplierOrderRecord[];
     qualityIssues?: SupplierQualityIssue[];
     serviceEvents?: SupplierServiceEvent[];
-    costReduction?: SupplierCostReductionRecord[];
+    costReduction?: SupplierCostReduction[];
   };
   metrics?: Partial<SupplierEvaluationMetrics>;
   // 允许直接传入外部算好的 scores + 风险标签
@@ -1403,6 +1413,8 @@ export function saveSupplierEvaluation(input: SaveSupplierEvaluationInput): Supp
   const current = loadLocalWorkbenchData();
   const { supplierId } = input;
   const now = new Date().toISOString();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  const businessModel = supplier?.businessModel ?? "inbound";
 
   let evaluation: SupplierEvaluationRecord;
   if (input.metrics && Object.keys(input.metrics).length > 0) {
@@ -1410,7 +1422,9 @@ export function saveSupplierEvaluation(input: SaveSupplierEvaluationInput): Supp
       supplierId,
       period: input.period,
       periodType: input.periodType,
+      businessModel,
       metrics: input.metrics as SupplierEvaluationMetrics,
+      manualDeductions: supplier?.manualDeductions ?? [],
       note: input.note,
       evaluatedAt: input.evaluatedAt
     });
@@ -1470,6 +1484,184 @@ export function saveSupplierEvaluation(input: SaveSupplierEvaluationInput): Supp
   return evaluation;
 }
 
+// ---------- 手动修改/删除供应商原始记录，并自动重算评估 ----------
+export type SupplierRecordType = "order" | "quality" | "service";
+
+export function updateSupplierRecord(
+  supplierId: string,
+  type: SupplierRecordType,
+  recordId: string,
+  patch: Record<string, unknown>,
+  period?: string
+) {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+
+  const listKey =
+    type === "order" ? "orderRecords" : type === "quality" ? "qualityRecords" : "serviceRecords";
+  const list = supplier[listKey] as Array<{ id: string }>;
+  const updatedList = list.map((r) => (r.id === recordId ? { ...r, ...patch } : r));
+
+  const updatedSupplier = { ...supplier, [listKey]: updatedList };
+  const updatedData: LocalWorkbenchData = {
+    ...current,
+    suppliers: current.suppliers.map((s) => (s.id === supplierId ? updatedSupplier : s)),
+  };
+  saveLocalWorkbenchData(updatedData);
+
+  // 若存在评估周期，重新基于 records 算分并覆盖最新评估（含手动扣分项）
+  if (period) {
+    recalcWithDeductions(supplierId, period);
+  }
+}
+
+export function deleteSupplierRecord(
+  supplierId: string,
+  type: SupplierRecordType,
+  recordId: string,
+  period?: string
+) {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+
+  const listKey =
+    type === "order" ? "orderRecords" : type === "quality" ? "qualityRecords" : "serviceRecords";
+  const list = supplier[listKey] as Array<{ id: string }>;
+  const updatedList = list.filter((r) => r.id !== recordId);
+
+  const updatedSupplier = { ...supplier, [listKey]: updatedList };
+  const updatedData: LocalWorkbenchData = {
+    ...current,
+    suppliers: current.suppliers.map((s) => (s.id === supplierId ? updatedSupplier : s)),
+  };
+  saveLocalWorkbenchData(updatedData);
+
+  if (period) {
+    recalcWithDeductions(supplierId, period);
+  }
+}
+
+// ===== 手动扣分项 CRUD =====
+
+export function addManualDeduction(
+  supplierId: string,
+  deduction: { dimension: ManualDeduction["dimension"]; type?: ManualDeduction["type"]; description: string; points: number },
+  period?: string
+): void {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+
+  const newDeduction: ManualDeduction = {
+    id: "ded_" + Math.random().toString(36).slice(2, 10),
+    dimension: deduction.dimension,
+    type: deduction.type ?? "deduction",
+    description: deduction.description,
+    points: Math.abs(deduction.points),
+    source: "manual",
+    createdAt: new Date().toISOString(),
+    ignored: false,
+  };
+
+  const existing = supplier.manualDeductions ?? [];
+  const updatedSupplier = { ...supplier, manualDeductions: [...existing, newDeduction] };
+  const updatedData: LocalWorkbenchData = {
+    ...current,
+    suppliers: current.suppliers.map((s) => (s.id === supplierId ? updatedSupplier : s)),
+  };
+  saveLocalWorkbenchData(updatedData);
+
+  // 重新算分
+  if (period) {
+    recalcWithDeductions(supplierId, period);
+  }
+}
+
+export function updateManualDeduction(
+  supplierId: string,
+  deductionId: string,
+  patch: Partial<ManualDeduction>,
+  period?: string
+): void {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+
+  const existing = supplier.manualDeductions ?? [];
+  const updated = existing.map((d) => (d.id === deductionId ? { ...d, ...patch } : d));
+  const updatedSupplier = { ...supplier, manualDeductions: updated };
+  const updatedData: LocalWorkbenchData = {
+    ...current,
+    suppliers: current.suppliers.map((s) => (s.id === supplierId ? updatedSupplier : s)),
+  };
+  saveLocalWorkbenchData(updatedData);
+
+  if (period) {
+    recalcWithDeductions(supplierId, period);
+  }
+}
+
+export function deleteManualDeduction(supplierId: string, deductionId: string, period?: string): void {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+
+  const existing = supplier.manualDeductions ?? [];
+  const updated = existing.filter((d) => d.id !== deductionId);
+  const updatedSupplier = { ...supplier, manualDeductions: updated };
+  const updatedData: LocalWorkbenchData = {
+    ...current,
+    suppliers: current.suppliers.map((s) => (s.id === supplierId ? updatedSupplier : s)),
+  };
+  saveLocalWorkbenchData(updatedData);
+
+  if (period) {
+    recalcWithDeductions(supplierId, period);
+  }
+}
+
+// 内部函数：带手动扣分项的重新算分
+function recalcWithDeductions(supplierId: string, period: string): void {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) return;
+
+  const metrics = aggregateMetricsFromRecords({
+    orders: supplier.orderRecords ?? [],
+    qualityIssues: supplier.qualityRecords ?? [],
+    serviceEvents: supplier.serviceRecords ?? [],
+  });
+
+  // 使用 evaluateSupplierFromRaw 并传入手动扣分项
+  const businessModel = supplier.businessModel ?? "inbound";
+  const evaluation = evaluateSupplierFromRaw({
+    supplierId,
+    period,
+    businessModel,
+    metrics,
+    manualDeductions: supplier.manualDeductions ?? [],
+  });
+
+  const existingEvaluations = Array.isArray(supplier.evaluations) ? supplier.evaluations : [];
+  const restEvaluations = existingEvaluations.filter((ev) => ev.period !== period);
+  const mergedEvaluations = [...restEvaluations, evaluation];
+  const sorted = mergedEvaluations.sort((a, b) => b.period.localeCompare(a.period));
+
+  const updatedSupplier = {
+    ...supplier,
+    evaluations: mergedEvaluations,
+    latestEvaluationScore: sorted[0]?.scores.total,
+    latestEvaluationGrade: sorted[0]?.scores.grade,
+    latestEvaluationPeriod: sorted[0]?.period,
+  };
+  const updatedData: LocalWorkbenchData = {
+    ...current,
+    suppliers: current.suppliers.map((s) => (s.id === supplierId ? updatedSupplier : s)),
+  };
+  saveLocalWorkbenchData(updatedData);
+}
 
 export function includesQuery(values: Array<string | undefined>, query: string) {
   const normalized = query.trim().toLowerCase();
@@ -1536,10 +1728,14 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     suppliers: current.suppliers.map((supplier) => {
       // 迁移 legacy supplier：补齐新字段的默认值，防止历史数据因缺字段导致访问 undefined 崩溃
       const normalizedEvaluations = Array.isArray((supplier as any).evaluations) ? (supplier as any).evaluations : [];
+      const rawModel = (supplier as any).businessModel;
+      const businessModel: "inbound" | "dropship" | "hybrid" =
+        rawModel === "dropship" || rawModel === "hybrid" ? rawModel : "inbound";
       return {
         ...supplier,
         categories: Array.isArray(supplier.categories) ? supplier.categories : [],
         riskTags: Array.isArray(supplier.riskTags) ? supplier.riskTags : [],
+        businessModel,
         evaluations: normalizedEvaluations,
         orderRecords: Array.isArray((supplier as any).orderRecords) ? (supplier as any).orderRecords : [],
         qualityRecords: Array.isArray((supplier as any).qualityRecords) ? (supplier as any).qualityRecords : [],
@@ -1612,7 +1808,81 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
 export function normalizeWorkbenchDataWithBridges(data: Partial<LocalWorkbenchData>): LocalWorkbenchData {
   const normalized = normalizeWorkbenchData(data);
   const bridged = autoBridgeCategoryData(normalized);
-  return ensureProductStageTasks(bridged);
+  const withTasks = ensureProductStageTasks(bridged);
+  return recalcEvaluationsWithDeductions(withTasks);
+}
+
+function recalcEvaluationsWithDeductions(data: LocalWorkbenchData): LocalWorkbenchData {
+  const suppliers = data.suppliers.map((supplier) => {
+    const deductions = supplier.manualDeductions ?? [];
+    const hasActiveDeductions = deductions.some((d) => !d.ignored);
+    const evaluations = Array.isArray(supplier.evaluations) ? supplier.evaluations : [];
+    const hasRawRecords =
+      (supplier.orderRecords ?? []).length > 0 ||
+      (supplier.qualityRecords ?? []).length > 0 ||
+      (supplier.serviceRecords ?? []).length > 0;
+
+    // 重算触发条件（任一满足即重算，确保都按最新百分制公式）：
+    //   1) 有手动调整项（加分/扣分）
+    //   2) 已存在评估记录（用旧公式算的需要刷新）
+    //   3) 有原始订单/质量/服务数据但还没有评估
+    const needsRecalc = hasActiveDeductions || evaluations.length > 0 || hasRawRecords;
+    if (!needsRecalc) return supplier;
+
+    const metrics = aggregateMetricsFromRecords({
+      orders: supplier.orderRecords ?? [],
+      qualityIssues: supplier.qualityRecords ?? [],
+      serviceEvents: supplier.serviceRecords ?? [],
+    });
+
+    const businessModel = supplier.businessModel ?? "inbound";
+    const updatedEvaluations = evaluations.map((ev) => {
+      // 如果此评估记录自带的 rawMetrics 不为空，优先用它（保存了当时的快照）
+      // 否则回退到从原始记录重新聚合（兼容旧数据）
+      const hasRawMetrics =
+        ev.rawMetrics &&
+        Object.keys(ev.rawMetrics).some(
+          (k) => (ev.rawMetrics as Record<string, unknown>)[k] !== undefined
+        );
+      const evalMetrics = (hasRawMetrics
+        ? { ...metrics, ...ev.rawMetrics }
+        : metrics) as SupplierEvaluationMetrics;
+      const newEval = evaluateSupplierFromRaw({
+        supplierId: supplier.id,
+        period: ev.period,
+        periodType: ev.periodType,
+        businessModel,
+        metrics: evalMetrics,
+        manualDeductions: deductions,
+        note: ev.note,
+        evaluatedAt: ev.evaluatedAt,
+      });
+      return { ...newEval, id: ev.id };
+    });
+
+    if (updatedEvaluations.length === 0 && hasRawRecords) {
+      const period = new Date().toISOString().slice(0, 7);
+      const newEval = evaluateSupplierFromRaw({
+        supplierId: supplier.id,
+        period,
+        periodType: "month",
+        businessModel,
+        metrics,
+        manualDeductions: deductions,
+      });
+      updatedEvaluations.push(newEval);
+    }
+
+    const sorted = [...updatedEvaluations].sort((a, b) => b.period.localeCompare(a.period));
+    return {
+      ...supplier,
+      evaluations: updatedEvaluations.length > 0 ? updatedEvaluations : supplier.evaluations,
+      latestEvaluationScore: sorted[0]?.scores.total,
+      latestEvaluationGrade: sorted[0]?.scores.grade,
+      latestEvaluationPeriod: sorted[0]?.period,
+    };
+  });
+  return { ...data, suppliers };
 }
 
 function getApplicationVersions(applications: LocalKnowledgeApplication[], applicationId: string) {
@@ -1817,6 +2087,9 @@ function mergeSupplier(
   now: string
 ): LocalSupplier {
   const value = <T>(next: T | undefined, previous: T | undefined) => next || previous;
+  const rawModel = incoming.businessModel ?? (existing?.businessModel as "inbound" | "dropship" | "hybrid" | undefined);
+  const businessModel: "inbound" | "dropship" | "hybrid" =
+    rawModel === "dropship" || rawModel === "hybrid" ? rawModel : "inbound";
   return {
     id,
     pinned: existing?.pinned,
@@ -1824,6 +2097,7 @@ function mergeSupplier(
     categories: Array.from(new Set([...(existing?.categories ?? []), ...incoming.categories])),
     location: value(incoming.location, existing?.location),
     supplierType: value(incoming.supplierType, existing?.supplierType),
+    businessModel,
     contactName: value(incoming.contactName, existing?.contactName),
     contactMethod: value(incoming.contactMethod, existing?.contactMethod),
     storeUrl: value(incoming.storeUrl, existing?.storeUrl),
@@ -2179,22 +2453,23 @@ export function commitChatAnalysis(analyzed: ChatAnalyzeResult): SupplierEvaluat
   const metrics = aggregateMetricsFromRecords({ orders, qualityIssues, serviceEvents });
   const scores = calculateScoresFromMetrics(metrics);
 
+  const notes = [
+    analyzed.evaluatorName ? `评估人：${analyzed.evaluatorName}` : null,
+    analyzed.draft.uncertaintyNotes && analyzed.draft.uncertaintyNotes.length > 0
+      ? `解析自动备注：${analyzed.draft.uncertaintyNotes.join("；")}`
+      : null,
+    analyzed.rawChatText
+      ? `聊天原文（摘要）：${analyzed.rawChatText.slice(0, 300)}${analyzed.rawChatText.length > 300 ? "…" : ""}`
+      : null
+  ].filter(Boolean).join("\n") || undefined;
+
   return saveSupplierEvaluation({
     supplierId: analyzed.supplierId,
     period: analyzed.period,
-    evaluatorName: analyzed.evaluatorName,
     metrics,
     scores,
     rawData: { orders, qualityIssues, serviceEvents, costReduction },
-    extraEvidence: [
-      { type: "chat_text", label: "聊天原文", content: analyzed.rawChatText },
-      ...(analyzed.draft.uncertaintyNotes && analyzed.draft.uncertaintyNotes.length > 0
-        ? [{ type: "note" as const, label: "解析不确定项", content: analyzed.draft.uncertaintyNotes.join(" | ") }]
-        : [])
-    ],
-    notes: analyzed.draft.uncertaintyNotes && analyzed.draft.uncertaintyNotes.length > 0
-      ? `解析自动备注：${analyzed.draft.uncertaintyNotes.join("；")}`
-      : undefined
+    note: notes
   });
 }
 
@@ -2212,74 +2487,87 @@ export function quickCaptureSupplierChat(input: QuickCaptureInput): SupplierEval
   return commitChatAnalysis(analyzed);
 }
 
-// ===== Draft → 正式 Records（补齐 id/timestamps） =====
+// ===== Draft → 正式 Records（补齐 id/timestamps + 字段名映射） =====
 
 function finalizeOrderRecord(d: SupplierOrderRecordDraft): SupplierOrderRecord {
   return {
-    id: d.id && d.id.length > 4 ? d.id : randomId(),
-    supplierId: "", // 记录层不强制 supplierId，保存函数会补齐
-    createdAt: d.createdAt ?? new Date().toISOString(),
-    orderDate: d.orderDate,
+    id: randomId(),
+    supplierId: "", // 保存函数会在外层按 supplierId 合并时再补齐
+    supplierName: d.supplierNameGuess,
     productName: d.productName,
-    productCategory: d.productCategory,
-    unitPrice: d.unitPrice,
-    quantity: d.quantity,
-    quantityUnit: d.quantityUnit,
+    skuSpec: d.skuSpec,
+    orderedAt: d.orderedAt,
     promisedDeliveryAt: d.promisedDeliveryAt,
     actualDeliveryAt: d.actualDeliveryAt,
-    delayDays: d.delayDays ?? computeDelayDays(d.promisedDeliveryAt, d.actualDeliveryAt),
-    priceStabilityScore: d.priceStabilityScore
+    orderQuantity: d.orderQuantity,
+    deliveredQuantity: d.deliveredQuantity,
+    isPeak: d.isPeak,
+    unitPrice: d.unitPrice,
+    currency: "CNY",
+    status: d.status,
+    note: d.note,
+    source: "chat_parse",
+    ignored: false,
+    ignoreReason: undefined
   };
 }
 
 function finalizeQualityRecord(d: SupplierQualityIssueDraft): SupplierQualityIssue {
   return {
-    id: d.id && d.id.length > 4 ? d.id : randomId(),
-    createdAt: d.createdAt ?? new Date().toISOString(),
-    happenedAt: d.happenedAt,
+    id: randomId(),
+    supplierName: d.supplierNameGuess,
     productName: d.productName,
-    issueCategory: d.issueCategory ?? "质量问题未分类",
+    issueCount: d.issueCount,
+    totalBatchSize: d.totalBatchSize,
     issueDescription: d.issueDescription,
-    batchSize: d.batchSize,
-    defectCount: d.defectCount,
-    defectRate: d.defectRate ?? (d.batchSize && d.defectCount && d.batchSize > 0 ? d.defectCount / d.batchSize : undefined),
-    closed: d.closed ?? false,
-    repeated: d.repeated ?? false
+    isCustomerReturn: !!d.isCustomerReturn,
+    wrongShipIssue: !!d.wrongShipIssue,
+    isClosed: d.isClosed,
+    repeated: d.repeated,
+    reportedAt: d.sourceLineText ? undefined : undefined, // 聊天行时间解析有难度，保持为undefined即可
+    source: "chat_parse",
+    ignored: false,
+    ignoreReason: undefined
   };
 }
 
 function finalizeServiceEvent(d: SupplierServiceEventDraft): SupplierServiceEvent {
   return {
-    id: d.id && d.id.length > 4 ? d.id : randomId(),
-    createdAt: d.createdAt ?? new Date().toISOString(),
-    happenedAt: d.happenedAt,
+    id: randomId(),
+    supplierName: d.supplierNameGuess,
     type: d.type,
-    subject: d.subject,
-    detail: d.detail,
-    responseMinutes: d.responseMinutes,
+    content: d.content,
     promisedAt: d.promisedAt,
     expectedAt: d.expectedAt,
+    actualAt: d.actualAt,
     fulfilled: d.fulfilled,
-    cooperationScore: d.cooperationScore,
     priceBefore: d.priceBefore,
-    priceAfter: d.priceAfter
+    priceAfter: d.priceAfter,
+    marketPriceChangedAt: d.marketPriceChangedAt,
+    responseHours: d.responseHours,
+    cooperationScore: d.cooperationScore,
+    attitudeScore: d.attitudeScore,
+    solutionRequested: d.solutionRequested,
+    solutionProvided: d.solutionProvided,
+    solutionDelivered: d.solutionDelivered,
+    evasionSeverity: d.evasionSeverity,
+    sourceLineText: d.sourceLineText,
+    source: "chat_parse",
+    recordedAt: new Date().toISOString(),
+    ignored: false,
+    ignoreReason: undefined
   };
 }
 
-function finalizeCostReductionRecord(d: SupplierCostReductionDraft): SupplierCostReductionRecord {
+function finalizeCostReductionRecord(d: SupplierCostReductionDraft): SupplierCostReduction {
   return {
-    id: d.id && d.id.length > 4 ? d.id : randomId(),
-    createdAt: d.createdAt ?? new Date().toISOString(),
-    agreedAt: d.agreedAt,
+    id: randomId(),
+    supplierName: d.supplierNameGuess,
     productName: d.productName,
-    originalPrice: d.originalPrice,
-    newPrice: d.newPrice,
-    reductionPercent: d.reductionPercent ?? (
-      d.originalPrice && d.newPrice
-        ? Math.round(((d.originalPrice - d.newPrice) / d.originalPrice) * 1000) / 10
-        : undefined
-    ),
-    negotiator: d.negotiator
+    priceBefore: d.priceBefore,
+    priceAfter: d.priceAfter,
+    method: d.method,
+    note: d.note
   };
 }
 
@@ -2299,20 +2587,18 @@ function calculateScoresFromPartialMetrics(partial: Partial<SupplierEvaluationMe
     peakDeliveryRate: partial.peakDeliveryRate,
     orderFulfillmentRate: partial.orderFulfillmentRate,
     expediteOnTimeRate: partial.expediteOnTimeRate,
-    averageDelayDays: partial.averageDelayDays,
-    delayPenaltyTotal: partial.delayPenaltyTotal,
-    defectRate: partial.defectRate,
-    defectDeduction: partial.defectDeduction,
-    repeatedQualityRate: partial.repeatedQualityRate,
-    closedIssueRate: partial.closedIssueRate,
-    complaintResponseMinutes: partial.complaintResponseMinutes,
-    responseSLACompliance: partial.responseSLACompliance,
-    promiseFulfillmentRate: partial.promiseFulfillmentRate,
-    cooperationAvgScore: partial.cooperationAvgScore,
+    currentQuote: partial.currentQuote,
+    categoryLowestPrice: partial.categoryLowestPrice,
+    priceCompetitiveness: partial.priceCompetitiveness,
+    priceRiseResponseDays: partial.priceRiseResponseDays,
+    priceDropResponseDays: partial.priceDropResponseDays,
     priceStabilityScore: partial.priceStabilityScore,
-    quoteAccuracyScore: partial.quoteAccuracyScore,
-    costReductionScore: partial.costReductionScore,
-    priceCompetitivenessVsMarket: partial.priceCompetitivenessVsMarket
+    incomingPassRate: partial.incomingPassRate,
+    qualityIssueClosureRate: partial.qualityIssueClosureRate,
+    repeatIssueRate: partial.repeatIssueRate,
+    promiseFulfillmentRate: partial.promiseFulfillmentRate,
+    avgResponseHours: partial.avgResponseHours,
+    cooperationAverageScore: partial.cooperationAverageScore
   } as SupplierEvaluationMetrics;
   return calculateScoresFromMetrics(asMetrics);
 }

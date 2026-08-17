@@ -142,6 +142,7 @@ export function buildFallbackExtraction(
           storeUrl: inlineBrief?.productUrl,
           sourcePlatform: inlineBrief?.productUrl?.includes("1688.com") ? "1688" : undefined,
           supplierType: "unknown",
+          businessModel: "inbound" as const,
           cooperationLevel: inlineBrief?.cooperationLevel,
           riskTags: inlineBrief?.riskTags ?? [],
           notes: inlineBrief?.supplierNotes
@@ -513,6 +514,7 @@ function parseWorkbookQuoteText(rawText: string): DraftExtraction | null {
       storeUrl: productUrl,
       sourcePlatform: productUrl?.includes("1688.com") ? "1688" : undefined,
       supplierType: rawText.includes("实体工厂") ? "factory" : "unknown",
+      businessModel: "inbound" as const,
       riskTags: note ? ["运费口径需确认", "报价有效期需确认"] : [],
       notes: supplierNotes || undefined
     },
@@ -1072,6 +1074,7 @@ function parseSingleSupplierQuoteSheet(rawText: string, sourceUrl?: string): Dra
         sourceUrl: sourceUrl || descInfo.sourceUrl,
         categories: productNames.length > 0 ? [inferCategoryFromProduct(productNames[0])] : [],
         supplierType: "unknown" as const,
+        businessModel: "inbound" as const,
         riskTags: [],
         notes: `报价产品：${productNames.join("、")}`
       }
@@ -1269,6 +1272,7 @@ function parseComparisonTable(rawText: string, sourceUrl?: string): DraftExtract
         sourceUrl: sourceUrl || descInfo.sourceUrl,
         categories: [category],
         supplierType: "unknown" as const,
+        businessModel: "inbound" as const,
         riskTags: [],
         notes: uniqueSuppliers.length > 1 ? `对比供应商：${uniqueSuppliers.join("、")}` : undefined
       }
@@ -1592,6 +1596,7 @@ function parseOcrTable(rawText: string, sourceUrl?: string): DraftExtraction | n
         sourceUrl: sourceUrl || descInfo.sourceUrl,
         categories: [category],
         supplierType: "unknown" as const,
+        businessModel: "inbound" as const,
         riskTags: [],
         notes: undefined
       }

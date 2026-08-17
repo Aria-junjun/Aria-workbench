@@ -28,11 +28,17 @@ type ChatLine = {
 
 // ---------- 通用正则 ----------
 // 匹配开头行：`2026-07-15 10:20 王经理(文航家居): ` 或 `7/15 10:20 王经理: `
-const LINE_START_RE = /^(?:(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[\/\-\.]\d{1,2})\s+)?(\d{1,2}:\d{2}(?::\d{2})?)\s+([^:：]+?)[\s]*[:：]\s*(.*)$/s;
-// 括号里的供应商名："王经理(文航家居)" → 文航家居
-const SUPPLIER_IN_PAREN_RE = /[(（]([^)）]{1,30})[)）]/;
-// 说话人姓名清洗
+// 放宽：支持括号/别名/空格/换行里的各种说话人格式
+const LINE_START_RE = /^(?:(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[\/\-\.]\d{1,2})\s+)?(\d{1,2}:\d{2}(?::\d{2})?)\s+([^:：\n]+?)[\s]*[:：]\s*(.*)$/s;
+// 括号里的供应商名："王经理(文航家居)" / "(文航家居)王经理" / "王经理【厂家】" → 文航家居 / 厂家
+const SUPPLIER_IN_PAREN_RE = /[(（\[【]([^)\）\]】]{1,30})[)\）\]】]/g;
+// 说话人姓名清洗（去掉前缀头像ID/系统标签/表情等）
 const SPEAKER_STRIP_RE = /^\s*[<【「\[]?[A-Za-z0-9_\-. ]{3,}[>】」\]]?\s*/;
+// —— 扩展：更多企微常见说话人标识是供应商 ——
+// 含"厂家/工厂/厂/供应商/仓库/档口/批发/客服/业务/经理"等关键词的，也视作供应商
+const SUPPLIER_ROLE_KEYWORDS = /(厂家|工厂|供应商|仓库|档口|批发|客服|业务|经理|销售|对接|负责人|老板|老板娘)/;
+// 我方/客户常见标识关键词
+const CUSTOMER_ROLE_KEYWORDS = /(我方|我|我们|公司这边|老板这边|用户这边|甲方|采购|运营|小店|店铺|自己人|仓管|内勤)/;
 
 // 数字 + 单位（订货数量）
 const QTY_RE = /(\d+(?:\.\d+)?)\s*(个|套|件|箱|pcs|Pcs|PCS|只|卷|把|条|台|kg|KG|克|吨|米|平方米|平方)/g;
@@ -107,6 +113,30 @@ function normalizeDateStr(dateLike: string, yearFallback: number): string {
   return s;
 }
 
+function extractSupplierFromSpeaker(speaker: string): string | undefined {
+  // 1) 括号/方括号/【】里取所有候选，排除明显不是的词
+  SUPPLIER_IN_PAREN_RE.lastIndex = 0;
+  const parens: string[] = [];
+  let pm: RegExpExecArray | null;
+  while ((pm = SUPPLIER_IN_PAREN_RE.exec(speaker)) !== null) {
+    const v = pm[1].trim();
+    // 排除明显的时间/状态标签，保留 2 字以上的名称
+    if (v.length >= 2 && !/^(上午|下午|晚上|在线|离线|忙碌|请假|休息|今天|明天|本周)$/.test(v)) {
+      parens.push(v);
+    }
+  }
+  if (parens.length > 0) {
+    // 取最长的那个（通常是厂名），其次取第一个（通常在括号最前面）
+    return parens.sort((a, b) => b.length - a.length)[0];
+  }
+  // 2) 不含括号但含"供应商角色关键词"→ 用说话人本身作为 supplierGuess（去掉表情/符号）
+  if (SUPPLIER_ROLE_KEYWORDS.test(speaker)) {
+    const cleaned = speaker.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").trim();
+    if (cleaned.length >= 2) return cleaned;
+  }
+  return undefined;
+}
+
 function parseTimestampAndSpeaker(raw: string, yearFallback: number): ChatLine | null {
   const trimmed = raw.trim();
   const m = trimmed.match(LINE_START_RE);
@@ -114,7 +144,7 @@ function parseTimestampAndSpeaker(raw: string, yearFallback: number): ChatLine |
     const [, maybeDate, time, speakerRaw, restRaw] = m;
     const dateStr = maybeDate ? normalizeDateStr(maybeDate, yearFallback) : undefined;
     const speaker = speakerRaw.replace(SPEAKER_STRIP_RE, "").trim();
-    const supplierGuess = speaker.match(SUPPLIER_IN_PAREN_RE)?.[1]?.trim() ?? undefined;
+    const supplierGuess = extractSupplierFromSpeaker(speaker);
     return {
       raw, index: -1, timestamp: dateStr ? `${dateStr} ${time}` : time,
       dateStr, speaker, text: restRaw, supplierNameGuess: supplierGuess
@@ -166,12 +196,17 @@ export function parseSupplierChat(rawText: string, opts: ParseOpts = {}): Suppli
     const ref = line.dateStr ? new Date(`${line.dateStr}T00:00:00`) : refDate;
     const text = line.text;
 
-    // --- 响应时长：我方问 → 供应商回 ---
-    const isCustomerLine = line.speaker && !line.supplierNameGuess &&
-      /我方|我|我们|公司这边|老板这边|用户这边|甲方|采购/.test(line.speaker);
+    // --- 响应时长：我方问 → 供应商回（放宽规则：没括号名的当客户，有括号名/角色关键词的当供应商）---
+    const isCustomerLine = !!(line.speaker && (
+      // 含"我/我们/采购/运营/店铺/甲方"等明确客户标识
+      CUSTOMER_ROLE_KEYWORDS.test(line.speaker) ||
+      // 没有任何供应商标识（无括号厂名 + 不含供应商角色关键词）→ 默认视为客户（我方）
+      (!line.supplierNameGuess && !SUPPLIER_ROLE_KEYWORDS.test(line.speaker))
+    ));
+    const isSupplierLine = !!(line.speaker && line.supplierNameGuess);
     if (isCustomerLine) {
       lastCustomerLine = line;
-    } else if (line.speaker && lastCustomerLine && line.dateStr && lastCustomerLine.dateStr) {
+    } else if (isSupplierLine && lastCustomerLine && line.dateStr && lastCustomerLine.dateStr) {
       const startTs = new Date(`${lastCustomerLine.dateStr}T${lastCustomerLine.timestamp?.split(" ")[1] || "00:00"}:00`);
       const endTs = new Date(`${line.dateStr}T${line.timestamp?.split(" ")[1] || "00:00"}:00`);
       if (!isNaN(startTs.getTime()) && !isNaN(endTs.getTime()) && endTs.getTime() >= startTs.getTime()) {
@@ -189,11 +224,11 @@ export function parseSupplierChat(rawText: string, opts: ParseOpts = {}): Suppli
       lastCustomerLine = undefined;
     }
 
-    // --- 1) 订单 ---
-    // 判断：文本里有没有"下单/订了/帮我订/采购/发/做/安排生产/安排"这样的触发词
-    const orderTriggered = /(下(?:个|单|了|订)?|订(?:货|购|了|单)?|采(?:购|了)?|发(?:货|出|了)?|做(?:货)?|安排(?:生产|发货)?|备货|PO|order)[^\n，。]{0,30}/.test(text);
-    // 实际发货类关键词（视为同一条订单，但回填 actualDeliveryAt）
-    const shippedTriggered = /(已(?:经)?(?:发(?:出|货)?|寄(?:出)?)|发(?:出|货)了|今天发(?:出|货)|昨天发(?:出|货)|已经送到|到货了|签收了)/.test(text);
+    // --- 1) 订单（扩触发词：补货/寄样/断货/加单/返单 等企微常见表达）---
+    // 原"下单/订了/采购" + 新补"补货/补单/加单/返单/寄样/打样/备点货/备库存/没货了/断货/调货/补货过来"
+    const orderTriggered = /(下(?:个|单|了|订)?|订(?:货|购|了|单)?|采(?:购|了)?|发(?:货|出|了)?|做(?:货)?|安排(?:生产|发货)?|备货|PO|order|补(?:货|单)?|加(?:单|货)?|返(?:单|货)?|寄(?:样|品)?|打(?:样|版)?|备(?:点货|库存)?|调货|断货|没货)[^\n，。]{0,30}/.test(text);
+    // 实际发货类关键词（视为同一条订单，但回填 actualDeliveryAt）+ 新增"单号/快递单/发出/寄出/顺丰/圆通/中通/申通"
+    const shippedTriggered = /(已(?:经)?(?:发(?:出|货)?|寄(?:出)?)|发(?:出|货)了|今天发(?:出|货)|昨天发(?:出|货)|已经送到|到货了|签收了|已(?:经)?(?:揽|收|取)件|快递单号|单号[是为：:]|顺丰|圆通|中通|申通|韵达|极兔|德邦|京东快递)/.test(text);
     if (orderTriggered || shippedTriggered) {
       // 抽所有数量段，取第一个作为订货量
       const qtyMatches = [...text.matchAll(QTY_RE)];
@@ -239,12 +274,14 @@ export function parseSupplierChat(rawText: string, opts: ParseOpts = {}): Suppli
 
       if (orderQty || deliveredQty || promised || actual) {
         orders.push({
+          isPeak: false,
           supplierNameGuess: supplierName,
           productName,
           orderQuantity: orderQty,
           deliveredQuantity: shippedTriggered ? deliveredQty : undefined,
           promisedDeliveryAt: promised,
           actualDeliveryAt: actual,
+          orderedAt: line.dateStr,
           status: actual ? "fulfilled" : "pending",
           note: orderTriggered && shippedTriggered ? "疑似同一行既下单又说明发货，待核对" : undefined,
           sourceLineText: lines[line.index]
@@ -252,10 +289,11 @@ export function parseSupplierChat(rawText: string, opts: ParseOpts = {}): Suppli
       }
     }
 
-    // --- 2) 质量问题 ---
-    // 触发词：坏/破/损/裂/脏/色差/不合格/瑕疵/压坏/摔坏/漏水/漏 + 数量；或者 "发现X个问题"
+    // --- 2) 质量问题（扩触发词：含代发场景-客退/错发）---
+    // 原触发 + 新补"客户退/退货/退残/退回来了/客户说/差评/投诉/少发/漏发/多发/发错/错款/错码/错颜色"
     const qualityTrigger = /(坏|破|损|裂|刮|脏|色差|不合格|残次品|瑕疵|压坏|摔坏|漏水|漏|发霉|气味大|毛刺|变形)[^\n，。]{0,30}/.test(text)
-      || /(?:有|出现|发现).{0,15}(\d+).{0,20}(?:坏|破|损|裂|问题|不合格|瑕疵)/.test(text);
+      || /(?:有|出现|发现).{0,15}(\d+).{0,20}(?:坏|破|损|裂|问题|不合格|瑕疵)/.test(text)
+      || /(客户退|退货|退残|退回来|差评|投诉|少发|漏发|多发|发错|错(?:款|码|色|颜|版|号)|少了|漏了|不对版|和图片不一样|尺寸不对)[^\n，。]{0,30}/.test(text);
     if (qualityTrigger) {
       const qtyMatches = [...text.matchAll(QTY_RE)];
       // 启发式：如果能找到"X 箱 / X 批次 / X 件 里" → 那是 totalBatchSize，后面紧跟的"X 个坏"作为 issueCount
@@ -268,17 +306,129 @@ export function parseSupplierChat(rawText: string, opts: ParseOpts = {}): Suppli
       } else if (qtyMatches.length === 1) {
         issueCount = parseFloat(qtyMatches[0][1]);
       }
-      // 语义检查：如果说 "发现 X 个 Y"，而且数量在句子里紧跟着"发现/出现/有"，那么它才是 issueCount；上面的启发式通常已经做到
-      const closed = /(补发|已经赔|已赔付|换|已解决|处理完|退(?:货|款)?已到)/.test(text);
+      const closed = /(补发|已经赔|已赔付|换|已解决|处理完|退(?:货|款)?已到|客户已(?:经)?收|已经(?:退|换)回)/.test(text);
+      const isCustomerReturn = /(客户退|退货|退残|退回来|差评|投诉|用户反馈|客人说|买家退)/.test(text);
+      const wrongShipIssue = /(少发|漏发|多发|发错|错(?:款|码|色|颜|版|号)|少了|漏了|不对版|和图片不一样|尺寸不对|少寄|漏寄|寄错)/.test(text);
       qualityIssues.push({
         supplierNameGuess: supplierName,
         issueCount,
         totalBatchSize,
         issueDescription: text.slice(0, 100),
         isClosed: closed,
+        isCustomerReturn,       // 代发专属：客退
+        wrongShipIssue,         // 代发专属：错发漏发
         repeated: /又(?:出现|来|坏|有)/.test(text) || /再次/.test(text) || /老问题/.test(text),
         sourceLineText: lines[line.index]
       });
+    }
+
+    // --- 3a-新增) 态度识别（attitude）：供应商每条回复的语气好坏 ——
+    if (isSupplierLine) {
+      let attScore: number | undefined;
+      if ((/(没问题|好的|可以|行|马上|立即|立刻|放心|一定|保证|没问题|安排上|这就去|收到|明白|收到|收到了|谢谢|不好意思|抱歉|对不起|让您久等了)/.test(text) && !/(做不到|不行|没办法|不可能)/.test(text))) {
+        attScore = 5; // 非常积极
+      } else if (/(好的|可以|行|尽量|争取|我们看看|研究下|确认一下|问一下|问工厂|我问下)/.test(text)) {
+        attScore = 4; // 配合
+      } else if (/(嗯|哦|好|知道了|看下|查下|等下|稍等|等等|等通知|等消息)/.test(text)) {
+        attScore = 3; // 一般/中性
+      } else if (/(不行|做不到|没办法|不可能|不知道|不清楚|这不归我管|你找别人|你自己看|随便|爱怎么样怎么样|没法搞|搞不定)/.test(text)) {
+        attScore = 2; // 不积极
+      } else if (/(你什么意思|神经病|有病|凭什么|投诉你|拉黑|以后别找我|滚|垃圾)/.test(text)) {
+        attScore = 1; // 极差
+      }
+      if (attScore !== undefined) {
+        serviceEvents.push({
+          supplierNameGuess: supplierName,
+          type: "attitude",
+          content: `态度${attScore}/5分：${text.slice(0, 60)}`,
+          attitudeScore: attScore,
+          sourceLineText: lines[line.index]
+        });
+      }
+    }
+
+    // --- 3b-新增) 方案提出/方案兑现（solution_proposal / solution_fulfilled）——
+    //    我方先提问题/请求 → 对方给出解决方案 → 后续是否落地
+    // 检测我方是否在"问问题/提请求"
+    const customerQuestioning = isCustomerLine && /(怎么办|怎么处理|怎么解决|有什么办法|能不能|可以吗|行不行|有没有|货呢|什么时候|什么时候能|到底|请|麻烦|帮忙|能否|是否|为啥|为什么|什么情况|咋回事|出问题了|坏了|少了|错了|没到|没收到)/.test(text);
+    if (customerQuestioning) {
+      // 标记 solutionRequested=true 的一条事件（内容=我方问题），等后续供应商回复时补充 solutionProvided
+      serviceEvents.push({
+        supplierNameGuess: supplierName,
+        type: "solution_proposal",
+        content: `我方提问/请求：${text.slice(0, 80)}`,
+        solutionRequested: true,
+        solutionProvided: false,
+        sourceLineText: lines[line.index]
+      });
+    }
+    // 供应商回复里是否包含"解决方案性表达"（拆成多条短正则，避免单正则过长导致 SWC 解析错误）
+    if (isSupplierLine) {
+      const SOL_RE_A = /(?:我|我们|这边)(?:给你|帮你|马上|立刻)?(?:发|寄|换|补|退|赔|安排|重做|补发|换货|退货|退款|补偿)/;
+      const SOL_RE_B = /(?:优惠|打折|降点|重新发|换一批|先发|先寄|给你确认|去催|催一下|跟工厂|跟仓库|查一下|马上跟进|当天发出)/;
+      const SOL_RE_C = /(?:明天|后天|周五前|下周一|三天内|今天内|本周内)(?:给你|答复|发出|弄好|做好|搞定|处理)/;
+      const SOL_RE_D = /(?:顺丰|空运|加急|加人|加班|优先|特权|特事)/;
+      const hasSolution =
+        SOL_RE_A.test(text) || SOL_RE_B.test(text) ||
+        SOL_RE_C.test(text) || SOL_RE_D.test(text);
+      if (hasSolution) {
+        // 回找最近一条 solutionRequested=true 且 solutionProvided=false 的事件，标记为已给出方案
+        let attached = false;
+        for (let i = serviceEvents.length - 1; i >= 0; i--) {
+          const se = serviceEvents[i];
+          if (se.type === "solution_proposal" && se.solutionRequested === true && se.solutionProvided === false) {
+            se.solutionProvided = true;
+            se.content += ` → 对方方案：${text.slice(0, 60)}`;
+            se.expectedAt = parseDateFromText(text, ref);
+            attached = true;
+            break;
+          }
+        }
+        if (!attached) {
+          serviceEvents.push({
+            supplierNameGuess: supplierName,
+            type: "solution_proposal",
+            content: `供应商主动给出方案：${text.slice(0, 80)}`,
+            solutionRequested: false,
+            solutionProvided: true,
+            expectedAt: parseDateFromText(text, ref),
+            sourceLineText: lines[line.index]
+          });
+        }
+        // 方案兑现：若句子里同时包含"已发/已寄/已换/已经解决/处理好了/已退"这类完成词，标记 solutionDelivered
+        const delivered = /(已经(?:发|寄|换|补|退|赔|安排|弄好|解决)|已(?:发|寄|换|补|退|赔|安排)|处理(?:好|完)了|搞定了|完事了|弄好了|发出了|寄出了|换好了|退回去了|已收到|已经到了)/.test(text);
+        if (delivered) {
+          serviceEvents.push({
+            supplierNameGuess: supplierName,
+            type: "solution_fulfilled",
+            content: `方案已兑现：${text.slice(0, 60)}`,
+            solutionProvided: true,
+            solutionDelivered: true,
+            actualAt: line.dateStr,
+            sourceLineText: lines[line.index]
+          });
+        }
+      }
+    }
+
+    // --- 3c-新增) 推诿识别（evasion）："这不是我们的问题/不怪我们/你自己没说清/物流的问题/工厂那边的问题" ——
+    if (isSupplierLine) {
+      let severity = 0;
+      if (/(这不是|不是我们|不关我们|不怪我们|跟我们没关系|跟我没关系|不是我这边|我们也没办法|你们自己|你方|你那边|客户的问题|物流的问题|快递的问题|工厂那边|厂家的问题|不可抗力|行情就这样|市场就这样)[^\n，。]{0,20}/.test(text)) {
+        severity = 1; // 轻微推诿
+      }
+      if (severity > 0 && /(就是|明明|本来|谁让你|早说|你没|你不说|谁知道|鬼知道|我怎么知道|反正不是我|别找我)/.test(text)) {
+        severity = 2; // 严重推诿
+      }
+      if (severity > 0) {
+        serviceEvents.push({
+          supplierNameGuess: supplierName,
+          type: "evasion",
+          content: `推诿（${severity === 2 ? "严重" : "轻微"}）：${text.slice(0, 80)}`,
+          evasionSeverity: severity,
+          sourceLineText: lines[line.index]
+        });
+      }
     }
 
     // --- 3a) 承诺兑现 ---

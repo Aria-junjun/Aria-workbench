@@ -30,7 +30,8 @@ describe("supplier evaluation schemas", () => {
       unitPrice: 13.21,
       currency: "CNY",
       orderedAt: "2026-08-10",
-      status: "partial"
+      status: "partial",
+      source: "manual"
     };
     const parsed = SupplierOrderRecordSchema.parse(rec);
     expect(parsed.orderQuantity).toBe(1000);
@@ -54,9 +55,10 @@ describe("supplier evaluation schemas", () => {
 });
 
 describe("qcds scoring engine", () => {
-  it("calculateDeliveryScore: OTD×0.3 + peak×0.3 + fulfill×0.2 + expedite×0.2", () => {
+  it("calculateDeliveryScore (入仓): OTD×0.35 + peak×0.30 + fulfill×0.20 + expedite×0.15", () => {
     const s = calculateDeliveryScore({ onTimeDeliveryRate: 70, peakDeliveryRate: 40, orderFulfillmentRate: 88, expediteOnTimeRate: 65 });
-    expect(s).toBeCloseTo(63.6, 1);
+    // 70×0.35=24.5 + 40×0.30=12 + 88×0.20=17.6 + 65×0.15=9.75 = 63.85
+    expect(s).toBeCloseTo(63.85, 1);
   });
 
   it("calculateCostScore: 竞争力93.8×0.35 + (涨30+降80)/2×0.4 + 稳定70×0.25 ≈ 72.3", () => {
@@ -71,15 +73,16 @@ describe("qcds scoring engine", () => {
     expect(s).toBeLessThan(74);
   });
 
-  it("calculateQualityScore: 87.5×0.5 + 75×0.3 + (100-25)×0.2 = 81.25", () => {
+  it("calculateQualityScore (入仓): 87.5×0.45 + 75×0.35 + (100-25)×0.20 = 80.625", () => {
     const s = calculateQualityScore({ incomingPassRate: 87.5, qualityIssueClosureRate: 75, repeatIssueRate: 25 });
-    expect(s).toBeCloseTo(81.25, 0);
+    // 87.5×0.45=39.375 + 75×0.35=26.25 + 75×0.20=15 = 80.625
+    expect(s).toBeCloseTo(80.625, 0);
   });
 
-  it("calculateServiceScore: 承诺55×0.45 + 响应18h=70×0.3 + 配合3.2/5=64×0.25 ≈ 61.75", () => {
+  it("calculateServiceScore: 承诺55×0.30 + 响应18h=70×0.15 + 配合3.2/5=64×0.20 + 态度默认65×0.15 + 方案提出默认50×0.10 + 方案兑现默认50×0.10 = 59.55", () => {
     const s = calculateServiceScore({ promiseFulfillmentRate: 55, avgResponseHours: 18, cooperationAverageScore: 3.2 });
-    expect(s).toBeGreaterThan(60);
-    expect(s).toBeLessThan(63);
+    expect(s).toBeGreaterThan(58);
+    expect(s).toBeLessThan(61);
   });
 
   it("gradeFromTotal thresholds: A>=85, B>=70, C>=60, D<60", () => {
@@ -142,12 +145,14 @@ describe("qcds scoring engine", () => {
       {
         id: "o1", productName: "铁艺花架",
         orderedAt: "2026-07-01", promisedDeliveryAt: "2026-07-08", actualDeliveryAt: "2026-07-07",
-        orderQuantity: 500, deliveredQuantity: 500, isPeak: false, status: "fulfilled", unitPrice: 28
+        orderQuantity: 500, deliveredQuantity: 500, isPeak: false, status: "fulfilled", unitPrice: 28,
+        currency: "CNY", source: "manual"
       },
       {
         id: "o2", productName: "铁艺花架",
         orderedAt: "2026-07-10", promisedDeliveryAt: "2026-07-18", actualDeliveryAt: "2026-07-22",
-        orderQuantity: 1500, deliveredQuantity: 1400, isPeak: true, status: "partial", unitPrice: 28
+        orderQuantity: 1500, deliveredQuantity: 1400, isPeak: true, status: "partial", unitPrice: 28,
+        currency: "CNY", source: "manual"
       }
     ];
     const m = aggregateMetricsFromRecords({ orders, qualityIssues: [], serviceEvents: [] });

@@ -21,7 +21,8 @@ import {
   saveLocalWorkbenchData,
   saveSupplierEvaluation,
   updateLocalItem,
-  type LocalWorkbenchData
+  type LocalWorkbenchData,
+  type LocalSupplier
 } from "@/features/workbench/local-store";
 import { parseBookPackage } from "@/features/workbench/knowledge-library";
 import { parseProductResearchMarkdown } from "@/features/workbench/product-research-parser";
@@ -801,8 +802,9 @@ describe("local-store operations", () => {
   });
 });
 
-function sampleSupplier(overrides: Partial<{ id: string; name: string; categories: string[]; createdAt: string }> = {}) {
+function sampleSupplier(overrides: Partial<{ id: string; name: string; categories: string[]; createdAt: string; supplierType: LocalSupplier["supplierType"] }> = {}) {
   return {
+    supplierType: overrides.supplierType ?? "factory",
     id: overrides.id ?? "supplier-1",
     name: overrides.name ?? "测试供应商",
     categories: overrides.categories ?? ["包装"],
@@ -913,10 +915,10 @@ describe("supplier evaluation storage", () => {
       supplierId: "sup-1",
       period: "2026-Q3",
       rawData: {
-        orders: [{ id: "PO001", orderQuantity: 100, promisedDeliveryAt: "2026-08-01", actualDeliveryAt: "2026-07-31" }],
+        orders: [{ id: "PO001", isPeak: false, currency: "CNY", source: "manual", orderQuantity: 100, promisedDeliveryAt: "2026-08-01", actualDeliveryAt: "2026-07-31" }],
         qualityIssues: [], serviceEvents: [], costReduction: []
       },
-      metrics: { onTimeDeliveryRate: 90, qualityPassRate: 98, promiseFulfillmentRate: 90 },
+      metrics: { onTimeDeliveryRate: 90, incomingPassRate: 98, promiseFulfillmentRate: 90 },
       scores: { delivery: 90, cost: 82, quality: 95, service: 88, total: 90, grade: "A" },
       riskLabels: ["无风险"]
     });
@@ -946,11 +948,11 @@ describe("supplier evaluation storage", () => {
       ...sampleData(),
       suppliers: [
         { ...sampleSupplier(), id: "a-1", name: "A厂", categories: ["x"],
-          evaluations: [{ supplierId: "a-1", period: "2026-Q1", metrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [] }],
+          evaluations: [{ id: "ev-A", supplierId: "a-1", period: "2026-Q1", periodType: "quarter", rawMetrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-04-05" }],
           orderRecords: [{ id: "A-PO1", orderQuantity: 10 } as any]
         },
         { ...sampleSupplier(), id: "a-2", name: "A厂同主体", categories: ["y"],
-          evaluations: [{ supplierId: "a-2", period: "2026-Q2", metrics: {}, scores: { delivery: 70, cost: 80, quality: 80, service: 70, total: 75, grade: "B" }, riskLabels: [] }],
+          evaluations: [{ id: "ev-B", supplierId: "a-2", period: "2026-Q2", periodType: "quarter", rawMetrics: {}, scores: { delivery: 70, cost: 80, quality: 80, service: 70, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-05" }],
           orderRecords: [{ id: "A-PO2", orderQuantity: 20 } as any]
         }
       ]
@@ -968,14 +970,16 @@ describe("supplier evaluation storage", () => {
       suppliers: [{
         ...sampleSupplier(),
         id: "s1", name: "文航家居", categories: [],
-        evaluations: [{ supplierId: "s1", period: "2026-Q2", metrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [] }],
+        evaluations: [{ id: "ev-1", supplierId: "s1", period: "2026-Q2", periodType: "quarter", rawMetrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-01" }],
         orderRecords: [{ id: "PO-HISTORY", orderQuantity: 500 } as any]
       }]
     });
     saveDraftToLocalWorkbench({
-      supplier: { name: "文航家居", categories: ["收纳"], riskTags: [], location: "台州" },
+      supplier: { supplierType: "factory", name: "文航家居", categories: ["收纳"], riskTags: [], location: "台州" },
       communication: { summary: "补充品类信息", promises: [], questions: [], risks: [], nextActions: [] },
-      offers: [], tasks: [], knowledgeCards: []
+      offers: [], tasks: [], knowledgeCards: [],
+      productKnowledge: [],
+      uncertaintyNotes: []
     });
     const loaded = loadLocalWorkbenchData().suppliers.find((s) => s.name === "文航家居")!;
     expect(loaded.evaluations).toHaveLength(1);
