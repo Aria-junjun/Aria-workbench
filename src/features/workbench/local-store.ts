@@ -605,7 +605,9 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
     ]
   };
 
-  window.localStorage.setItem(storageKey, JSON.stringify(next));
+  // 走统一保存路径：normalizeWorkbenchData → 评分重算 → Zustand 通知订阅者 → 云端同步
+  // （直接 localStorage.setItem 会绕过评分重算和 Zustand store 更新，导致列表页不刷新）
+  saveLocalWorkbenchData(next);
 }
 
 export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void> {
@@ -629,7 +631,10 @@ export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   if (typeof window === "undefined") return;
   const bridged = autoBridgeCategoryData(data);
   const normalized = normalizeWorkbenchData(bridged);
-  const withTasks = ensureProductStageTasks(normalized);
+  // 每次保存都重算评分：新录入的供应商可能有 orderRecords/qualityRecords 等原始数据，
+  // 需要生成评估记录并更新 latestEvaluationScore/Grade，否则列表页显示"未评估"
+  const withEvaluations = recalcEvaluationsWithDeductions(normalized);
+  const withTasks = ensureProductStageTasks(withEvaluations);
   window.localStorage.setItem(storageKey, JSON.stringify(withTasks));
 
   try {

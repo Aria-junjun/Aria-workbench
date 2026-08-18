@@ -24,21 +24,23 @@ export default function ReviewPage({ params }: { params: Promise<{ draftId: stri
   async function confirm() {
     if (!extraction || !draftId) return;
     setIsSaving(true);
-    const response = await fetch(`/api/drafts/${draftId}/confirm`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(extraction)
-    });
-
-    if (!response.ok) {
-      setIsSaving(false);
-      return;
+    let useCloud = false;
+    try {
+      const response = await fetch(`/api/drafts/${draftId}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(extraction)
+      });
+      useCloud = response.ok;
+    } catch {
+      // 云端保存失败时走本地兜底，不抛错
     }
 
-    const result = (await response.json()) as { storage: "cloud" | "local" };
-    if (result.storage === "local") {
-      saveDraftToLocalWorkbench(extraction);
-    }
+    // 无论云端是否保存成功，都必须写入本地 localStorage：
+    // 当前前端 /suppliers 等页面的数据源就是本地 workbench_data 大 JSON，
+    // 只有写入本地才能在页面上看到新供应商。
+    saveDraftToLocalWorkbench(extraction);
+
     router.push("/suppliers");
   }
 
