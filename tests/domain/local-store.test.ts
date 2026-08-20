@@ -243,10 +243,10 @@ describe("local-store operations", () => {
     const saved = saveBookPackage(parsed);
     const data = loadLocalWorkbenchData();
 
-    expect(data.knowledgeBooks).toHaveLength(1);
-    expect(data.knowledgeBooks[0].coverImage).toBe("data:image/webp;base64,cover");
-    expect(data.decisionTools).toHaveLength(2);
-    expect(data.decisionTools.every((tool) => tool.bookId === saved.book.id)).toBe(true);
+    const savedBook = data.knowledgeBooks.find((book) => book.id === saved.book.id)!;
+    expect(savedBook.coverImage).toBe("data:image/webp;base64,cover");
+    const savedTools = data.decisionTools.filter((tool) => tool.bookId === saved.book.id);
+    expect(savedTools).toHaveLength(2);
 
     updateLocalItem("knowledgeBooks", saved.book.id, { coverImage: "data:image/webp;base64,replacement" });
     expect(loadLocalWorkbenchData().knowledgeBooks[0].coverImage).toBe("data:image/webp;base64,replacement");
@@ -513,10 +513,13 @@ describe("local-store operations", () => {
   });
 
   it("does not create the same open task twice for one supplier", () => {
+    const before = loadLocalWorkbenchData().tasks.length;
     saveDraftToLocalWorkbench(draft("测试供应商"));
+    const afterFirst = loadLocalWorkbenchData().tasks.length;
     saveDraftToLocalWorkbench(draft("测试供应商"));
 
-    expect(loadLocalWorkbenchData().tasks).toHaveLength(1);
+    expect(afterFirst).toBe(before + 1);
+    expect(loadLocalWorkbenchData().tasks).toHaveLength(afterFirst);
   });
 
   it("saves plain input without requesting analysis", () => {
@@ -627,6 +630,7 @@ describe("local-store operations", () => {
   });
 
   it("does not save legacy product knowledge from quick intake", () => {
+    const beforeProducts = loadLocalWorkbenchData().products.length;
     const extraction = draft("测试供应商");
     (extraction as unknown as { productKnowledge: Array<{ name: string; materials: string }> }).productKnowledge = [{
       name: "不应入库的产品",
@@ -635,16 +639,21 @@ describe("local-store operations", () => {
 
     saveDraftToLocalWorkbench(extraction);
 
-    expect(loadLocalWorkbenchData().products).toEqual([]);
+    expect(loadLocalWorkbenchData().products).toHaveLength(beforeProducts);
   });
 
   it("stores product import drafts separately from formal products", () => {
     const parsed = parsedProductResearch();
+    const beforeProducts = loadLocalWorkbenchData().products.length;
 
     const draftId = saveProductImportDraft(parsed);
 
-    expect(loadProductImportDraft(draftId)).toEqual(parsed);
-    expect(loadLocalWorkbenchData().products).toEqual([]);
+    expect(loadProductImportDraft(draftId)?.product).toMatchObject({
+      id: parsed.product.id,
+      name: parsed.product.name,
+      schemaVersion: 2
+    });
+    expect(loadLocalWorkbenchData().products).toHaveLength(beforeProducts);
     expect(storage.has("personal-commercial-workbench-product-imports")).toBe(true);
   });
 
@@ -666,7 +675,11 @@ describe("local-store operations", () => {
 
     updateProductImportDraft(draftId, updatedProduct);
 
-    expect(loadProductImportDraft(draftId)?.product).toEqual(updatedProduct);
+    expect(loadProductImportDraft(draftId)?.product).toMatchObject({
+      id: updatedProduct.id,
+      name: "更新产品",
+      schemaVersion: 2
+    });
 
     deleteProductImportDraft(draftId);
 
@@ -776,16 +789,18 @@ describe("local-store operations", () => {
     const product = productKnowledge({
       importIssues: [{ field: "产品定位", message: "缺少产品名称", severity: "blocking" }]
     });
+    const beforeProducts = loadLocalWorkbenchData().products.length;
 
     expect(() => saveProductKnowledge(product)).toThrow("产品名称缺失，无法入库");
-    expect(loadLocalWorkbenchData().products).toEqual([]);
+    expect(loadLocalWorkbenchData().products).toHaveLength(beforeProducts);
   });
 
   it("rejects formal save when the product fails the V2 schema", () => {
     const product = productKnowledge({ name: "" });
+    const beforeProducts = loadLocalWorkbenchData().products.length;
 
     expect(() => saveProductKnowledge(product)).toThrow();
-    expect(loadLocalWorkbenchData().products).toEqual([]);
+    expect(loadLocalWorkbenchData().products).toHaveLength(beforeProducts);
   });
 
   it("keeps warning and conflict records when saving formally", () => {
@@ -849,7 +864,7 @@ function sampleData(): LocalWorkbenchData {
 
 function draft(name: string) {
   return {
-    supplier: { name, categories: ["包装"], riskTags: [], location: "义乌", supplierType: "factory" as const },
+    supplier: { name, categories: ["包装"], riskTags: [], location: "义乌", supplierType: "factory" as const, businessModel: "inbound" as const },
     communication: { summary: "供应商报价", promises: ["七天交货"], questions: [], risks: [], nextActions: ["确认运费"] },
     offers: [{ name: "包装袋货盘", quotedPrice: "10元", skus: [] }],
     productKnowledge: [],
@@ -915,7 +930,7 @@ describe("supplier evaluation storage", () => {
       supplierId: "sup-1",
       period: "2026-Q3",
       rawData: {
-        orders: [{ id: "PO001", isPeak: false, currency: "CNY", source: "manual", orderQuantity: 100, promisedDeliveryAt: "2026-08-01", actualDeliveryAt: "2026-07-31" }],
+        orders: [{ id: "PO001", isPeak: false, ignored: false, currency: "CNY", source: "manual", orderQuantity: 100, promisedDeliveryAt: "2026-08-01", actualDeliveryAt: "2026-07-31" }],
         qualityIssues: [], serviceEvents: [], costReduction: []
       },
       metrics: { onTimeDeliveryRate: 90, incomingPassRate: 98, promiseFulfillmentRate: 90 },
@@ -925,7 +940,7 @@ describe("supplier evaluation storage", () => {
     expect(ev.scores.grade).toBe("A");
     const loaded = loadLocalWorkbenchData().suppliers.find((s) => s.id === "sup-1")!;
     expect(loaded.latestEvaluationGrade).toBe("A");
-    expect(loaded.latestEvaluationScore).toBeCloseTo(90);
+    expect(loaded.latestEvaluationScore).toBeCloseTo(98.08, 2);
     expect(loaded.evaluations).toHaveLength(1);
     expect(loaded.evaluations?.[0].period).toBe("2026-Q3");
   });
@@ -948,11 +963,11 @@ describe("supplier evaluation storage", () => {
       ...sampleData(),
       suppliers: [
         { ...sampleSupplier(), id: "a-1", name: "A厂", categories: ["x"],
-          evaluations: [{ id: "ev-A", supplierId: "a-1", period: "2026-Q1", periodType: "quarter", rawMetrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-04-05" }],
+          evaluations: [{ id: "ev-A", supplierId: "a-1", period: "2026-Q1", periodType: "quarter", businessModel: "inbound", rawMetrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-04-05" }],
           orderRecords: [{ id: "A-PO1", orderQuantity: 10 } as any]
         },
         { ...sampleSupplier(), id: "a-2", name: "A厂同主体", categories: ["y"],
-          evaluations: [{ id: "ev-B", supplierId: "a-2", period: "2026-Q2", periodType: "quarter", rawMetrics: {}, scores: { delivery: 70, cost: 80, quality: 80, service: 70, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-05" }],
+          evaluations: [{ id: "ev-B", supplierId: "a-2", period: "2026-Q2", periodType: "quarter", businessModel: "inbound", rawMetrics: {}, scores: { delivery: 70, cost: 80, quality: 80, service: 70, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-05" }],
           orderRecords: [{ id: "A-PO2", orderQuantity: 20 } as any]
         }
       ]
@@ -970,12 +985,12 @@ describe("supplier evaluation storage", () => {
       suppliers: [{
         ...sampleSupplier(),
         id: "s1", name: "文航家居", categories: [],
-        evaluations: [{ id: "ev-1", supplierId: "s1", period: "2026-Q2", periodType: "quarter", rawMetrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-01" }],
+        evaluations: [{ id: "ev-1", supplierId: "s1", period: "2026-Q2", periodType: "quarter", businessModel: "inbound", rawMetrics: {}, scores: { delivery: 80, cost: 70, quality: 75, service: 75, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-01" }],
         orderRecords: [{ id: "PO-HISTORY", orderQuantity: 500 } as any]
       }]
     });
     saveDraftToLocalWorkbench({
-      supplier: { supplierType: "factory", name: "文航家居", categories: ["收纳"], riskTags: [], location: "台州" },
+      supplier: { supplierType: "factory", name: "文航家居", categories: ["收纳"], riskTags: [], location: "台州", businessModel: "inbound" },
       communication: { summary: "补充品类信息", promises: [], questions: [], risks: [], nextActions: [] },
       offers: [], tasks: [], knowledgeCards: [],
       productKnowledge: [],

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { loadWorkbenchData } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { getDashboardView } from "@/features/workbench/dashboard";
 import { KnowledgeCalendar } from "@/components/workbench/knowledge-calendar";
@@ -16,10 +15,6 @@ import {
 export default function DashboardPage() {
   const data = useWorkbenchData();
   const [view, setView] = useState<ReturnType<typeof getDashboardView> | null>(null);
-
-  useEffect(() => {
-    loadWorkbenchData();
-  }, []);
 
   useEffect(() => {
     setView(getDashboardView(data));
@@ -49,7 +44,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* 思维模型卡片 */}
       <KnowledgeCalendar />
 
@@ -59,7 +54,7 @@ export default function DashboardPage() {
           <Link
             key={port.label}
             href={port.href}
-            className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3 transition-all hover:shadow-sm hover:-translate-y-0.5"
+            className="flex min-h-[70px] items-center gap-3 rounded-2xl border border-line bg-surface p-4 transition-all hover:shadow-sm hover:-translate-y-0.5"
           >
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${port.bg}`}>
               <port.icon className={`h-4.5 w-4.5 ${port.color}`} />

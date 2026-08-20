@@ -13,7 +13,7 @@ describe("decision case detail", () => {
     expect(source).toContain("工具分析");
     expect(source).toContain("来源");
     expect(source).toContain("新建决策周期");
-    expect(source).toContain("<details");
+    expect(source).toContain("与前面重复时折叠");
   });
 
   it("offers the canvas only inside the decision cycle", () => {

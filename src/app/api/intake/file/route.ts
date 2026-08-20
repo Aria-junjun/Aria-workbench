@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 import { extractWorkbenchDraft } from "@/features/workbench/ai-extraction";
 import { extractWorkbenchFileText } from "@/features/workbench/file-text";
 import { getMvpUserId } from "@/features/workbench/mvp-user";
@@ -7,6 +8,8 @@ import { hasSupabaseConfig } from "@/features/workbench/supabase";
 import { randomId } from "@/lib/random-id";
 
 export async function POST(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   const formData = await request.formData();
   const file = formData.get("file");
 

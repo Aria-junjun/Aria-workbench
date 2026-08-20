@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createServiceClient } from "@/features/workbench/supabase";
 import { normalizeWorkbenchData } from "@/features/workbench/local-store";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   const debug: Record<string, unknown> = {};
 
   try {
     // 1. 测试 Supabase 连接
-    const { data, error } = await supabase
+    const { data, error } = await createServiceClient()
       .from("workbench_data")
       .select("data")
       .order("updated_at", { ascending: false })

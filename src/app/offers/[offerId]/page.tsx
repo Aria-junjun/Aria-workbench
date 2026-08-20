@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Info, SectionActions, TextField } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, updateLocalItem, type LocalOffer, type OfferSku } from "@/features/workbench/local-store";
+import { deleteLocalItem, updateLocalItem, type LocalOffer, type LocalSkuOfferLink, type LocalSkuMaster, type OfferSku } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { randomId } from "@/lib/random-id";
 
@@ -93,7 +93,10 @@ export default function OfferDetailPage() {
             {draft.skus && draft.skus.length > 0 && (
               <SkuTable
                 editing={editing}
+                offerId={draft.id}
                 skus={draft.skus}
+                skuLinks={data.skuOfferLinks ?? []}
+                skuMasters={data.skuMasters ?? []}
                 onChange={(nextSkus) => setDraft({ ...draft, skus: nextSkus })}
               />
             )}
@@ -141,7 +144,10 @@ export default function OfferDetailPage() {
             {offer.skus && offer.skus.length > 0 && (
               <SkuTable
                 editing={editing}
+                offerId={offer.id}
                 skus={offer.skus}
+                skuLinks={data.skuOfferLinks ?? []}
+                skuMasters={data.skuMasters ?? []}
                 onChange={() => {}}
               />
             )}
@@ -237,10 +243,16 @@ export default function OfferDetailPage() {
 function SkuTable({
   skus,
   editing,
+  offerId,
+  skuLinks,
+  skuMasters,
   onChange
 }: {
   skus: OfferSku[];
   editing: boolean;
+  offerId: string;
+  skuLinks: LocalSkuOfferLink[];
+  skuMasters: LocalSkuMaster[];
   onChange: (next: OfferSku[]) => void;
 }) {
   const showScroll = skus.length > 10;
@@ -310,6 +322,7 @@ function SkuTable({
             <tr className="bg-paper-warm">
               <th className={th}>规格名</th>
               <th className={th}>规格编码</th>
+              <th className={th}>内部产品编码</th>
               <th className={`${th} text-right`}>单价</th>
               <th className={th}>计价单位</th>
               <th className={th}>宽度</th>
@@ -344,6 +357,13 @@ function SkuTable({
                   ) : (
                     <span className="text-muted">{sku.specCode || "—"}</span>
                   )}
+                </td>
+                <td className={td}>
+                  {(() => {
+                    const link = skuLinks.find((item) => item.status === "confirmed" && item.offerId === offerId && item.offerSkuId === sku.id);
+                    const master = link ? skuMasters.find((item) => item.id === link.skuMasterId) : undefined;
+                    return master ? <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700" title={master.specification || "规格待补充"}>{master.internalSkuCode}</span> : <Link className="text-xs text-action hover:underline" href="/sku-master/import">去关联</Link>;
+                  })()}
                 </td>
                 <td className={`${td} text-right`}>
                   {editing ? (

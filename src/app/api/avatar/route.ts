@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 import fs from "node:fs";
 import path from "node:path";
 import { randomId } from "@/lib/random-id";
@@ -60,7 +61,9 @@ function detectExtension(filename: string, mimeType: string): string | null {
   return null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   try {
     const dir = getStorageDir();
     const files = fs.readdirSync(dir).filter((f) => {
@@ -84,6 +87,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   try {
     const formData = await request.formData();
     const file = formData.get("avatar");
@@ -144,7 +149,9 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   try {
     const dir = getStorageDir();
     const files = fs.readdirSync(dir).filter((f) => {

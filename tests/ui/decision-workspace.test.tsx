@@ -9,7 +9,7 @@ describe("decision workspace UI", () => {
     const source = fs.readFileSync(path.join(root, "src/app/knowledge/page.tsx"), "utf8");
 
     expect(source).toContain("问题档案");
-    expect(source).toContain("直接保存为问题草稿");
+    expect(source).toContain("保存为问题草稿");
     expect(source).toContain("查找本地知识");
     expect(source).not.toContain('fetch("/api/knowledge/analyze"');
     expect(source).not.toContain(">需要分析<");

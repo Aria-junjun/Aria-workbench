@@ -6,6 +6,9 @@ import { useMemo, useState } from "react";
 import { ArrowDownUp, ArrowUpDown, ChevronDown, ChevronUp } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { LibraryToolbar, uniqueTags } from "@/components/workbench/library-toolbar";
+import { OfferDetailDrawer } from "@/components/workbench/offer-detail-drawer";
+import { OfferListView } from "@/components/workbench/offer-list-view";
+import { OfferSkuCompareView, SupplierOfferView, groupOffersByProduct, groupOffersBySupplier } from "@/components/workbench/offer-aggregate-views";
 import { includesQuery, sortPinnedFirst, togglePinned, type LocalOffer } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
@@ -27,6 +30,8 @@ export default function OffersPage() {
   const [priceMax, setPriceMax] = useState("");
   const [moqMax, setMoqMax] = useState("");
   const [expandedSkus, setExpandedSkus] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<"cards" | "list" | "sku" | "supplier">("list");
+  const [detailOffer, setDetailOffer] = useState<LocalOffer | null>(null);
 
   const offers = sortPinnedFirst(useWorkbenchData().offers);
   const hasSkusOffers = offers.filter(hasSkus).length;
@@ -146,6 +151,10 @@ export default function OffersPage() {
     router.push(`/quotes?offerIds=${encodeURIComponent(selectedOfferIds.join(","))}`);
   }
 
+  function addToCompare(id: string) {
+    setSelectedOfferIds((current) => current.includes(id) ? current : [...current, id]);
+  }
+
   return (
     <div className="space-y-5" data-version={version}>
       <LibraryToolbar
@@ -159,6 +168,20 @@ export default function OffersPage() {
         tags={tags}
         title="货盘库"
       />
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-line bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="货盘视图">
+          {([['list', '货盘列表'], ['cards', '卡片视图'], ['sku', 'SKU比价'], ['supplier', '供应商报价']] as const).map(([mode, label]) => (
+            <button aria-selected={viewMode === mode} className={`rounded-xl px-3 py-2 text-sm transition-colors ${viewMode === mode ? "bg-action-soft font-medium text-action" : "text-muted hover:bg-paper-warm"}`} key={mode} onClick={() => setViewMode(mode)} role="tab" type="button">{label}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-4 text-xs text-muted">
+          <span>货盘 {filtered.length}</span>
+          <span>已关联 {filtered.filter((offer) => offer.productId || offer.productName).length}</span>
+          <span>供应商 {new Set(filtered.map((offer) => offer.supplierName).filter(Boolean)).size}</span>
+          <Link className="rounded-xl border border-line px-3 py-2 text-xs text-slate-700 hover:bg-paper-warm" href="/sku-master/import">导入产品编码表</Link>
+        </div>
+      </div>
 
       {/* 排序与数值筛选 */}
       {offers.length > 0 ? (
@@ -233,6 +256,12 @@ export default function OffersPage() {
       ) : null}
       {offers.length === 0 ? (
         <EmptyState title="还没有货盘" description="货盘会从沟通整理结果中归档，不做复杂对比。" actionHref="/intake" actionLabel="录入沟通" />
+      ) : viewMode === "list" ? (
+        <OfferListView offers={filtered} onAddToCompare={addToCompare} onOpenDetails={setDetailOffer} onPin={pin} onToggleSelected={toggleSelected} selectedOfferIds={selectedOfferIds} />
+      ) : viewMode === "sku" ? (
+        <OfferSkuCompareView groups={groupOffersByProduct(filtered)} onAddToCompare={addToCompare} onOpenDetails={setDetailOffer} />
+      ) : viewMode === "supplier" ? (
+        <SupplierOfferView groups={groupOffersBySupplier(filtered)} onOpenDetails={setDetailOffer} />
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((offer) => {
@@ -358,6 +387,7 @@ export default function OffersPage() {
           })}
         </div>
       )}
+      <OfferDetailDrawer offer={detailOffer} onAddToCompare={addToCompare} onClose={() => setDetailOffer(null)} open={detailOffer !== null} />
     </div>
   );
 }

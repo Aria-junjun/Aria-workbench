@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 import { z } from "zod";
 import { analyzeDecisionCycle } from "@/features/workbench/decision-analysis-ai";
 
@@ -27,6 +28,8 @@ const RequestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
       { error: "未配置 OpenAI API Key，暂时无法生成商业模式画布。" },
