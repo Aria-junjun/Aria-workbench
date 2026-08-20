@@ -37,6 +37,7 @@ import {
   calculateTotalScoreAndGrade
 } from "./supplier-evaluation";
 import { parseSupplierChat } from "./supplier-chat-parser";
+import { hasPendingLocalWrite } from "./sync-guard";
 import type {
   SupplierChatExtractionDraft,
   SupplierOrderRecordDraft,
@@ -276,6 +277,42 @@ export type ResearchReport = {
   tags?: string[];         // 标签
 };
 
+/** 内部产品/SKU主表：商品编码是公司内部与聚水潭共用的权威键，不等同于供应商规格编码。 */
+export type LocalSkuMaster = {
+  id: string;
+  internalSkuCode: string;
+  productName: string;
+  specification: string;
+  status: "ready" | "needs_spec";
+  source: "excel" | "manual";
+  sourceFileName?: string;
+  sourceSheetName?: string;
+  importedAt: string;
+  importBatchId?: string;
+};
+
+export type LocalSkuImportBatch = {
+  id: string;
+  fileName: string;
+  sheetName: string;
+  importedAt: string;
+  totalRows: number;
+  importedRows: number;
+  warningRows: number;
+  errorRows: number;
+  status: "pending_review" | "confirmed";
+};
+
+export type LocalSkuOfferLink = {
+  id: string;
+  skuMasterId: string;
+  offerId: string;
+  offerSkuId?: string;
+  status: "confirmed" | "revoked";
+  confirmedAt: string;
+  revokedAt?: string;
+};
+
 export type LocalWorkbenchData = {
   suppliers: LocalSupplier[];
   communications: LocalCommunication[];
@@ -288,13 +325,19 @@ export type LocalWorkbenchData = {
   knowledgeApplications: LocalKnowledgeApplication[];
   decisionCases: DecisionCase[];
   researchReports: ResearchReport[];
+  /** 首次导入先进入待确认区，确认后才参与报价关联。 */
+  skuMasters?: LocalSkuMaster[];
+  skuImportBatches?: LocalSkuImportBatch[];
+  skuOfferLinks?: LocalSkuOfferLink[];
 };
 
-export type LocalCollectionName = keyof LocalWorkbenchData;
+export type LocalCollectionName = "suppliers" | "communications" | "offers" | "products" | "tasks" | "knowledgeCards" | "knowledgeBooks" | "decisionTools" | "knowledgeApplications" | "decisionCases" | "researchReports";
 type LocalItem<C extends LocalCollectionName> = LocalWorkbenchData[C][number];
 
 const storageKey = "personal-commercial-workbench";
+const pendingSyncKey = `${storageKey}:pending-sync`;
 const PROXY_URL = "/api/supabase-proxy";
+export const SYNC_TIMEOUT_MS = 8000;
 
 /** 代理访问 Supabase：绕开浏览器网络限制，走本地 Next.js 服务器转发 */
 async function proxyFetch<T = unknown>(
@@ -304,12 +347,20 @@ async function proxyFetch<T = unknown>(
   const url = action === "latest" || action === "count"
     ? `${PROXY_URL}?action=${action}`
     : PROXY_URL;
-  const res = await fetch(url, {
-    method: action === "latest" || action === "count" ? "GET" : "POST",
-    headers: { "Content-Type": "application/json" },
-    body: action === "latest" || action === "count" ? undefined : JSON.stringify({ action, ...payload }),
-    cache: "no-store"
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: action === "latest" || action === "count" ? "GET" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: action === "latest" || action === "count" ? undefined : JSON.stringify({ action, ...payload }),
+      cache: "no-store",
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (!res.ok) {
     throw new Error(`Proxy HTTP ${res.status}`);
   }
@@ -333,6 +384,11 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
 
     const first = Array.isArray(proxyData) ? proxyData[0] : undefined;
     if (first?.data) {
+      // 用户刚保存的本地数据尚未确认写入云端时，旧云端快照不能覆盖本地编辑。
+      if (typeof window !== "undefined" && hasPendingLocalWrite(window.localStorage.getItem(pendingSyncKey))) {
+        console.warn("[Sync] 检测到待确认的本地编辑，保留本地数据，跳过旧云端快照");
+        return loadLocalWorkbenchData();
+      }
       // 合并本地 rejected/confirmed 字段，防止云端旧代码丢失手动关联状态
       // 场景：本地删除关联 → 写入 rejected → 同步到 Supabase → 云端旧代码
       //       normalize 丢弃 rejected → autoBridge 重新关联 → 覆盖回 Supabase
@@ -619,10 +675,14 @@ export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void>
   // 2. 写入 Supabase（通过本地代理，绕开浏览器网络限制）
   try {
     await proxyFetch("upsert", { data });
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(pendingSyncKey);
+    }
     console.log("[Sync] 代理写入 Supabase 成功");
   } catch (e) {
-    console.error("[Sync] 代理/Supabase 写入失败:", e instanceof Error ? e.message : e);
-    console.error("[Sync] 本地已保存，不影响使用");
+    // 同步失败是可恢复的网络状态，不应使用 console.error 触发 Next.js 开发错误面板。
+    // pending-sync 标记会保留，下一次保存或手动同步时继续尝试。
+    console.warn("[Sync] 云端暂未同步，本地已保存，稍后将重试:", e instanceof Error ? e.message : e);
   }
 }
 
@@ -636,6 +696,7 @@ export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   const withEvaluations = recalcEvaluationsWithDeductions(normalized);
   const withTasks = ensureProductStageTasks(withEvaluations);
   window.localStorage.setItem(storageKey, JSON.stringify(withTasks));
+  window.localStorage.setItem(pendingSyncKey, String(Date.now()));
 
   try {
     const { setWorkbenchSnapshot } = require("./workbench-store");
@@ -1674,6 +1735,93 @@ export function includesQuery(values: Array<string | undefined>, query: string) 
   return values.some((value) => value?.toLowerCase().includes(normalized));
 }
 
+export function saveSkuMasterImport(input: {
+  fileName: string;
+  sheetName: string;
+  importedAt: string;
+  rows: Array<Pick<LocalSkuMaster, "internalSkuCode" | "productName" | "specification" | "status" | "sourceFileName" | "sourceSheetName" | "importedAt">>;
+  warningRows: number;
+  errorRows: number;
+}): LocalSkuImportBatch {
+  const current = loadLocalWorkbenchData();
+  const batch: LocalSkuImportBatch = {
+    id: `sku-import-${Date.now()}`,
+    fileName: input.fileName,
+    sheetName: input.sheetName,
+    importedAt: input.importedAt,
+    totalRows: input.rows.length + input.errorRows,
+    importedRows: input.rows.length,
+    warningRows: input.warningRows,
+    errorRows: input.errorRows,
+    status: "pending_review"
+  };
+  const existingByCode = new Map((current.skuMasters ?? []).map((item) => [item.internalSkuCode, item]));
+  const imported = input.rows.map((row) => ({
+    ...row,
+    id: existingByCode.get(row.internalSkuCode)?.id ?? `sku-master-${row.internalSkuCode}`,
+    source: "excel" as const,
+    importBatchId: batch.id
+  }));
+  const merged = new Map(existingByCode);
+  imported.forEach((item) => merged.set(item.internalSkuCode, item));
+  saveLocalWorkbenchData({
+    ...current,
+    skuMasters: [...merged.values()],
+    skuImportBatches: [batch, ...(current.skuImportBatches ?? [])]
+  });
+  return batch;
+}
+
+export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, "productName" | "specification" | "status">>) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.skuMasters ?? []).map((item) => item.id === id
+    ? { ...item, ...patch, status: patch.specification?.trim() ? "ready" as const : item.status }
+    : item);
+  saveLocalWorkbenchData({ ...current, skuMasters: next });
+}
+
+export function confirmSkuImportBatch(batchId: string) {
+  const current = loadLocalWorkbenchData();
+  saveLocalWorkbenchData({
+    ...current,
+    skuImportBatches: (current.skuImportBatches ?? []).map((batch) => batch.id === batchId ? { ...batch, status: "confirmed" as const } : batch)
+  });
+}
+
+export function confirmSkuOfferLink(skuMasterId: string, offerId: string, offerSkuId?: string) {
+  const current = loadLocalWorkbenchData();
+  const links = current.skuOfferLinks ?? [];
+  const existing = links.find((link) => link.skuMasterId === skuMasterId && link.offerId === offerId && link.offerSkuId === offerSkuId);
+  if (existing) {
+    saveLocalWorkbenchData({
+      ...current,
+      skuOfferLinks: links.map((link) => link.id === existing.id ? { ...link, status: "confirmed" as const, revokedAt: undefined, confirmedAt: new Date().toISOString() } : link)
+    });
+    return;
+  }
+  saveLocalWorkbenchData({
+    ...current,
+    skuOfferLinks: [...links, {
+      id: `sku-offer-link-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      skuMasterId,
+      offerId,
+      offerSkuId,
+      status: "confirmed",
+      confirmedAt: new Date().toISOString()
+    }]
+  });
+}
+
+export function revokeSkuOfferLink(linkId: string) {
+  const current = loadLocalWorkbenchData();
+  saveLocalWorkbenchData({
+    ...current,
+    skuOfferLinks: (current.skuOfferLinks ?? []).map((link) => link.id === linkId
+      ? { ...link, status: "revoked" as const, revokedAt: new Date().toISOString() }
+      : link)
+  });
+}
+
 function emptyData(): LocalWorkbenchData {
   return {
     suppliers: [],
@@ -1686,7 +1834,10 @@ function emptyData(): LocalWorkbenchData {
     decisionTools: [],
     knowledgeApplications: []
     ,decisionCases: [],
-    researchReports: []
+    researchReports: [],
+    skuMasters: [],
+    skuImportBatches: [],
+    skuOfferLinks: []
   };
 }
 
@@ -1806,7 +1957,10 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
       risks: Array.isArray(card.risks) ? card.risks : [],
       tags: Array.isArray(card.tags) ? card.tags : []
     })),
-    researchReports: data.researchReports ?? []
+    researchReports: data.researchReports ?? [],
+    skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters : [],
+    skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
+    skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : []
   };
 }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 import {
   extractProductResearchFileText,
   MAX_PRODUCT_RESEARCH_FILE_BYTES,
@@ -8,6 +9,8 @@ import {
 const MAX_MULTIPART_BYTES = MAX_PRODUCT_RESEARCH_FILE_BYTES + 64 * 1024;
 
 export async function POST(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   const contentLengthError = getContentLengthError(request);
   if (contentLengthError) {
     return NextResponse.json({ error: contentLengthError }, { status: 400 });

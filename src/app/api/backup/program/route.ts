@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 import { createProgramBackupArchive } from "@/features/workbench/program-backup";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   try {
     const body = await request.json() as { businessData?: unknown; productDrafts?: unknown };
     if (typeof body.businessData !== "string" || body.businessData.length > 20_000_000) {

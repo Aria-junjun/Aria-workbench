@@ -192,7 +192,8 @@ export const presetThemes: ThemeConfig[] = [
 ];
 
 // 默认主题
-export const defaultTheme = presetThemes[0];
+// 线上工作台当前使用薰衣草主题，本地首次打开时保持同一视觉基线。
+export const defaultTheme = presetThemes.find((theme) => theme.id === "lavender") ?? presetThemes[0];
 
 // 从 localStorage 读取主题
 export function loadTheme(): ThemeConfig {

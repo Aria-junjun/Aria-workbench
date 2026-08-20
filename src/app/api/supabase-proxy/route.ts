@@ -1,31 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 
 // 服务端代理：转发 Supabase 请求，绕开浏览器网络限制（CORS/ERR_TIMED_OUT）
 // 仅处理 workbench_data 表的简单读写场景（select / upsert）
 
 export const runtime = "nodejs";
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  "https://ggdhgpklhwuwcgeqysho.supabase.co";
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "sb_publishable_-or7ucKU_7AqKvDlM0umlA_p5Xyxl9T";
-const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
-
-const API_BASE = `${SUPABASE_URL}/rest/v1`;
 const TABLE = "workbench_data";
 
+function getSupabaseConfig() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase server credentials are not configured");
+  return { apiBase: `${url}/rest/v1`, key };
+}
+
 async function callSupabase(path: string, init: RequestInit) {
+  const { apiBase, key } = getSupabaseConfig();
   const headers = new Headers(init.headers);
   // 服务端统一添加鉴权（若有 service_role 则优先使用）
-  headers.set("apikey", SUPABASE_SERVICE_ROLE_KEY);
-  headers.set("Authorization", `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`);
+  headers.set("apikey", key);
+  headers.set("Authorization", `Bearer ${key}`);
   headers.set("Content-Type", "application/json");
   headers.set("Prefer", "return=representation,resolution=merge-duplicates");
 
-  const url = `${API_BASE}${path}`;
+  const url = `${apiBase}${path}`;
   const res = await fetch(url, {
     ...init,
     headers,
@@ -55,6 +54,8 @@ async function callSupabase(path: string, init: RequestInit) {
 // GET /api/supabase-proxy?action=latest  →  最新一条数据
 // GET /api/supabase-proxy?action=count  →  记录总数
 export async function GET(req: NextRequest) {
+  const authError = await requireWorkbenchSession(req);
+  if (authError) return authError;
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action") ?? "latest";
 
@@ -92,6 +93,8 @@ export async function GET(req: NextRequest) {
 //   { action: "insert", data: <full workbench data> }
 //   { action: "update", id: <string>, data: <partial> }
 export async function POST(req: NextRequest) {
+  const authError = await requireWorkbenchSession(req);
+  if (authError) return authError;
   let body: { action?: string; data?: unknown; id?: string } = {};
   try {
     body = (await req.json()) as typeof body;
@@ -105,15 +108,17 @@ export async function POST(req: NextRequest) {
   const action = body.action ?? "upsert";
 
   try {
+    getSupabaseConfig();
     if (action === "upsert") {
+      const { apiBase, key } = getSupabaseConfig();
       // 简化逻辑：先查是否已有记录，有则更新第一条，无则插入
       const latest = await fetch(
-        `${API_BASE}/${TABLE}?select=id&order=updated_at.desc&limit=1`,
+        `${apiBase}/${TABLE}?select=id&order=updated_at.desc&limit=1`,
         {
           method: "GET",
           headers: {
-            apikey: SUPABASE_SERVICE_ROLE_KEY,
-            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            apikey: key,
+            Authorization: `Bearer ${key}`,
             Prefer: "return=representation"
           }
         }

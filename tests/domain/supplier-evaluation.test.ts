@@ -31,7 +31,8 @@ describe("supplier evaluation schemas", () => {
       currency: "CNY",
       orderedAt: "2026-08-10",
       status: "partial",
-      source: "manual"
+      source: "manual",
+      ignored: false
     };
     const parsed = SupplierOrderRecordSchema.parse(rec);
     expect(parsed.orderQuantity).toBe(1000);
@@ -61,7 +62,7 @@ describe("qcds scoring engine", () => {
     expect(s).toBeCloseTo(63.85, 1);
   });
 
-  it("calculateCostScore: 竞争力93.8×0.35 + (涨30+降80)/2×0.4 + 稳定70×0.25 ≈ 72.3", () => {
+  it("calculateCostScore follows the current response-day score table", () => {
     const s = calculateCostScore({
       currentQuote: 3.2,
       categoryLowestPrice: 3.0,
@@ -69,8 +70,7 @@ describe("qcds scoring engine", () => {
       priceDropResponseDays: 12,
       priceStabilityScore: 70
     });
-    expect(s).toBeGreaterThan(70);
-    expect(s).toBeLessThan(74);
+    expect(s).toBeCloseTo(76.3125, 4);
   });
 
   it("calculateQualityScore (入仓): 87.5×0.45 + 75×0.35 + (100-25)×0.20 = 80.625", () => {
@@ -79,10 +79,9 @@ describe("qcds scoring engine", () => {
     expect(s).toBeCloseTo(80.625, 0);
   });
 
-  it("calculateServiceScore: 承诺55×0.30 + 响应18h=70×0.15 + 配合3.2/5=64×0.20 + 态度默认65×0.15 + 方案提出默认50×0.10 + 方案兑现默认50×0.10 = 59.55", () => {
+  it("calculateServiceScore applies default full scores for unrecorded service dimensions", () => {
     const s = calculateServiceScore({ promiseFulfillmentRate: 55, avgResponseHours: 18, cooperationAverageScore: 3.2 });
-    expect(s).toBeGreaterThan(58);
-    expect(s).toBeLessThan(61);
+    expect(s).toBeCloseTo(76.3, 1);
   });
 
   it("gradeFromTotal thresholds: A>=85, B>=70, C>=60, D<60", () => {
@@ -123,10 +122,8 @@ describe("qcds scoring engine", () => {
         promiseFulfillmentRate: 55, avgResponseHours: 18, cooperationAverageScore: 3.2
       }
     });
-    expect(ev.scores.total).toBeGreaterThan(66);
-    expect(ev.scores.total).toBeLessThan(71);
-    // 68 左右正好在 B/C 边界，任何一档都合理，核心是风险标签要触发
-    expect(["B", "C"]).toContain(ev.scores.grade);
+    expect(ev.scores.total).toBeCloseTo(73.865, 3);
+    expect(ev.scores.grade).toBe("B");
     expect(ev.riskLabels).toEqual(expect.arrayContaining(["爆单不可靠", "言行不一"]));
   });
 
@@ -135,9 +132,8 @@ describe("qcds scoring engine", () => {
       metrics: { onTimeDeliveryRate: 80 },
       supplierId: "s1", period: "2026-Q3"
     });
-    expect(ev.scores.total).toBeGreaterThan(40);
-    expect(ev.scores.total).toBeLessThan(80);
-    expect(["A", "B", "C", "D"]).toContain(ev.scores.grade);
+    expect(ev.scores.total).toBeCloseTo(97.9, 1);
+    expect(ev.scores.grade).toBe("A");
   });
 
   it("aggregateMetricsFromRecords with 2 orders computes OTD/peak/fulfill/pass/quote correctly", () => {
@@ -146,13 +142,13 @@ describe("qcds scoring engine", () => {
         id: "o1", productName: "铁艺花架",
         orderedAt: "2026-07-01", promisedDeliveryAt: "2026-07-08", actualDeliveryAt: "2026-07-07",
         orderQuantity: 500, deliveredQuantity: 500, isPeak: false, status: "fulfilled", unitPrice: 28,
-        currency: "CNY", source: "manual"
+        currency: "CNY", source: "manual", ignored: false
       },
       {
         id: "o2", productName: "铁艺花架",
         orderedAt: "2026-07-10", promisedDeliveryAt: "2026-07-18", actualDeliveryAt: "2026-07-22",
         orderQuantity: 1500, deliveredQuantity: 1400, isPeak: true, status: "partial", unitPrice: 28,
-        currency: "CNY", source: "manual"
+        currency: "CNY", source: "manual", ignored: false
       }
     ];
     const m = aggregateMetricsFromRecords({ orders, qualityIssues: [], serviceEvents: [] });

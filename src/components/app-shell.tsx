@@ -94,15 +94,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("workbench:avatar-updated", handleAvatarUpdate);
   }, []);
 
-  function handleLogout() {
-    sessionStorage.removeItem("workbench_authenticated");
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
   }
 
   return (
     <div className="min-h-screen bg-paper text-ink">
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 z-30 border-r border-line bg-surface md:flex md:flex-col">
+      <aside className="fixed inset-y-0 left-0 hidden w-[clamp(256px,15vw,290px)] z-30 border-r border-line bg-surface md:flex md:flex-col">
         {/* Brand */}
         <div className="flex items-center gap-3 px-5 py-5">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-action to-action-strong text-white shadow-glow">
@@ -219,8 +219,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Main */}
-      <main className="md:pl-64">
-        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
+      <main className="md:pl-[clamp(256px,15vw,290px)]">
+        <div className="mx-auto max-w-[1230px] px-4 py-6 md:px-8 md:py-9">
           {children}
         </div>
       </main>

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireWorkbenchSession } from "@/features/auth/guard";
 import { z } from "zod";
 import { extractWorkbenchDraft } from "@/features/workbench/ai-extraction";
 import { getMvpUserId } from "@/features/workbench/mvp-user";
@@ -23,6 +24,8 @@ const IntakeRequestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const authError = await requireWorkbenchSession(request);
+  if (authError) return authError;
   const body = IntakeRequestSchema.parse(await request.json());
   const extraction = await extractWorkbenchDraft(body);
   const draft = hasSupabaseConfig()

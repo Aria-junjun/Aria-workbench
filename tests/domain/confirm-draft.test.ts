@@ -9,6 +9,7 @@ describe("buildConfirmedRecords", () => {
         name: "义乌某包装厂",
         categories: ["包装盒"],
         supplierType: "factory",
+        businessModel: "inbound",
         riskTags: ["交期待确认"]
       },
       communication: {

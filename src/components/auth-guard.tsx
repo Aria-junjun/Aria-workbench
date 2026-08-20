@@ -22,12 +22,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const isAuthed = sessionStorage.getItem("workbench_authenticated") === "true";
-    if (!isAuthed) {
-      router.replace(`/login?from=${encodeURIComponent(pathname)}`);
-    } else {
-      setChecking(false);
-    }
+    fetch("/api/config/status", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) router.replace(`/login?from=${encodeURIComponent(pathname)}`);
+        else setChecking(false);
+      })
+      .catch(() => router.replace(`/login?from=${encodeURIComponent(pathname)}`));
   }, [pathname, router]);
 
   const isLogin = PUBLIC_ROUTES.some(

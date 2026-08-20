@@ -13,24 +13,28 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    const envPassword = process.env.NEXT_PUBLIC_WORKBENCH_PASSWORD;
-    const expected = envPassword || "aria2024";
-
-    setTimeout(() => {
-      if (password === expected) {
-        sessionStorage.setItem("workbench_authenticated", "true");
-        const from = searchParams.get("from") || "/";
-        router.push(from);
-      } else {
-        setError("密码不正确，请重试。");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+      if (!response.ok) {
+        setError(response.status === 503 ? "登录服务尚未配置，请联系管理员。" : "密码不正确，请重试。");
         setLoading(false);
+        return;
       }
-    }, 300);
+      const from = searchParams.get("from") || "/";
+      router.push(from);
+    } catch {
+      setError("网络异常，请稍后重试。");
+      setLoading(false);
+    }
   }
 
   return (
@@ -95,12 +99,14 @@ function LoginPageContent() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const isAuthed = sessionStorage.getItem("workbench_authenticated") === "true";
-    if (isAuthed) {
-      router.replace("/");
-    } else {
-      setChecking(false);
-    }
+    fetch("/api/config/status", { cache: "no-store" })
+      .then((response) => {
+        if (response.ok) router.replace("/");
+        else setChecking(false);
+      })
+      .catch(() => {
+        setChecking(false);
+      });
   }, [router]);
 
   if (checking) {

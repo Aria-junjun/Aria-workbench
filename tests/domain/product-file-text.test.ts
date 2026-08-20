@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/products/file/route";
 import { extractProductResearchFileText } from "@/features/workbench/file-text";
+import { createSessionToken } from "@/features/auth/session";
 
 const { extractRawText, fromBuffer } = vi.hoisted(() => ({ extractRawText: vi.fn(), fromBuffer: vi.fn() }));
 
@@ -13,6 +14,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = MAX_FILE_BYTES + 64 * 1024;
 const MAX_DOCX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
 const MAX_EXTRACTED_TEXT_CHARS = 5_000_000;
+let sessionCookie = "";
 
 type ZipEntryFixture = {
   fileName: string;
@@ -44,7 +46,7 @@ function mockDocxEntries(entries: ZipEntryFixture[]) {
 
 function createRequest(formData: FormData | { get: (name: string) => FormDataEntryValue | null }, contentLength = "100") {
   return {
-    headers: new Headers({ "content-length": contentLength }),
+    headers: new Headers({ "content-length": contentLength, cookie: sessionCookie }),
     formData: vi.fn().mockResolvedValue(formData)
   } as unknown as Request;
 }
@@ -159,6 +161,11 @@ describe("extractProductResearchFileText", () => {
 });
 
 describe("POST /api/products/file", () => {
+  beforeEach(async () => {
+    process.env.WORKBENCH_SESSION_SECRET = "test-session-secret";
+    sessionCookie = `workbench_session=${await createSessionToken("test-session-secret", "workbench")}`;
+  });
+
   it("returns the uploaded file name and extracted text", async () => {
     const formData = new FormData();
     formData.append("file", new File(["# Research\nProduct notes"], "research.md", { type: "text/markdown" }));
@@ -181,7 +188,7 @@ describe("POST /api/products/file", () => {
 
   it("returns a 400 error for invalid multipart bodies", async () => {
     const request = {
-      headers: new Headers({ "content-length": "100" }),
+      headers: new Headers({ "content-length": "100", cookie: sessionCookie }),
       formData: vi.fn().mockRejectedValue(new Error("invalid multipart"))
     } as unknown as Request;
     const response = await POST(request);
@@ -192,7 +199,7 @@ describe("POST /api/products/file", () => {
 
   it("returns a 400 error when parsed multipart data cannot read the file field", async () => {
     const response = await POST({
-      headers: new Headers({ "content-length": "100" }),
+      headers: new Headers({ "content-length": "100", cookie: sessionCookie }),
       formData: vi.fn().mockResolvedValue({
         get: vi.fn().mockImplementation(() => {
           throw new Error("invalid form data");
@@ -207,7 +214,7 @@ describe("POST /api/products/file", () => {
   it("rejects oversized Content-Length before parsing multipart data", async () => {
     const formData = vi.fn();
     const response = await POST({
-      headers: new Headers({ "content-length": String(MAX_MULTIPART_BYTES + 1) }),
+      headers: new Headers({ "content-length": String(MAX_MULTIPART_BYTES + 1), cookie: sessionCookie }),
       formData
     } as unknown as Request);
 
@@ -218,7 +225,7 @@ describe("POST /api/products/file", () => {
 
   it("rejects missing Content-Length before parsing multipart data", async () => {
     const formData = vi.fn();
-    const response = await POST({ headers: new Headers(), formData } as unknown as Request);
+    const response = await POST({ headers: new Headers({ cookie: sessionCookie }), formData } as unknown as Request);
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "请求体大小无效。" });
@@ -228,7 +235,7 @@ describe("POST /api/products/file", () => {
   it("rejects invalid Content-Length before parsing multipart data", async () => {
     const formData = vi.fn();
     const response = await POST({
-      headers: new Headers({ "content-length": "10.5" }),
+      headers: new Headers({ "content-length": "10.5", cookie: sessionCookie }),
       formData
     } as unknown as Request);
 
@@ -244,7 +251,7 @@ describe("POST /api/products/file", () => {
     const formData = { get: vi.fn().mockReturnValue(file) } as unknown as FormData;
 
     const response = await POST({
-      headers: new Headers({ "content-length": "100" }),
+      headers: new Headers({ "content-length": "100", cookie: sessionCookie }),
       formData: vi.fn().mockResolvedValue(formData)
     } as unknown as Request);
 
