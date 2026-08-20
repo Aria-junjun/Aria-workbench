@@ -1,0 +1,15 @@
+{
+  "format": "personal-commercial-workbench-complete-backup",
+  "version": 1,
+  "exportedAt": "2026-07-21T07:31:05.920Z",
+  "sourceFiles": 133,
+  "pageFiles": 25,
+  "businessDataFile": "backup/业务数据.json",
+  "productDraftsFile": "backup/产品录入草稿.json",
+  "restore": [
+    "解压程序文件",
+    "运行 npm install",
+    "运行 npm run dev",
+    "在设置页导入 backup/业务数据.json"
+  ]
+}

@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;600;700&family=Playfair+Display:wght@600;700&family=Outfit:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* 默认主题变量 - 会被 JS 动态覆盖 */
+  --color-primary: #c4716b;
+  --color-primary-soft: #f5e6e4;
+  --color-primary-strong: #a85d58;
+  --color-warning: #d4a35a;
+  --color-warning-soft: #fdf5e8;
+  --color-success: #7fb069;
+  --color-success-soft: #edf5e8;
+  --color-danger: #c45b5b;
+  --color-danger-soft: #fceeee;
+  --color-paper: #fdf8f3;
+  --color-paper-warm: #f8f0e8;
+  --color-surface: #ffffff;
+  --color-ink: #2d2a26;
+  --color-muted: #9a8e84;
+  --color-muted-light: #c4b8ae;
+  --color-line: #e8ddd4;
+  --color-line-soft: #f0e8e0;
+
+  --font-display: "Playfair Display", "Noto Serif SC", serif;
+  --font-body: "Noto Sans SC", "Quicksand", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-card: 24px;
+  --radius-button: 12px;
+  --radius-badge: 8px;
+
+  --shadow-card: 0 2px 16px rgba(45, 42, 38, 0.05);
+  --shadow-card-hover: 0 8px 32px rgba(45, 42, 38, 0.09);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+/* Smooth theme transitions for common properties - scoped to avoid performance issues */
+body, button, input, textarea, select, a, label, span, p, h1, h2, h3, h4, h5, h6, li, div[class*="bg-"], div[class*="text-"], div[class*="border-"] {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 0.3s;
+  transition-timing-function: ease;
+}
+
+/* Disable transition for transforms to avoid interfering with animations */
+.transition-transform, .transform, [class*="animate-"] {
+  transition-property: transform, opacity;
+}
+
+/* Staggered animation delays */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+
+/* Custom scrollbar - uses theme color */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-light);
+}
+
+/* Selection color - uses theme primary */
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+/* Hide browser default disclosure triangles on details/summary */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details > summary::marker {
+  display: none;
+}
+
+/* Remove default select arrow to avoid visual clutter */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: none;
+}
