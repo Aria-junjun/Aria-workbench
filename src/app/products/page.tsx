@@ -9,8 +9,10 @@ import { includesQuery, sortPinnedFirst, syncFromCloud, togglePinned } from "@/f
 import { setWorkbenchSnapshot, useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   LIFECYCLE_STAGE_OPTIONS,
+  PRODUCT_RECORD_KIND_OPTIONS,
   SIGNAL_STATUS_OPTIONS,
   labelLifecycleStage,
+  labelProductRecordKind,
   labelSignalStatus
 } from "@/features/workbench/display-labels";
 import { getStageMeta, getAllStages, getStageIndex } from "@/features/workbench/stage-checklist-template";
@@ -33,6 +35,7 @@ export default function ProductsPage() {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [selectedTag, setSelectedTag] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("");
+  const [recordKindFilter, setRecordKindFilter] = useState<string>("");
   const [signalStatusFilter, setSignalStatusFilter] = useState<string>("");
   const [version, setVersion] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -57,6 +60,7 @@ export default function ProductsPage() {
   const filtered = products.filter(
     (product) =>
       (!pinnedOnly || product.pinned) &&
+      (!recordKindFilter || product.recordKind === recordKindFilter) &&
       (!selectedTag || product.name === selectedTag) &&
       (!stageFilter || product.lifecycleStage === stageFilter || (stageFilter === "unset" && !product.lifecycleStage)) &&
       (!signalStatusFilter ||
@@ -106,17 +110,32 @@ export default function ProductsPage() {
       {/* Funnel visualization */}
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-800">产品机会漏斗</h2>
-          <div className="text-xs text-slate-500">共 {products.length} 条机会 · 选中 {filtered.length}</div>
+          <h2 className="text-sm font-semibold text-slate-800">产品分类与机会阶段</h2>
+          <div className="text-xs text-slate-500">共 {products.length} 条记录 · 当前显示 {filtered.length}</div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <FunnelChip
             label="全部"
             count={stageCounts.total}
-            active={!stageFilter}
+            active={!recordKindFilter && !stageFilter}
             tone="default"
-            onClick={() => { setStageFilter(""); setSignalStatusFilter(""); }}
+            onClick={() => { setRecordKindFilter(""); setStageFilter(""); setSignalStatusFilter(""); }}
           />
+          {PRODUCT_RECORD_KIND_OPTIONS.map((opt) => (
+            <FunnelChip
+              key={opt.value}
+              label={opt.label}
+              count={products.filter((product) => product.recordKind === opt.value).length}
+              active={recordKindFilter === opt.value}
+              tone={opt.value === "existing" ? "accent" : "default"}
+              onClick={() => { setRecordKindFilter(opt.value); setStageFilter(""); setSignalStatusFilter(""); }}
+            />
+          ))}
+        </div>
+        {(!recordKindFilter || recordKindFilter === "opportunity") && (
+        <>
+        <div className="mt-3 border-t border-dashed border-line pt-3 text-xs font-medium text-slate-500">机会阶段</div>
+        <div className="mt-2 flex flex-wrap gap-2">
           {LIFECYCLE_STAGE_OPTIONS.map((opt) => {
             return (
               <FunnelChip
@@ -151,6 +170,8 @@ export default function ProductsPage() {
               />
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -215,7 +236,10 @@ export default function ProductsPage() {
                 {/* Stage progress visualization */}
                 <div className="mt-3 rounded-lg border border-line-soft bg-paper-warm/40 p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${labelProductRecordKind(product.recordKind).tone}`}>
+                        {labelProductRecordKind(product.recordKind).label}
+                      </span>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${colors.bg} text-white`}>
                         {meta.title}
                       </span>

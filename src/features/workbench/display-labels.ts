@@ -46,6 +46,14 @@ const signalStatusLabels: Record<string, { label: string; tone: string }> = {
   rejected: { label: "已淘汰·排除",     tone: "bg-rose-50 text-rose-700 ring-rose-200" }
 };
 
+const productRecordKindLabels: Record<string, { label: string; tone: string }> = {
+  opportunity: { label: "产品机会", tone: "bg-blue-50 text-blue-700 ring-blue-200" },
+  existing: { label: "现有产品", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  observation: { label: "观察产品", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
+  archived: { label: "历史归档", tone: "bg-slate-100 text-slate-600 ring-slate-200" },
+  unclassified: { label: "待分类", tone: "bg-orange-50 text-orange-700 ring-orange-200" }
+};
+
 const dormantReasonLabels: Record<string, string> = {
   "供应商不成熟": "缺少成熟供应商",
   "采购成本过高": "成本/报价过高",
@@ -81,6 +89,19 @@ export function labelSignalStatus(status?: string) {
   if (!status) return { label: "未设置", tone: "bg-muted text-muted ring-line" };
   return signalStatusLabels[status] ?? { label: status, tone: "bg-muted text-muted ring-line" };
 }
+
+export function labelProductRecordKind(kind?: string) {
+  if (!kind) return productRecordKindLabels.unclassified;
+  return productRecordKindLabels[kind] ?? { label: kind, tone: "bg-muted text-muted ring-line" };
+}
+
+export const PRODUCT_RECORD_KIND_OPTIONS: { value: string; label: string }[] = [
+  { value: "opportunity", label: "产品机会" },
+  { value: "existing", label: "现有产品" },
+  { value: "observation", label: "观察产品" },
+  { value: "unclassified", label: "待分类" },
+  { value: "archived", label: "历史归档" }
+];
 
 export function labelDormantReason(reason?: string) {
   if (!reason) return "未说明原因";

@@ -1,4 +1,13 @@
 import { z } from "zod";
+import {
+  PRODUCT_MODES,
+  PRODUCT_PORTFOLIO_STATUSES,
+  PRODUCT_RECORD_KINDS,
+  normalizeProductPortfolioFields,
+  type ProductMode,
+  type ProductPortfolioStatus,
+  type ProductRecordKind
+} from "./product-portfolio";
 
 export const ProductSpecificationSchema = z.object({
   id: z.string().optional(),
@@ -342,6 +351,11 @@ export type ProductKnowledgeV2 = {
   legacyNotes?: string;
   createdAt: string;
   updatedAt?: string;
+  recordKind?: ProductRecordKind;
+  productMode?: ProductMode;
+  portfolioStatus?: ProductPortfolioStatus;
+  internalProductCode?: string;
+  observationCode?: string;
   // ===== 流水线阶段 + 信号池休眠/激活 =====
   lifecycleStage?: ProductLifecycleStage;
   signalStatus?: ProductSignalStatus;          // 仅 lifecycleStage === "signal" 时有效
@@ -399,6 +413,11 @@ export const ProductKnowledgeV2Schema = z.object({
   legacyNotes: z.string().optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().optional(),
+  recordKind: z.enum(PRODUCT_RECORD_KINDS).optional(),
+  productMode: z.enum(PRODUCT_MODES).optional(),
+  portfolioStatus: z.enum(PRODUCT_PORTFOLIO_STATUSES).optional(),
+  internalProductCode: z.string().optional(),
+  observationCode: z.string().optional(),
   // 流水线阶段 + 信号池休眠/激活
   lifecycleStage: z.enum(PRODUCT_LIFECYCLE_STAGES).optional(),
   signalStatus: z.enum(SIGNAL_STATUSES).optional(),
@@ -520,6 +539,7 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
         hardCostStatus: hardCost.status
       };
     }
+    product = { ...product, ...normalizeProductPortfolioFields(product) };
     // 信号池默认值：未设 stage 的非品类调研报告 → 自动视为信号池活跃机会
     if (!hasExplicitStage && product.researchDepth !== "category") {
       product.lifecycleStage = "signal";
@@ -647,6 +667,7 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     rawDocument: normalizedRawDocument,
     importIssues,
     legacyNotes,
+    ...normalizeProductPortfolioFields(candidate),
     createdAt,
     updatedAt,
     supplierId,

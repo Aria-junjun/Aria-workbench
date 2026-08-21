@@ -31,15 +31,15 @@
 - Test: tests/domain/product-portfolio.test.ts
 
 **Interfaces:**
-- Add ProductRecordKind = opportunity | existing | observation | archived.
+- Add ProductRecordKind = opportunity | existing | observation | archived | unclassified.
 - Add ProductMode = inbound | dropship | hybrid.
 - Add ProductPortfolioStatus = active | observe | optimize | paused | discontinued.
 - Extend ProductKnowledgeV2 with optional recordKind, productMode, portfolioStatus, internalProductCode, observationCode.
 - Add normalizeProductPortfolioFields(product) and call it from existing normalization.
 
-- [ ] Step 1: Write failing tests for legacy products defaulting to opportunity, existing products retaining explicit status, and observation products accepting an observation code without an internal SKU.
+- [ ] Step 1: Write failing tests for legacy products defaulting to unclassified, existing products retaining explicit status, and observation products accepting an observation code without an internal SKU.
 - [ ] Step 2: Run npm test -- --run tests/domain/product-portfolio.test.ts; expect failure because the new fields and normalizer do not exist.
-- [ ] Step 3: Add the types, Zod-compatible defaults, labels, and normalization. Default imported legacy opportunity records to opportunity; do not rewrite existing lifecycle history.
+- [ ] Step 3: Add the types, Zod-compatible defaults, labels, and normalization. Default ambiguous legacy records to unclassified; do not rewrite existing lifecycle history or make unclassified records participate in scoring.
 - [ ] Step 4: Replace the single 产品机会漏斗 filter with three filters: 产品机会、现有产品、观察产品; retain the existing lifecycle filter inside the opportunity view.
 - [ ] Step 5: Add editable status fields on the product detail page. For inbound, show internal product/SKU fields; for dropship, show observation code and no warehouse-code requirement.
 - [ ] Step 6: Run npm test -- --run tests/domain/product-portfolio.test.ts tests/domain/local-store.test.ts and npx tsc --noEmit; expect all tests and type checking to pass.

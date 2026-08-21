@@ -47,6 +47,7 @@
 - `existing`：已经在经营的产品
 - `observation`：一件代发或其他测试中的观察产品
 - `archived`：已归档历史产品
+- `unclassified`：历史记录尚未确认类型，不参与自动判断
 
 ### 产品模式
 

@@ -11,7 +11,7 @@ import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, Research
 import { StageProcessCard } from "@/components/workbench/stage-process-card";
 import { DecisionTimeline } from "@/components/workbench/decision-timeline";
 import { buildProductTechnologyPrompt } from "@/features/workbench/product-technology-prompt";
-import { labelLifecycleStage, labelSignalStatus, LIFECYCLE_STAGE_OPTIONS, SIGNAL_STATUS_OPTIONS, labelDormantReason } from "@/features/workbench/display-labels";
+import { labelLifecycleStage, labelSignalStatus, labelProductRecordKind, LIFECYCLE_STAGE_OPTIONS, SIGNAL_STATUS_OPTIONS, labelDormantReason, PRODUCT_RECORD_KIND_OPTIONS } from "@/features/workbench/display-labels";
 import { randomId } from "@/lib/random-id";
 
 export default function ProductDetailPage() {
@@ -97,6 +97,14 @@ export default function ProductDetailPage() {
             });
           }}
         />
+        <ProductPortfolioPanel
+          product={product}
+          onUpdate={(next) => {
+            setDraft(next);
+            saveProductKnowledge(next);
+            setVersion((v) => v + 1);
+          }}
+        />
       </section>
 
       {/* Decision Timeline */}
@@ -112,6 +120,78 @@ export default function ProductDetailPage() {
       ) : (
         <ProductKnowledgeView product={product} />
       )}
+    </div>
+  );
+}
+
+function ProductPortfolioPanel({
+  product,
+  onUpdate
+}: {
+  product: ProductKnowledgeV2;
+  onUpdate: (product: ProductKnowledgeV2) => void;
+}) {
+  const kindMeta = labelProductRecordKind(product.recordKind);
+
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">产品归类与经营状态</h2>
+          <p className="mt-1 text-xs text-slate-500">待分类记录不会参与机会判断或产品汰换评分。</p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${kindMeta.tone}`}>{kindMeta.label}</span>
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <label className="text-xs text-slate-500">
+          产品类型
+          <select
+            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-800"
+            value={product.recordKind ?? "unclassified"}
+            onChange={(event) => onUpdate({ ...product, recordKind: event.target.value as ProductKnowledgeV2["recordKind"] })}
+          >
+            {PRODUCT_RECORD_KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-slate-500">
+          经营模式
+          <select
+            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-800"
+            value={product.productMode ?? "inbound"}
+            onChange={(event) => onUpdate({ ...product, productMode: event.target.value as ProductKnowledgeV2["productMode"] })}
+          >
+            <option value="inbound">入仓产品</option>
+            <option value="dropship">一件代发</option>
+            <option value="hybrid">混合模式</option>
+          </select>
+        </label>
+        <label className="text-xs text-slate-500">
+          当前状态
+          <select
+            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-800"
+            value={product.portfolioStatus ?? "observe"}
+            onChange={(event) => onUpdate({ ...product, portfolioStatus: event.target.value as ProductKnowledgeV2["portfolioStatus"] })}
+          >
+            <option value="active">继续经营</option>
+            <option value="observe">观察</option>
+            <option value="optimize">需要优化</option>
+            <option value="paused">暂停</option>
+            <option value="discontinued">淘汰</option>
+          </select>
+        </label>
+      </div>
+      <label className="mt-3 block text-xs text-slate-500">
+        {product.productMode === "dropship" ? "观察编号" : "内部产品编码（可选）"}
+        <input
+          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-800"
+          placeholder={product.productMode === "dropship" ? "例如 DS-2026-001" : "入仓产品可填写内部产品编码"}
+          value={product.productMode === "dropship" ? product.observationCode ?? "" : product.internalProductCode ?? ""}
+          onChange={(event) => onUpdate({
+            ...product,
+            ...(product.productMode === "dropship" ? { observationCode: event.target.value } : { internalProductCode: event.target.value })
+          })}
+        />
+      </label>
     </div>
   );
 }
