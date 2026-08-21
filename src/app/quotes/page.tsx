@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalOffer, type LocalSkuMaster, type LocalSkuOfferLink, type OfferSku } from "@/features/workbench/local-store";
+import { loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalOffer, type LocalSkuMaster, type LocalSkuOfferLink } from "@/features/workbench/local-store";
+import { buildSkuComparisonRows } from "@/features/workbench/sku-comparison";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   ArrowDownUp,
@@ -465,41 +466,8 @@ function SkuCompareSection({
   if (!hasSkus) return null;
 
   const activeLinks = skuLinks.filter((link) => link.status === "confirmed" && link.offerSkuId && offers.some((offer) => offer.id === link.offerId));
-  const linkedSkuIds = new Set(activeLinks.map((link) => `${link.offerId}:${link.offerSkuId}`));
   const linkedMasterIds = new Set(activeLinks.map((link) => link.skuMasterId));
-  const skuMapByOffer = offers.map((offer) => new Map((offer.skus ?? []).map((sku) => [sku.id, sku])));
-  const rows: Array<{ key: string; internalCode: string; standardSpec: string; supplierSpec: string; matchedSkus: Array<OfferSku | undefined> }> = [];
-
-  for (const master of skuMasters) {
-    const masterLinks = activeLinks.filter((link) => link.skuMasterId === master.id);
-    if (masterLinks.length === 0) continue;
-    rows.push({
-      key: `internal:${master.id}`,
-      internalCode: master.internalSkuCode,
-      standardSpec: master.specification || "规格待补充",
-      supplierSpec: "已按内部编码关联",
-      matchedSkus: offers.map((offer) => {
-        const link = masterLinks.find((item) => item.offerId === offer.id);
-        return link?.offerSkuId ? skuMapByOffer[offers.indexOf(offer)]?.get(link.offerSkuId) : undefined;
-      })
-    });
-  }
-
-  const seenSpecNames = new Set<string>();
-  for (const offer of offers) {
-    for (const sku of offer.skus ?? []) {
-      const name = sku.specName.trim();
-      if (!name || linkedSkuIds.has(`${offer.id}:${sku.id}`) || seenSpecNames.has(name)) continue;
-      seenSpecNames.add(name);
-      rows.push({
-        key: `supplier:${name}`,
-        internalCode: "未关联",
-        standardSpec: "—",
-        supplierSpec: name,
-        matchedSkus: offers.map((item) => item.skus?.find((candidate) => candidate.specName.trim() === name))
-      });
-    }
-  }
+  const rows = buildSkuComparisonRows(offers, skuLinks, skuMasters);
 
   return (
     <section className="rounded-3xl border border-line bg-surface shadow-card overflow-hidden">
