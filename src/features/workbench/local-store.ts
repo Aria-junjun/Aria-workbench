@@ -16,6 +16,7 @@ import {
   ProductKnowledgeV2Schema,
   type ProductKnowledgeV2
 } from "./product-knowledge";
+import { groupSkuMastersByProduct, promoteProductToInbound } from "./product-master";
 import type {
   SupplierEvaluationRecord,
   SupplierOrderRecord,
@@ -1788,6 +1789,49 @@ export function saveSkuMasterImport(input: {
     skuImportBatches: [batch, ...(current.skuImportBatches ?? [])]
   });
   return batch;
+}
+
+export function createInboundProductsFromSkuMasters(): { data: LocalWorkbenchData; createdProductIds: string[]; linkedSkuCount: number } {
+  const current = loadLocalWorkbenchData();
+  const skuMasters = current.skuMasters ?? [];
+  const groups = groupSkuMastersByProduct(skuMasters);
+  const products = [...current.products];
+  const createdProductIds: string[] = [];
+  let linkedSkuCount = 0;
+
+  for (const group of groups) {
+    let product = products.find((item) => item.name.trim() === group.productName && item.recordKind !== "archived");
+    if (product) {
+      const promoted = normalizeProductKnowledge(promoteProductToInbound(product));
+      products[products.indexOf(product)] = promoted;
+      product = promoted;
+    } else {
+      const id = `product-master-${group.productName.replace(/[^\w\u4e00-\u9fff]+/g, "-").replace(/^-+|-+$/g, "") || Date.now()}`;
+      product = normalizeProductKnowledge({
+        id,
+        name: group.productName,
+        recordKind: "existing",
+        productMode: "inbound",
+        portfolioStatus: "active",
+        category: "待补充"
+      });
+      products.push(product);
+      createdProductIds.push(product.id);
+    }
+
+    const productIndex = products.findIndex((item) => item.id === product!.id);
+    if (productIndex < 0) continue;
+    for (const skuId of group.skuIds) {
+      const index = skuMasters.findIndex((item) => item.id === skuId);
+      if (index < 0 || skuMasters[index].productId === product!.id) continue;
+      skuMasters[index] = { ...skuMasters[index], productId: product!.id, productMode: "inbound" };
+      linkedSkuCount += 1;
+    }
+  }
+
+  const next = { ...current, products, skuMasters };
+  saveLocalWorkbenchData(next);
+  return { data: next, createdProductIds, linkedSkuCount };
 }
 
 export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, "productName" | "specification" | "productId" | "productMode" | "status">>) {

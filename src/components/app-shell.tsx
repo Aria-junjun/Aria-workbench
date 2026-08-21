@@ -37,6 +37,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/tasks", label: "待办提醒", icon: CheckSquare },
       { href: "/products", label: "产品进程", icon: Lightbulb },
+      { href: "/product-master", label: "入仓产品", icon: Package },
       { href: "/projects", label: "品类项目", icon: FolderKanban }
     ]
   },

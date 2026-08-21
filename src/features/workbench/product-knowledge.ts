@@ -105,6 +105,22 @@ export const ProductDecisionSummarySchema = z.object({
 
 export type ProductDecisionSummary = z.infer<typeof ProductDecisionSummarySchema>;
 
+export const ProductPortfolioMetricsSchema = z.object({
+  monthlySales: z.number().finite().optional(),
+  salesAmount: z.number().finite().optional(),
+  grossMarginRate: z.number().finite().optional(),
+  inventoryDays: z.number().finite().optional(),
+  stockoutCount: z.number().finite().optional(),
+  returnRate: z.number().finite().optional(),
+  qualityIssueCount: z.number().finite().optional(),
+  supplyStability: z.enum(["稳定", "一般", "不稳定"]).optional(),
+  operatingJudgement: z.string().optional(),
+  judgementBasis: z.string().optional(),
+  updatedAt: z.string().optional()
+});
+
+export type ProductPortfolioMetrics = z.infer<typeof ProductPortfolioMetricsSchema>;
+
 export const ProductResearchDocumentSchema = z.object({
   sourceName: z.string().optional(),
   sourceUrl: z.string().optional(),
@@ -356,6 +372,7 @@ export type ProductKnowledgeV2 = {
   portfolioStatus?: ProductPortfolioStatus;
   internalProductCode?: string;
   observationCode?: string;
+  portfolioMetrics?: ProductPortfolioMetrics;
   // ===== 流水线阶段 + 信号池休眠/激活 =====
   lifecycleStage?: ProductLifecycleStage;
   signalStatus?: ProductSignalStatus;          // 仅 lifecycleStage === "signal" 时有效
@@ -418,6 +435,7 @@ export const ProductKnowledgeV2Schema = z.object({
   portfolioStatus: z.enum(PRODUCT_PORTFOLIO_STATUSES).optional(),
   internalProductCode: z.string().optional(),
   observationCode: z.string().optional(),
+  portfolioMetrics: ProductPortfolioMetricsSchema.optional(),
   // 流水线阶段 + 信号池休眠/激活
   lifecycleStage: z.enum(PRODUCT_LIFECYCLE_STAGES).optional(),
   signalStatus: z.enum(SIGNAL_STATUSES).optional(),
@@ -668,6 +686,7 @@ export function normalizeProductKnowledge(value: unknown): ProductKnowledgeV2 {
     importIssues,
     legacyNotes,
     ...normalizeProductPortfolioFields(candidate),
+    portfolioMetrics: parseStructuredObject(candidate.portfolioMetrics, "portfolioMetrics", ProductPortfolioMetricsSchema, context),
     createdAt,
     updatedAt,
     supplierId,

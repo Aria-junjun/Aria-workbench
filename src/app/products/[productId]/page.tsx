@@ -194,8 +194,28 @@ function ProductPortfolioPanel({
           })}
         />
       </label>
+      {product.recordKind === "existing" ? (
+        <div className="mt-4 border-t border-line pt-4">
+          <div className="text-xs font-medium text-slate-700">经营数据（可后续填写）</div>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricInput label="月销量" value={product.portfolioMetrics?.monthlySales} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, monthlySales: value } })} />
+            <MetricInput label="销售额" value={product.portfolioMetrics?.salesAmount} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, salesAmount: value } })} />
+            <MetricInput label="毛利率 %" value={product.portfolioMetrics?.grossMarginRate} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, grossMarginRate: value } })} />
+            <MetricInput label="库存天数" value={product.portfolioMetrics?.inventoryDays} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, inventoryDays: value } })} />
+            <MetricInput label="缺货次数" value={product.portfolioMetrics?.stockoutCount} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, stockoutCount: value } })} />
+            <MetricInput label="退货率 %" value={product.portfolioMetrics?.returnRate} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, returnRate: value } })} />
+            <MetricInput label="质量问题数" value={product.portfolioMetrics?.qualityIssueCount} onChange={(value) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, qualityIssueCount: value } })} />
+            <label className="text-xs text-slate-500">供应稳定性<select className="mt-1 w-full rounded-md border border-line bg-white px-2 py-2 text-sm text-slate-800" value={product.portfolioMetrics?.supplyStability ?? ""} onChange={(event) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, supplyStability: (event.target.value || undefined) as "稳定" | "一般" | "不稳定" | undefined } })}><option value="">待填写</option><option value="稳定">稳定</option><option value="一般">一般</option><option value="不稳定">不稳定</option></select></label>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2"><label className="text-xs text-slate-500">当前经营判断<textarea className="mt-1 min-h-20 w-full rounded-md border border-line px-2 py-2 text-sm" placeholder="例如：继续经营，但需要优化成本" value={product.portfolioMetrics?.operatingJudgement ?? ""} onChange={(event) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, operatingJudgement: event.target.value } })} /></label><label className="text-xs text-slate-500">判断依据<textarea className="mt-1 min-h-20 w-full rounded-md border border-line px-2 py-2 text-sm" placeholder="填写数据来源或人工判断依据" value={product.portfolioMetrics?.judgementBasis ?? ""} onChange={(event) => onUpdate({ ...product, portfolioMetrics: { ...product.portfolioMetrics, judgementBasis: event.target.value } })} /></label></div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function MetricInput({ label, value, onChange }: { label: string; value?: number; onChange: (value?: number) => void }) {
+  return <label className="text-xs text-slate-500">{label}<input className="mt-1 w-full rounded-md border border-line px-2 py-2 text-sm text-slate-800" min="0" onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} type="number" value={value ?? ""} /></label>;
 }
 
 function ProductSupplyPlanPanel({ productId }: { productId: string }) {
