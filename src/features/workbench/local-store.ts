@@ -283,6 +283,8 @@ export type LocalSkuMaster = {
   internalSkuCode: string;
   productName: string;
   specification: string;
+  productId?: string;
+  productMode?: "inbound" | "dropship" | "hybrid";
   status: "ready" | "needs_spec";
   source: "excel" | "manual";
   sourceFileName?: string;
@@ -313,6 +315,20 @@ export type LocalSkuOfferLink = {
   revokedAt?: string;
 };
 
+export type SupplierOfferDecisionStatus = "unreviewed" | "candidate" | "primary" | "backup" | "not_selected" | "rejected";
+
+export type LocalSupplierOfferDecision = {
+  id: string;
+  productId: string;
+  skuMasterId?: string;
+  supplierId?: string;
+  offerId?: string;
+  status: SupplierOfferDecisionStatus;
+  reason: string;
+  decidedAt: string;
+  reviewAt?: string;
+};
+
 export type LocalWorkbenchData = {
   suppliers: LocalSupplier[];
   communications: LocalCommunication[];
@@ -329,6 +345,7 @@ export type LocalWorkbenchData = {
   skuMasters?: LocalSkuMaster[];
   skuImportBatches?: LocalSkuImportBatch[];
   skuOfferLinks?: LocalSkuOfferLink[];
+  supplierOfferDecisions?: LocalSupplierOfferDecision[];
 };
 
 export type LocalCollectionName = "suppliers" | "communications" | "offers" | "products" | "tasks" | "knowledgeCards" | "knowledgeBooks" | "decisionTools" | "knowledgeApplications" | "decisionCases" | "researchReports";
@@ -1772,7 +1789,7 @@ export function saveSkuMasterImport(input: {
   return batch;
 }
 
-export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, "productName" | "specification" | "status">>) {
+export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, "productName" | "specification" | "productId" | "productMode" | "status">>) {
   const current = loadLocalWorkbenchData();
   const next = (current.skuMasters ?? []).map((item) => item.id === id
     ? { ...item, ...patch, status: patch.specification?.trim() ? "ready" as const : item.status }
@@ -1822,6 +1839,28 @@ export function revokeSkuOfferLink(linkId: string) {
   });
 }
 
+export function saveSupplierOfferDecision(input: Omit<LocalSupplierOfferDecision, "id" | "decidedAt"> & { id?: string }) {
+  const current = loadLocalWorkbenchData();
+  const decisions = current.supplierOfferDecisions ?? [];
+  const sameDecision = (item: LocalSupplierOfferDecision) => item.productId === input.productId
+    && item.skuMasterId === input.skuMasterId
+    && item.supplierId === input.supplierId
+    && item.offerId === input.offerId;
+  const existing = decisions.find((item) => sameDecision(item));
+  const nextDecision: LocalSupplierOfferDecision = {
+    ...input,
+    id: input.id ?? existing?.id ?? `supplier-decision-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    decidedAt: new Date().toISOString()
+  };
+  saveLocalWorkbenchData({
+    ...current,
+    supplierOfferDecisions: existing
+      ? decisions.map((item) => sameDecision(item) ? nextDecision : item)
+      : [nextDecision, ...decisions]
+  });
+  return nextDecision;
+}
+
 function emptyData(): LocalWorkbenchData {
   return {
     suppliers: [],
@@ -1837,7 +1876,8 @@ function emptyData(): LocalWorkbenchData {
     researchReports: [],
     skuMasters: [],
     skuImportBatches: [],
-    skuOfferLinks: []
+    skuOfferLinks: [],
+    supplierOfferDecisions: []
   };
 }
 
@@ -1960,7 +2000,8 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     researchReports: data.researchReports ?? [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
-    skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : []
+    skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
+    supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : []
   };
 }
 

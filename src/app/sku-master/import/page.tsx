@@ -20,7 +20,9 @@ export default function SkuMasterImportPage() {
   const [manualSkuId, setManualSkuId] = useState(skuMasters[0]?.id ?? "");
   const [manualQuery, setManualQuery] = useState("");
   const existingCount = skuMasters.length;
-  const offers = useWorkbenchData().offers;
+  const workbench = useWorkbenchData();
+  const offers = workbench.offers;
+  const products = workbench.products;
   const matchSummary = useMemo(() => {
     const results = skuMasters.map((item) => ({ item, matches: findSkuOfferMatches(item, offers) }));
     return {
@@ -78,6 +80,11 @@ export default function SkuMasterImportPage() {
   function saveSpecification(item: LocalSkuMaster, specification: string) {
     updateSkuMaster(item.id, { specification, status: specification.trim() ? "ready" : "needs_spec" });
     setSkuMasters((current) => current.map((row) => row.id === item.id ? { ...row, specification, status: specification.trim() ? "ready" : "needs_spec" } : row));
+  }
+
+  function saveProductAssociation(item: LocalSkuMaster, productId: string) {
+    updateSkuMaster(item.id, { productId: productId || undefined });
+    setSkuMasters((current) => current.map((row) => row.id === item.id ? { ...row, productId: productId || undefined } : row));
   }
 
   function confirmLatestBatch() {
@@ -163,8 +170,8 @@ export default function SkuMasterImportPage() {
           </div>
           <div className="max-h-[520px] overflow-auto rounded-2xl border border-line">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-paper-warm text-left text-xs text-slate-500"><tr><th className="px-3 py-2">商品编码</th><th className="px-3 py-2">商品名称</th><th className="px-3 py-2">颜色及规格</th><th className="px-3 py-2">状态</th></tr></thead>
-              <tbody className="divide-y divide-line">{skuMasters.map((item) => <SkuMasterRow item={item} key={item.id} matches={matchSummary.results.find((result) => result.item.id === item.id)?.matches.length ?? 0} onSaveSpecification={saveSpecification} />)}</tbody>
+              <thead className="sticky top-0 bg-paper-warm text-left text-xs text-slate-500"><tr><th className="px-3 py-2">商品编码</th><th className="px-3 py-2">商品名称</th><th className="px-3 py-2">颜色及规格</th><th className="px-3 py-2">所属产品</th><th className="px-3 py-2">状态</th></tr></thead>
+              <tbody className="divide-y divide-line">{skuMasters.map((item) => <SkuMasterRow item={item} key={item.id} matches={matchSummary.results.find((result) => result.item.id === item.id)?.matches.length ?? 0} onSaveSpecification={saveSpecification} onSaveProductAssociation={saveProductAssociation} products={products} />)}</tbody>
             </table>
           </div>
         </section>
@@ -215,8 +222,8 @@ export default function SkuMasterImportPage() {
   );
 }
 
-function SkuMasterRow({ item, matches, onSaveSpecification }: { item: LocalSkuMaster; matches: number; onSaveSpecification: (item: LocalSkuMaster, specification: string) => void }) {
+function SkuMasterRow({ item, matches, onSaveSpecification, onSaveProductAssociation, products }: { item: LocalSkuMaster; matches: number; onSaveSpecification: (item: LocalSkuMaster, specification: string) => void; onSaveProductAssociation: (item: LocalSkuMaster, productId: string) => void; products: Array<{ id: string; name: string }> }) {
   const [draft, setDraft] = useState(item.specification);
   const changed = draft !== item.specification;
-  return <tr><td className="whitespace-nowrap px-3 py-2 font-medium">{item.internalSkuCode}</td><td className="px-3 py-2">{item.productName}</td><td className="min-w-[240px] px-3 py-2"><input className="w-full rounded-lg border border-line px-2 py-1 text-sm" onChange={(event) => setDraft(event.target.value)} value={draft} />{changed ? <button className="mt-1 text-xs text-action hover:underline" onClick={() => onSaveSpecification(item, draft)} type="button">保存规格</button> : null}</td><td className="whitespace-nowrap px-3 py-2 text-xs">{item.status === "ready" ? <span className="text-emerald-700">可用</span> : <span className="text-amber-700">规格待补充</span>}<div className="mt-1 text-slate-400">候选货盘 {matches}</div></td></tr>;
+  return <tr><td className="whitespace-nowrap px-3 py-2 font-medium">{item.internalSkuCode}</td><td className="px-3 py-2">{item.productName}</td><td className="min-w-[240px] px-3 py-2"><input className="w-full rounded-lg border border-line px-2 py-1 text-sm" onChange={(event) => setDraft(event.target.value)} value={draft} />{changed ? <button className="mt-1 text-xs text-action hover:underline" onClick={() => onSaveSpecification(item, draft)} type="button">保存规格</button> : null}</td><td className="min-w-[200px] px-3 py-2"><select aria-label={`${item.internalSkuCode}所属产品`} className="w-full rounded-lg border border-line bg-white px-2 py-1 text-xs" onChange={(event) => onSaveProductAssociation(item, event.target.value)} value={item.productId ?? ""}><option value="">待关联产品</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></td><td className="whitespace-nowrap px-3 py-2 text-xs">{item.status === "ready" ? <span className="text-emerald-700">可用</span> : <span className="text-amber-700">规格待补充</span>}<div className="mt-1 text-slate-400">候选货盘 {matches}</div></td></tr>;
 }

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ProductKnowledgeEditor } from "@/components/workbench/product-knowledge-editor";
 import { SectionActions } from "@/components/workbench/edit-fields";
-import { deleteLocalItem, saveLocalWorkbenchData, saveProductKnowledge, type LocalOffer, type LocalSupplier } from "@/features/workbench/local-store";
+import { deleteLocalItem, saveLocalWorkbenchData, saveProductKnowledge, saveSupplierOfferDecision, type LocalOffer, type LocalSupplier, type SupplierOfferDecisionStatus } from "@/features/workbench/local-store";
 import { useWorkbenchData, getWorkbenchSnapshot } from "@/features/workbench/workbench-store";
 import type { CompetitiveLandscape, MarketOverview, ProductKnowledgeV2, ResearchTable, ProductLifecycleStage, ProductSignalStatus, ProductDormantReason } from "@/features/workbench/product-knowledge";
 import { StageProcessCard } from "@/components/workbench/stage-process-card";
@@ -13,6 +13,7 @@ import { DecisionTimeline } from "@/components/workbench/decision-timeline";
 import { buildProductTechnologyPrompt } from "@/features/workbench/product-technology-prompt";
 import { labelLifecycleStage, labelSignalStatus, labelProductRecordKind, LIFECYCLE_STAGE_OPTIONS, SIGNAL_STATUS_OPTIONS, labelDormantReason, PRODUCT_RECORD_KIND_OPTIONS } from "@/features/workbench/display-labels";
 import { randomId } from "@/lib/random-id";
+import { buildSupplyDecisionTasks, buildSupplyPlan } from "@/features/workbench/supply-decision";
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -105,6 +106,7 @@ export default function ProductDetailPage() {
             setVersion((v) => v + 1);
           }}
         />
+        <ProductSupplyPlanPanel productId={product.id} />
       </section>
 
       {/* Decision Timeline */}
@@ -192,6 +194,84 @@ function ProductPortfolioPanel({
           })}
         />
       </label>
+    </div>
+  );
+}
+
+function ProductSupplyPlanPanel({ productId }: { productId: string }) {
+  const data = useWorkbenchData();
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const plan = buildSupplyPlan({
+    products: data.products.map((item) => ({ id: item.id, name: item.name })),
+    skuMasters: (data.skuMasters ?? []).map((item) => ({ ...item })),
+    suppliers: data.suppliers.map((item) => ({ id: item.id, name: item.name })),
+    offers: data.offers,
+    links: data.skuOfferLinks ?? [],
+    decisions: data.supplierOfferDecisions ?? []
+  }, productId);
+  const taskDrafts = buildSupplyDecisionTasks(plan);
+
+  function decide(skuMasterId: string, supplier: { supplierId?: string; offerId: string; offerSkuId: string }, status: SupplierOfferDecisionStatus) {
+    saveSupplierOfferDecision({
+      productId,
+      skuMasterId,
+      supplierId: supplier.supplierId,
+      offerId: supplier.offerId,
+      status,
+      reason: reasons[`${skuMasterId}:${supplier.offerId}:${supplier.offerSkuId}`]?.trim() || "产品供应方案确认",
+      reviewAt: new Date().toISOString()
+    });
+  }
+
+  function createTasks() {
+    const existingTitles = new Set(data.tasks.filter((task) => task.status === "open" && task.productId === productId).map((task) => task.title));
+    const newTasks = taskDrafts.filter((task) => !existingTitles.has(task.title)).map((task) => ({
+      id: randomId(),
+      title: task.title,
+      priority: task.priority,
+      type: task.type,
+      status: "open" as const,
+      productId,
+      productName: data.products.find((item) => item.id === productId)?.name,
+      createdAt: new Date().toISOString()
+    }));
+    if (newTasks.length > 0) saveLocalWorkbenchData({ ...data, tasks: [...newTasks, ...data.tasks] });
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">供应方案</h2>
+          <p className="mt-1 text-xs text-slate-500">按内部 SKU 汇总已确认货盘；原始供应商报价仍保留，只有决策状态会影响主供/备供判断。</p>
+        </div>
+        <div className="flex items-end gap-3 text-right text-xs text-slate-500"><div><div>SKU {plan.skuRows.length}</div><div className="mt-1 text-amber-700">待补信息 {plan.missingFields.length}</div></div>{taskDrafts.length > 0 ? <button className="rounded-md border border-line px-2 py-1 text-xs text-action hover:bg-paper-warm" onClick={createTasks} type="button">生成待办 {taskDrafts.length}</button> : null}</div>
+      </div>
+      {plan.skuRows.length === 0 ? <p className="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-800">还没有把内部 SKU 关联到这个产品，或还没有确认货盘关联。请先在“导入产品编码表”中选择所属产品，再确认货盘规格。</p> : (
+        <div className="mt-4 space-y-3">
+          {plan.skuRows.map((row) => (
+            <div className="rounded-lg border border-line" key={row.skuMasterId}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-paper-warm px-3 py-2 text-sm">
+                <div><span className="font-medium text-slate-900">{row.internalSkuCode}</span><span className="ml-2 text-slate-600">{row.specification || "规格待补"}</span></div>
+                <div className="text-xs text-slate-500">主供：{row.primarySupplierId ? (data.suppliers.find((item) => item.id === row.primarySupplierId)?.name || "已指定") : "未指定"} · 备供 {row.backupSupplierIds.length}</div>
+              </div>
+              <div className="divide-y divide-line">
+                {row.suppliers.map((supplier) => {
+                  const key = `${row.skuMasterId}:${supplier.offerId}:${supplier.offerSkuId}`;
+                  return <div className="flex flex-col gap-2 px-3 py-3 text-xs lg:flex-row lg:items-center lg:justify-between" key={key}>
+                    <div className="min-w-0"><div className="font-medium text-slate-800">{supplier.supplierName}</div><div className="mt-1 text-slate-500">{supplier.specName} · {supplier.unitPrice != null ? `¥${supplier.unitPrice}` : "未报价"} · MOQ {supplier.moq || "待补"} · 交期 {supplier.leadTime || "待补"}</div></div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <input className="w-40 rounded-md border border-line px-2 py-1" onChange={(event) => setReasons((current) => ({ ...current, [key]: event.target.value }))} placeholder="决策依据（可选）" value={reasons[key] ?? ""} />
+                      {(["candidate", "primary", "backup", "not_selected"] as const).map((status) => <button className={`rounded-md border px-2 py-1 ${supplier.status === status ? "border-action bg-action-soft text-action" : "border-line text-slate-600 hover:bg-paper-warm"}`} key={status} onClick={() => decide(row.skuMasterId, supplier, status)} type="button">{status === "candidate" ? "候选" : status === "primary" ? "主供" : status === "backup" ? "备供" : "不选"}</button>)}
+                    </div>
+                  </div>;
+                })}
+              </div>
+              {row.missingFields.length > 0 ? <div className="border-t border-line bg-amber-50 px-3 py-2 text-xs text-amber-800">待补：{row.missingFields.join("、")}</div> : null}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
