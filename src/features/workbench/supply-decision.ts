@@ -3,8 +3,8 @@ import type { LocalOffer, LocalSkuMaster, LocalSkuOfferLink, LocalSupplierOfferD
 export type SupplierOfferDecision = LocalSupplierOfferDecision;
 
 export type SupplyDecisionData = {
-  products: Array<{ id: string; name: string }>;
-  skuMasters: Array<Pick<LocalSkuMaster, "id" | "internalSkuCode" | "productName" | "specification"> & { productId?: string }>;
+  products: Array<{ id: string; name: string; productFamilyKey?: string }>;
+  skuMasters: Array<Pick<LocalSkuMaster, "id" | "internalSkuCode" | "productName" | "specification" | "productId" | "productFamilyKey">>;
   suppliers: Array<{ id: string; name: string }>;
   offers: Array<Pick<LocalOffer, "id" | "supplierId" | "supplierName" | "name" | "leadTime" | "moq" | "quotedPrice"> & { skus?: OfferSku[] }>;
   links: Array<Pick<LocalSkuOfferLink, "skuMasterId" | "offerId" | "offerSkuId" | "status">>;
@@ -54,7 +54,7 @@ export function buildSupplyPlan(data: SupplyDecisionData, productId: string): Su
 
   const supplierNames = new Map(data.suppliers.map((supplier) => [supplier.id, supplier.name]));
   const skuByOffer = new Map(data.offers.map((offer) => [offer.id, new Map((offer.skus ?? []).map((sku) => [sku.id, sku]))]));
-  const relevantSkuIds = new Set(data.skuMasters.filter((sku) => sku.productId === productId || (!sku.productId && sku.productName === product.name)).map((sku) => sku.id));
+  const relevantSkuIds = new Set(data.skuMasters.filter((sku) => sku.productId === productId || (product.productFamilyKey && sku.productFamilyKey === product.productFamilyKey) || (!sku.productId && !sku.productFamilyKey && sku.productName === product.name)).map((sku) => sku.id));
   const rows = data.skuMasters
     .filter((skuMaster) => relevantSkuIds.has(skuMaster.id))
     .map((skuMaster): SupplyPlanSkuRow => {

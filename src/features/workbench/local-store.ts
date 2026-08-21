@@ -16,7 +16,7 @@ import {
   ProductKnowledgeV2Schema,
   type ProductKnowledgeV2
 } from "./product-knowledge";
-import { groupSkuMastersByProduct, promoteProductToInbound } from "./product-master";
+import { deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound } from "./product-master";
 import type {
   SupplierEvaluationRecord,
   SupplierOrderRecord,
@@ -286,6 +286,7 @@ export type LocalSkuMaster = {
   specification: string;
   productId?: string;
   productMode?: "inbound" | "dropship" | "hybrid";
+  productFamilyKey?: string;
   status: "ready" | "needs_spec";
   source: "excel" | "manual";
   sourceFileName?: string;
@@ -1800,9 +1801,9 @@ export function createInboundProductsFromSkuMasters(): { data: LocalWorkbenchDat
   let linkedSkuCount = 0;
 
   for (const group of groups) {
-    let product = products.find((item) => item.name.trim() === group.productName && item.recordKind !== "archived");
+    let product = products.find((item) => item.recordKind !== "archived" && (item.productFamilyKey === group.familyKey || deriveProductFamilyKey(item.name) === group.familyKey));
     if (product) {
-      const promoted = normalizeProductKnowledge(promoteProductToInbound(product));
+      const promoted = normalizeProductKnowledge({ ...promoteProductToInbound(product), productFamilyKey: group.familyKey });
       products[products.indexOf(product)] = promoted;
       product = promoted;
     } else {
@@ -1813,6 +1814,7 @@ export function createInboundProductsFromSkuMasters(): { data: LocalWorkbenchDat
         recordKind: "existing",
         productMode: "inbound",
         portfolioStatus: "active",
+        productFamilyKey: group.familyKey,
         category: "待补充"
       });
       products.push(product);
@@ -1824,7 +1826,7 @@ export function createInboundProductsFromSkuMasters(): { data: LocalWorkbenchDat
     for (const skuId of group.skuIds) {
       const index = skuMasters.findIndex((item) => item.id === skuId);
       if (index < 0 || skuMasters[index].productId === product!.id) continue;
-      skuMasters[index] = { ...skuMasters[index], productId: product!.id, productMode: "inbound" };
+      skuMasters[index] = { ...skuMasters[index], productId: product!.id, productMode: "inbound", productFamilyKey: group.familyKey };
       linkedSkuCount += 1;
     }
   }

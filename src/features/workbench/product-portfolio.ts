@@ -13,6 +13,7 @@ export type ProductPortfolioFields = {
   portfolioStatus: ProductPortfolioStatus;
   internalProductCode?: string;
   observationCode?: string;
+  productFamilyKey?: string;
 };
 
 export function normalizeProductPortfolioFields(input: Partial<ProductPortfolioFields>): ProductPortfolioFields {
@@ -32,6 +33,7 @@ export function normalizeProductPortfolioFields(input: Partial<ProductPortfolioF
     productMode,
     portfolioStatus,
     ...(input.internalProductCode?.trim() ? { internalProductCode: input.internalProductCode.trim() } : {}),
-    ...(input.observationCode?.trim() ? { observationCode: input.observationCode.trim() } : {})
+    ...(input.observationCode?.trim() ? { observationCode: input.observationCode.trim() } : {}),
+    ...(input.productFamilyKey?.trim() ? { productFamilyKey: input.productFamilyKey.trim() } : {})
   };
 }

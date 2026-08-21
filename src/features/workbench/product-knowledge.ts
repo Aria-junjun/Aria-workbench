@@ -372,6 +372,7 @@ export type ProductKnowledgeV2 = {
   portfolioStatus?: ProductPortfolioStatus;
   internalProductCode?: string;
   observationCode?: string;
+  productFamilyKey?: string;
   portfolioMetrics?: ProductPortfolioMetrics;
   // ===== 流水线阶段 + 信号池休眠/激活 =====
   lifecycleStage?: ProductLifecycleStage;
@@ -435,6 +436,7 @@ export const ProductKnowledgeV2Schema = z.object({
   portfolioStatus: z.enum(PRODUCT_PORTFOLIO_STATUSES).optional(),
   internalProductCode: z.string().optional(),
   observationCode: z.string().optional(),
+  productFamilyKey: z.string().optional(),
   portfolioMetrics: ProductPortfolioMetricsSchema.optional(),
   // 流水线阶段 + 信号池休眠/激活
   lifecycleStage: z.enum(PRODUCT_LIFECYCLE_STAGES).optional(),
