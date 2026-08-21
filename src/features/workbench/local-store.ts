@@ -302,6 +302,22 @@ export type LocalSkuMaster = {
   importBatchId?: string;
 };
 
+export type LocalSkuOperatingSnapshot = {
+  id: string;
+  skuMasterId: string;
+  period: string;
+  monthlySales?: number;
+  salesAmount?: number;
+  grossMarginRate?: number;
+  inventoryDays?: number;
+  stockoutCount?: number;
+  returnRate?: number;
+  source: "manual" | "imported";
+  createdAt: string;
+  updatedAt: string;
+};
+export type LocalSkuOperatingSnapshotMetrics = Pick<LocalSkuOperatingSnapshot, "monthlySales" | "salesAmount" | "grossMarginRate" | "inventoryDays" | "stockoutCount" | "returnRate">;
+
 export type LocalSkuImportBatch = {
   id: string;
   fileName: string;
@@ -352,6 +368,7 @@ export type LocalWorkbenchData = {
   researchReports: ResearchReport[];
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
+  skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
   skuImportBatches?: LocalSkuImportBatch[];
   skuOfferLinks?: LocalSkuOfferLink[];
   supplierOfferDecisions?: LocalSupplierOfferDecision[];
@@ -1851,6 +1868,31 @@ export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, 
   saveLocalWorkbenchData({ ...current, skuMasters: next });
 }
 
+export function saveSkuOperatingSnapshot(skuMasterId: string, period: string, metrics: LocalSkuOperatingSnapshotMetrics) {
+  return saveSkuOperatingSnapshots([{ skuMasterId, period, metrics }])[0];
+}
+
+export function saveSkuOperatingSnapshots(entries: Array<{ skuMasterId: string; period: string; metrics: LocalSkuOperatingSnapshotMetrics }>) {
+  if (entries.some((entry) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(entry.period))) throw new Error("经营数据周期必须是 YYYY-MM");
+  const current = loadLocalWorkbenchData();
+  const snapshots = current.skuOperatingSnapshots ?? [];
+  const now = new Date().toISOString();
+  const nextSnapshots = [...snapshots];
+  const saved = entries.map(({ skuMasterId, period, metrics }) => {
+    const existing = nextSnapshots.find((item) => item.skuMasterId === skuMasterId && item.period === period);
+    const snapshot: LocalSkuOperatingSnapshot = { id: existing?.id ?? `sku-snapshot-${skuMasterId}-${period}`, skuMasterId, period, ...metrics, source: "manual", createdAt: existing?.createdAt ?? now, updatedAt: now };
+    const index = nextSnapshots.findIndex((item) => item.id === snapshot.id);
+    if (index >= 0) nextSnapshots[index] = snapshot;
+    else nextSnapshots.unshift(snapshot);
+    return snapshot;
+  });
+  saveLocalWorkbenchData({
+    ...current,
+    skuOperatingSnapshots: nextSnapshots
+  });
+  return saved;
+}
+
 export function confirmSkuImportBatch(batchId: string) {
   const current = loadLocalWorkbenchData();
   saveLocalWorkbenchData({
@@ -2055,6 +2097,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     })),
     researchReports: data.researchReports ?? [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters : [],
+    skuOperatingSnapshots: Array.isArray(data.skuOperatingSnapshots) ? data.skuOperatingSnapshots : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],

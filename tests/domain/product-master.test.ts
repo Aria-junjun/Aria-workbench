@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateSkuMetrics, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound } from "@/features/workbench/product-master";
+import { aggregateSkuMetrics, aggregateSkuSnapshots, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound } from "@/features/workbench/product-master";
 
 describe("inbound product master", () => {
   it("groups imported SKUs by product name without duplicating rows", () => {
@@ -32,5 +32,25 @@ describe("inbound product master", () => {
       { monthlySales: 30, salesAmount: 300, grossMarginRate: 30 }
     ]);
     expect(summary).toMatchObject({ monthlySales: 40, salesAmount: 400, grossMarginRate: 25, source: "sku_manual" });
+  });
+
+  it("compares a selected month with the previous month without inventing missing values", () => {
+    const comparison = aggregateSkuSnapshots(
+      [{ monthlySales: 40, salesAmount: 400, grossMarginRate: 25 }],
+      [{ monthlySales: 30, salesAmount: 300, grossMarginRate: 20 }],
+      "2026-09"
+    );
+
+    expect(comparison.current).toMatchObject({ monthlySales: 40, salesAmount: 400, grossMarginRate: 25 });
+    expect(comparison.previous).toMatchObject({ monthlySales: 30, salesAmount: 300, grossMarginRate: 20 });
+    expect(comparison.delta).toMatchObject({ monthlySales: 10, salesAmount: 100, grossMarginRate: 5 });
+    expect(comparison.period).toBe("2026-09");
+  });
+
+  it("keeps a month pending when all selected-period metrics are empty", () => {
+    const comparison = aggregateSkuSnapshots([{}], [], "2026-10");
+    expect(comparison.current.source).toBe("pending");
+    expect(comparison.current.monthlySales).toBeUndefined();
+    expect(comparison.delta.monthlySales).toBeUndefined();
   });
 });

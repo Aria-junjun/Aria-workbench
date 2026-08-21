@@ -27,6 +27,13 @@ export type ProductFamilyMetricSummary = SkuMetricInput & {
   skuCount: number;
 };
 
+export type ProductFamilySnapshotComparison = {
+  period: string;
+  current: ProductFamilyMetricSummary;
+  previous: ProductFamilyMetricSummary;
+  delta: SkuMetricInput;
+};
+
 export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetricSummary {
   const sum = (key: keyof SkuMetricInput) => rows.reduce((total, row) => total + (typeof row[key] === "number" ? row[key]! : 0), 0);
   const salesRows = rows.filter((row) => typeof row.salesAmount === "number" && typeof row.grossMarginRate === "number");
@@ -48,6 +55,21 @@ export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetric
       returnRate: rows.some((row) => row.returnRate !== undefined) ? Number((sum("returnRate") / rows.filter((row) => row.returnRate !== undefined).length).toFixed(2)) : undefined
     } : {})
   };
+}
+
+export function aggregateSkuSnapshots(currentRows: SkuMetricInput[], previousRows: SkuMetricInput[], period: string): ProductFamilySnapshotComparison {
+  const current = aggregateSkuMetrics(currentRows);
+  const previous = aggregateSkuMetrics(previousRows);
+  const keys: Array<keyof SkuMetricInput> = ["monthlySales", "salesAmount", "grossMarginRate", "inventoryDays", "stockoutCount", "returnRate"];
+  const delta = keys.reduce<SkuMetricInput>((result, key) => {
+    const currentValue = current[key];
+    const previousValue = previous[key];
+    if (typeof currentValue === "number" && typeof previousValue === "number") {
+      result[key] = Number((currentValue - previousValue).toFixed(2));
+    }
+    return result;
+  }, {});
+  return { period, current, previous, delta };
 }
 
 export function deriveProductFamilyKey(productName: string, productFamilyKey?: string): string {

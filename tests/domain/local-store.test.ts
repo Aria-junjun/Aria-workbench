@@ -20,6 +20,7 @@ import {
   saveBookPackage,
   saveLocalWorkbenchData,
   saveSupplierEvaluation,
+  saveSkuOperatingSnapshot,
   saveSupplierOfferDecision,
   updateLocalItem,
   type LocalWorkbenchData,
@@ -75,6 +76,22 @@ describe("local-store operations", () => {
     importLocalWorkbenchData(backup);
 
     expect(loadLocalWorkbenchData().knowledgeCards[0].title).toBe("先不接受首次报价");
+  });
+
+  it("preserves monthly SKU operating snapshots across updates and backup restore", () => {
+    saveLocalWorkbenchData(sampleData());
+    saveSkuOperatingSnapshot("sku-1", "2026-08", { monthlySales: 12, salesAmount: 120, grossMarginRate: 25 });
+    saveSkuOperatingSnapshot("sku-1", "2026-09", { monthlySales: 15, salesAmount: 150, grossMarginRate: 28 });
+
+    const backup = exportLocalWorkbenchData();
+    expect(JSON.parse(backup).skuOperatingSnapshots).toHaveLength(2);
+    storage.clear();
+    importLocalWorkbenchData(backup);
+
+    expect(loadLocalWorkbenchData().skuOperatingSnapshots).toMatchObject([
+      { skuMasterId: "sku-1", period: "2026-09", monthlySales: 15 },
+      { skuMasterId: "sku-1", period: "2026-08", monthlySales: 12 }
+    ]);
   });
 
   it("keeps supply decision history when a supplier decision changes", () => {
