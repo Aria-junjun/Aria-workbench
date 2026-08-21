@@ -287,6 +287,13 @@ export type LocalSkuMaster = {
   productId?: string;
   productMode?: "inbound" | "dropship" | "hybrid";
   productFamilyKey?: string;
+  monthlySales?: number;
+  salesAmount?: number;
+  grossMarginRate?: number;
+  inventoryDays?: number;
+  stockoutCount?: number;
+  returnRate?: number;
+  qualityIssueCount?: number;
   status: "ready" | "needs_spec";
   source: "excel" | "manual";
   sourceFileName?: string;
@@ -1836,7 +1843,7 @@ export function createInboundProductsFromSkuMasters(): { data: LocalWorkbenchDat
   return { data: next, createdProductIds, linkedSkuCount };
 }
 
-export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, "productName" | "specification" | "productId" | "productMode" | "status">>) {
+export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, "productName" | "specification" | "productId" | "productMode" | "productFamilyKey" | "monthlySales" | "salesAmount" | "grossMarginRate" | "inventoryDays" | "stockoutCount" | "returnRate" | "qualityIssueCount" | "status">>) {
   const current = loadLocalWorkbenchData();
   const next = (current.skuMasters ?? []).map((item) => item.id === id
     ? { ...item, ...patch, status: patch.specification?.trim() ? "ready" as const : item.status }
