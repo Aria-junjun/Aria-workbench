@@ -20,6 +20,7 @@ import {
   saveBookPackage,
   saveLocalWorkbenchData,
   saveSupplierEvaluation,
+  saveSupplierOfferDecision,
   updateLocalItem,
   type LocalWorkbenchData,
   type LocalSupplier
@@ -74,6 +75,17 @@ describe("local-store operations", () => {
     importLocalWorkbenchData(backup);
 
     expect(loadLocalWorkbenchData().knowledgeCards[0].title).toBe("先不接受首次报价");
+  });
+
+  it("keeps supply decision history when a supplier decision changes", () => {
+    saveLocalWorkbenchData(sampleData());
+    saveSupplierOfferDecision({ productId: "product-1", skuMasterId: "sku-1", supplierId: "supplier-1", offerId: "offer-1", status: "candidate", reason: "先观察" });
+    saveSupplierOfferDecision({ productId: "product-1", skuMasterId: "sku-1", supplierId: "supplier-1", offerId: "offer-1", status: "primary", reason: "价格和交期更稳定" });
+
+    const saved = loadLocalWorkbenchData();
+    expect(saved.supplierOfferDecisions?.[0].status).toBe("primary");
+    expect(saved.supplierOfferDecisionHistory).toHaveLength(2);
+    expect(saved.supplierOfferDecisionHistory?.map((item) => item.status)).toEqual(["candidate", "primary"]);
   });
 
   it("normalizes legacy product backups before saving and exporting", () => {

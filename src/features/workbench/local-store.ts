@@ -346,6 +346,7 @@ export type LocalWorkbenchData = {
   skuImportBatches?: LocalSkuImportBatch[];
   skuOfferLinks?: LocalSkuOfferLink[];
   supplierOfferDecisions?: LocalSupplierOfferDecision[];
+  supplierOfferDecisionHistory?: LocalSupplierOfferDecision[];
 };
 
 export type LocalCollectionName = "suppliers" | "communications" | "offers" | "products" | "tasks" | "knowledgeCards" | "knowledgeBooks" | "decisionTools" | "knowledgeApplications" | "decisionCases" | "researchReports";
@@ -1856,7 +1857,8 @@ export function saveSupplierOfferDecision(input: Omit<LocalSupplierOfferDecision
     ...current,
     supplierOfferDecisions: existing
       ? decisions.map((item) => sameDecision(item) ? nextDecision : item)
-      : [nextDecision, ...decisions]
+      : [nextDecision, ...decisions],
+    supplierOfferDecisionHistory: [...(current.supplierOfferDecisionHistory ?? []), nextDecision]
   });
   return nextDecision;
 }
@@ -1877,7 +1879,8 @@ function emptyData(): LocalWorkbenchData {
     skuMasters: [],
     skuImportBatches: [],
     skuOfferLinks: [],
-    supplierOfferDecisions: []
+    supplierOfferDecisions: [],
+    supplierOfferDecisionHistory: []
   };
 }
 
@@ -2001,7 +2004,8 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
-    supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : []
+    supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],
+    supplierOfferDecisionHistory: Array.isArray(data.supplierOfferDecisionHistory) ? data.supplierOfferDecisionHistory : []
   };
 }
 

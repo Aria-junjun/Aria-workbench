@@ -245,7 +245,7 @@ function ProductSupplyPlanPanel({ productId }: { productId: string }) {
           <h2 className="text-sm font-semibold text-slate-800">供应方案</h2>
           <p className="mt-1 text-xs text-slate-500">按内部 SKU 汇总已确认货盘；原始供应商报价仍保留，只有决策状态会影响主供/备供判断。</p>
         </div>
-        <div className="flex items-end gap-3 text-right text-xs text-slate-500"><div><div>SKU {plan.skuRows.length}</div><div className="mt-1 text-amber-700">待补信息 {plan.missingFields.length}</div></div>{taskDrafts.length > 0 ? <button className="rounded-md border border-line px-2 py-1 text-xs text-action hover:bg-paper-warm" onClick={createTasks} type="button">生成待办 {taskDrafts.length}</button> : null}</div>
+        <div className="flex items-end gap-3 text-right text-xs text-slate-500"><div><div>SKU {plan.skuRows.length}</div><div className="mt-1">决策记录 {data.supplierOfferDecisionHistory?.filter((item) => item.productId === productId).length ?? 0}</div><div className="mt-1 text-amber-700">待补信息 {plan.missingFields.length}</div></div>{taskDrafts.length > 0 ? <button className="rounded-md border border-line px-2 py-1 text-xs text-action hover:bg-paper-warm" onClick={createTasks} type="button">生成待办 {taskDrafts.length}</button> : null}</div>
       </div>
       {plan.skuRows.length === 0 ? <p className="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-800">还没有把内部 SKU 关联到这个产品，或还没有确认货盘关联。请先在“导入产品编码表”中选择所属产品，再确认货盘规格。</p> : (
         <div className="mt-4 space-y-3">
