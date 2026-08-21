@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound } from "@/features/workbench/product-master";
+import { aggregateSkuMetrics, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound } from "@/features/workbench/product-master";
 
 describe("inbound product master", () => {
   it("groups imported SKUs by product name without duplicating rows", () => {
@@ -24,5 +24,13 @@ describe("inbound product master", () => {
   it("promotes an opportunity without deleting its research fields", () => {
     const promoted = promoteProductToInbound({ name: "白板贴", recordKind: "opportunity", opportunities: ["市场需求"], lifecycleStage: "validate" });
     expect(promoted).toMatchObject({ name: "白板贴", recordKind: "existing", productMode: "inbound", portfolioStatus: "active", opportunities: ["市场需求"], lifecycleStage: "validate" });
+  });
+
+  it("aggregates family metrics from sku-level inputs and weights gross margin by sales", () => {
+    const summary = aggregateSkuMetrics([
+      { monthlySales: 10, salesAmount: 100, grossMarginRate: 10 },
+      { monthlySales: 30, salesAmount: 300, grossMarginRate: 30 }
+    ]);
+    expect(summary).toMatchObject({ monthlySales: 40, salesAmount: 400, grossMarginRate: 25, source: "sku_manual" });
   });
 });

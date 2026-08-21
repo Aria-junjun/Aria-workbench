@@ -19,6 +19,7 @@ export default function SkuMasterImportPage() {
   const [confirmedLinks, setConfirmedLinks] = useState(initialData.skuOfferLinks ?? []);
   const [manualSkuId, setManualSkuId] = useState(skuMasters[0]?.id ?? "");
   const [manualQuery, setManualQuery] = useState("");
+  const [showSecondaryAssociationTools, setShowSecondaryAssociationTools] = useState(false);
   const existingCount = skuMasters.length;
   const workbench = useWorkbenchData();
   const offers = workbench.offers;
@@ -177,7 +178,19 @@ export default function SkuMasterImportPage() {
         </section>
       ) : null}
 
-      {confirmedLinks.some((link) => link.status === "confirmed") ? (
+      {skuMasters.length > 0 ? (
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-sm">
+          <button className="flex w-full items-center justify-between gap-4 text-left" onClick={() => setShowSecondaryAssociationTools((current) => !current)} type="button">
+            <div>
+              <h2 className="font-medium text-slate-900">关联记录与预检（次级区域）</h2>
+              <p className="mt-1 text-sm text-slate-500">日常只看产品主表；这里保留已保存关联的审计、撤销和批量匹配复核。</p>
+            </div>
+            <span className="shrink-0 rounded-xl border border-line px-3 py-2 text-sm text-action">{showSecondaryAssociationTools ? "收起" : "展开"}</span>
+          </button>
+        </section>
+      ) : null}
+
+      {showSecondaryAssociationTools && confirmedLinks.some((link) => link.status === "confirmed") ? (
         <section className="space-y-4 rounded-3xl border border-line bg-white p-5 shadow-sm">
           <div><h2 className="font-medium text-slate-900">已保存的规格对应关系</h2><p className="mt-1 text-sm text-slate-500">这张表是后续按内部编码比较供应商报价的依据；供应商规格保留原文，不会被内部编码覆盖。</p></div>
           <div className="overflow-x-auto rounded-2xl border border-line"><table className="w-full text-sm"><thead className="bg-paper-warm text-left text-xs text-slate-500"><tr><th className="px-3 py-2">内部编码</th><th className="px-3 py-2">内部规格</th><th className="px-3 py-2">供应商</th><th className="px-3 py-2">货盘</th><th className="px-3 py-2">供应商货盘规格</th><th className="px-3 py-2">供应商成本</th><th className="px-3 py-2">操作</th></tr></thead><tbody className="divide-y divide-line">{confirmedLinks.filter((link) => link.status === "confirmed").map((link) => { const sku = skuMasters.find((item) => item.id === link.skuMasterId); const offer = offers.find((item) => item.id === link.offerId); const offerSku = offer?.skus?.find((item) => item.id === link.offerSkuId); return <tr key={link.id}><td className="whitespace-nowrap px-3 py-2 font-medium">{sku?.internalSkuCode || "-"}</td><td className="px-3 py-2">{sku?.specification || "待补充"}</td><td className="px-3 py-2">{offer?.supplierName || "未关联供应商"}</td><td className="px-3 py-2">{offer?.name || "货盘已删除"}</td><td className="px-3 py-2">{offerSku ? `${offerSku.specName}${offerSku.specCode ? ` · ${offerSku.specCode}` : ""}` : "货盘级关联"}</td><td className="px-3 py-2">{offerSku?.unitPriceStr || (offerSku?.unitPrice != null ? `¥${offerSku.unitPrice}` : "未记录")}</td><td className="px-3 py-2"><button className="text-xs text-red-600 hover:underline" onClick={() => revokeCandidate(link.id)} type="button">撤销</button></td></tr>; })}</tbody></table></div>
@@ -209,7 +222,7 @@ export default function SkuMasterImportPage() {
         </section>
       ) : null}
 
-      {skuMasters.length > 0 ? (
+      {showSecondaryAssociationTools && skuMasters.length > 0 ? (
         <section className="rounded-3xl border border-line bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h2 className="font-medium text-slate-900">货盘关联预检</h2><p className="mt-1 text-sm text-slate-500">只生成候选，不会自动修改货盘。高匹配也需要你确认后才建立关联。</p></div>

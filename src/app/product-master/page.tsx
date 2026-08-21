@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { createInboundProductsFromSkuMasters, updateSkuMaster } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { buildSupplyPlan } from "@/features/workbench/supply-decision";
-import { groupSkuMastersByProduct, deriveProductFamilyKey } from "@/features/workbench/product-master";
+import { aggregateSkuMetrics, groupSkuMastersByProduct, deriveProductFamilyKey } from "@/features/workbench/product-master";
 
 export default function ProductMasterPage() {
   const data = useWorkbenchData();
@@ -39,6 +39,14 @@ export default function ProductMasterPage() {
         <Stat label="已导入 SKU" value={skus.length} />
         <Stat label="待关联 SKU" value={skus.filter((sku) => !sku.productId).length} />
       </div>
+      <section className="rounded-xl border border-line bg-paper-warm/40 p-4 text-sm">
+        <h2 className="font-medium text-slate-800">数据来源与汇总口径</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <SourceNote title="SKU经营数据" detail="在展开产品族后的 SKU 行填写；当前为手动采集，后续可接表格导入。" />
+          <SourceNote title="供应方案" detail="来自已确认的 SKU—货盘—供应商关联，成本、MOQ、交期不混入销量汇总。" />
+          <SourceNote title="产品族经营数据" detail="由下方同一产品族的 SKU 自动合计或加权，产品族层只展示结果，不重复录入。" />
+        </div>
+      </section>
       {inboundGroups.length === 0 ? <EmptyState title="还没有入仓产品主表" description={skus.length ? "点击右上角按钮，系统会按产品族归并 SKU，并保留原产品机会资料。" : "请先导入并确认内部 SKU 表。"} actionHref="/sku-master/import" actionLabel="进入 SKU 导入" /> : (
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <table className="min-w-full text-left text-sm">
@@ -46,6 +54,7 @@ export default function ProductMasterPage() {
             <tbody className="divide-y divide-line">{inboundGroups.map((group) => {
               const product = data.products.find((item) => item.recordKind === "existing" && item.productMode !== "dropship" && (item.productFamilyKey === group.familyKey || deriveProductFamilyKey(item.name) === group.familyKey));
               const productSkus = skus.filter((sku) => group.skuIds.includes(sku.id));
+              const metricSummary = aggregateSkuMetrics(productSkus);
               const plan = buildSupplyPlan({
                 products: [{ id: product?.id ?? group.familyKey, name: group.productName, productFamilyKey: group.familyKey }],
                 skuMasters: productSkus,
@@ -55,7 +64,7 @@ export default function ProductMasterPage() {
                 decisions: data.supplierOfferDecisions ?? []
               }, product?.id ?? group.familyKey);
               const expanded = Boolean(expandedFamilies[group.familyKey]);
-              return <Fragment key={group.familyKey}><tr className="hover:bg-paper-warm/50"><td className="px-4 py-3"><div className="flex items-center gap-2"><button aria-label={`${expanded ? "收起" : "展开"}${group.productName} SKU`} className="rounded border border-line px-1.5 py-0.5 text-xs text-slate-500" onClick={() => setExpandedFamilies((current) => ({ ...current, [group.familyKey]: !expanded }))} type="button">{expanded ? "−" : "+"}</button>{product ? <Link className="font-medium text-action hover:underline" href={`/products/${product.id}`}>{group.productName}</Link> : <span className="font-medium text-slate-700">{group.productName}</span>}</div><div className="mt-1 pl-8 text-xs text-slate-400">{product?.category || "待补类目"}</div></td><td className="px-4 py-3">{productSkus.length}</td><td className="max-w-56 px-4 py-3 text-xs text-slate-600">{productSkus.slice(0, 4).map((sku) => sku.internalSkuCode).join("、") || "待关联"}{productSkus.length > 4 ? "…" : ""}</td><td className="px-4 py-3 text-xs">主供 {plan.primarySuppliers.length} · 备供 {plan.backupSuppliers.length}<div className="mt-1 text-amber-700">待补 {plan.missingFields.length}</div></td><td className="px-4 py-3">{product?.portfolioStatus === "active" ? "继续经营" : product?.portfolioStatus === "optimize" ? "需要优化" : product?.portfolioStatus === "discontinued" ? "淘汰" : "观察"}</td><td className="px-4 py-3 text-xs text-slate-500">{product?.portfolioMetrics?.monthlySales != null ? `月销量 ${product.portfolioMetrics.monthlySales}` : "待填写"}<div className="mt-1">{product?.portfolioMetrics?.grossMarginRate != null ? `毛利率 ${product.portfolioMetrics.grossMarginRate}%` : "毛利率待填写"}</div></td></tr>{expanded ? <tr className="bg-paper-warm/30"><td className="px-4 py-3" colSpan={6}><div className="space-y-2">{productSkus.map((sku) => <div className="rounded border border-line bg-white px-3 py-2" key={sku.id}><div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-medium text-slate-800">{sku.internalSkuCode}</span><span className="text-slate-500">{sku.specification || "规格待补"}</span></div><div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><SkuMetricInput label="月销量" value={sku.monthlySales} onChange={(value) => updateSkuMaster(sku.id, { monthlySales: value })} /><SkuMetricInput label="销售额" value={sku.salesAmount} onChange={(value) => updateSkuMaster(sku.id, { salesAmount: value })} /><SkuMetricInput label="毛利率%" value={sku.grossMarginRate} onChange={(value) => updateSkuMaster(sku.id, { grossMarginRate: value })} /><SkuMetricInput label="库存天数" value={sku.inventoryDays} onChange={(value) => updateSkuMaster(sku.id, { inventoryDays: value })} /><SkuMetricInput label="缺货次数" value={sku.stockoutCount} onChange={(value) => updateSkuMaster(sku.id, { stockoutCount: value })} /><SkuMetricInput label="退货率%" value={sku.returnRate} onChange={(value) => updateSkuMaster(sku.id, { returnRate: value })} /></div></div>)}</div></td></tr> : null}</Fragment>;
+              return <Fragment key={group.familyKey}><tr className="hover:bg-paper-warm/50"><td className="px-4 py-3"><div className="flex items-center gap-2"><button aria-label={`${expanded ? "收起" : "展开"}${group.productName} SKU`} className="rounded border border-line px-1.5 py-0.5 text-xs text-slate-500" onClick={() => setExpandedFamilies((current) => ({ ...current, [group.familyKey]: !expanded }))} type="button">{expanded ? "−" : "+"}</button>{product ? <Link className="font-medium text-action hover:underline" href={`/products/${product.id}`}>{group.productName}</Link> : <span className="font-medium text-slate-700">{group.productName}</span>}</div><div className="mt-1 pl-8 text-xs text-slate-400">{product?.category || "待补类目"}</div></td><td className="px-4 py-3">{productSkus.length}</td><td className="max-w-56 px-4 py-3 text-xs text-slate-600">{productSkus.slice(0, 4).map((sku) => sku.internalSkuCode).join("、") || "待关联"}{productSkus.length > 4 ? "…" : ""}</td><td className="px-4 py-3 text-xs">主供 {plan.primarySuppliers.length} · 备供 {plan.backupSuppliers.length}<div className="mt-1 text-amber-700">待补 {plan.missingFields.length}</div></td><td className="px-4 py-3">{product?.portfolioStatus === "active" ? "继续经营" : product?.portfolioStatus === "optimize" ? "需要优化" : product?.portfolioStatus === "discontinued" ? "淘汰" : "观察"}</td><td className="px-4 py-3 text-xs text-slate-500">{metricSummary.source === "pending" ? "待采集" : `月销量 ${metricSummary.monthlySales ?? 0}`}<div className="mt-1">{metricSummary.grossMarginRate != null ? `毛利率 ${metricSummary.grossMarginRate}%` : "毛利率待采集"}</div><div className="mt-1 text-[11px] text-slate-400">来源：SKU经营数据</div></td></tr>{expanded ? <tr className="bg-paper-warm/30"><td className="px-4 py-3" colSpan={6}><div className="space-y-2">{productSkus.map((sku) => <div className="rounded border border-line bg-white px-3 py-2" key={sku.id}><div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-medium text-slate-800">{sku.internalSkuCode}</span><span className="text-slate-500">{sku.specification || "规格待补"}</span></div><div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><SkuMetricInput label="月销量" value={sku.monthlySales} onChange={(value) => updateSkuMaster(sku.id, { monthlySales: value })} /><SkuMetricInput label="销售额" value={sku.salesAmount} onChange={(value) => updateSkuMaster(sku.id, { salesAmount: value })} /><SkuMetricInput label="毛利率%" value={sku.grossMarginRate} onChange={(value) => updateSkuMaster(sku.id, { grossMarginRate: value })} /><SkuMetricInput label="库存天数" value={sku.inventoryDays} onChange={(value) => updateSkuMaster(sku.id, { inventoryDays: value })} /><SkuMetricInput label="缺货次数" value={sku.stockoutCount} onChange={(value) => updateSkuMaster(sku.id, { stockoutCount: value })} /><SkuMetricInput label="退货率%" value={sku.returnRate} onChange={(value) => updateSkuMaster(sku.id, { returnRate: value })} /></div></div>)}</div></td></tr> : null}</Fragment>;
             })}</tbody>
           </table>
         </div>
@@ -66,6 +75,10 @@ export default function ProductMasterPage() {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return <div className="rounded-xl border border-line bg-white p-4"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div></div>;
+}
+
+function SourceNote({ title, detail }: { title: string; detail: string }) {
+  return <div className="rounded-lg border border-line bg-white px-3 py-2"><div className="font-medium text-slate-700">{title}</div><div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div></div>;
 }
 
 function SkuMetricInput({ label, value, onChange }: { label: string; value?: number; onChange: (value?: number) => void }) {

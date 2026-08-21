@@ -13,6 +13,43 @@ export type ProductMasterGroup = {
   internalSkuCodes: string[];
 };
 
+export type SkuMetricInput = {
+  monthlySales?: number;
+  salesAmount?: number;
+  grossMarginRate?: number;
+  inventoryDays?: number;
+  stockoutCount?: number;
+  returnRate?: number;
+};
+
+export type ProductFamilyMetricSummary = SkuMetricInput & {
+  source: "sku_manual" | "sku_imported" | "pending";
+  skuCount: number;
+};
+
+export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetricSummary {
+  const sum = (key: keyof SkuMetricInput) => rows.reduce((total, row) => total + (typeof row[key] === "number" ? row[key]! : 0), 0);
+  const salesRows = rows.filter((row) => typeof row.salesAmount === "number" && typeof row.grossMarginRate === "number");
+  const totalSalesAmount = sum("salesAmount");
+  const weightedSalesAmount = salesRows.reduce((total, row) => total + row.salesAmount!, 0);
+  const weightedMargin = salesRows.length > 0 && weightedSalesAmount > 0
+    ? salesRows.reduce((total, row) => total + row.salesAmount! * row.grossMarginRate!, 0) / weightedSalesAmount
+    : undefined;
+  const hasData = rows.some((row) => Object.values(row).some((value) => typeof value === "number"));
+  return {
+    skuCount: rows.length,
+    source: hasData ? "sku_manual" : "pending",
+    ...(hasData ? {
+      monthlySales: sum("monthlySales"),
+      salesAmount: totalSalesAmount,
+      ...(weightedMargin === undefined ? {} : { grossMarginRate: Number(weightedMargin.toFixed(2)) }),
+      inventoryDays: rows.some((row) => row.inventoryDays !== undefined) ? Number((sum("inventoryDays") / rows.filter((row) => row.inventoryDays !== undefined).length).toFixed(2)) : undefined,
+      stockoutCount: sum("stockoutCount"),
+      returnRate: rows.some((row) => row.returnRate !== undefined) ? Number((sum("returnRate") / rows.filter((row) => row.returnRate !== undefined).length).toFixed(2)) : undefined
+    } : {})
+  };
+}
+
 export function deriveProductFamilyKey(productName: string, productFamilyKey?: string): string {
   if (productFamilyKey?.trim()) return productFamilyKey.trim();
   const normalized = productName.trim().replace(/[\s_]+/g, "");
