@@ -9,7 +9,7 @@ import { createInboundProductsFromSkuMasters, saveSkuOperatingSnapshots, type Lo
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { buildSupplyPlan } from "@/features/workbench/supply-decision";
 import { aggregateSkuMetrics, aggregateSkuSnapshots, groupSkuMastersByProduct, deriveProductFamilyKey, type SkuMetricInput } from "@/features/workbench/product-master";
-import { parseJushuitanSalesRows, type JushuitanSalesImportResult } from "@/features/workbench/jushuitan-sales-import";
+import { formatJushuitanImportError, parseJushuitanSalesRows, type JushuitanSalesImportResult } from "@/features/workbench/jushuitan-sales-import";
 
 export default function ProductMasterPage() {
   const data = useWorkbenchData();
@@ -73,7 +73,7 @@ export default function ProductMasterPage() {
     } catch (cause) {
       setSalesPreview(null);
       setSalesFileMeta(null);
-      setSalesImportError(cause instanceof Error ? cause.message : "聚水潭表格读取失败");
+      setSalesImportError(formatJushuitanImportError(cause));
     }
   }
 
@@ -113,6 +113,7 @@ export default function ProductMasterPage() {
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex h-10 items-center rounded-md border border-line bg-white px-3 text-sm text-slate-600">统计月份<input aria-label="统计月份" className="ml-2 h-7 rounded border border-line px-2 text-sm text-slate-800" onChange={(event) => { setSelectedPeriod(event.target.value); setDraftMetrics({}); }} type="month" value={selectedPeriod} /></label>
           <button className="h-10 rounded-md bg-action px-3 text-sm font-medium text-white disabled:opacity-50" disabled={skus.length === 0} onClick={saveSelectedPeriod} type="button">保存本月快照</button>
+          <label className="inline-flex h-10 cursor-pointer items-center rounded-md border border-line bg-white px-3 text-sm text-slate-700 hover:bg-paper-warm">导入聚水潭月度表<input accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void handleSalesFile(event.target.files?.[0])} type="file" /></label>
           <Link className="inline-flex h-10 items-center rounded-md border border-line bg-white px-3 text-sm" href="/sku-master/import">管理 SKU 表</Link>
           <button className="h-10 rounded-md bg-action px-3 text-sm font-medium text-white disabled:opacity-50" disabled={skus.length === 0} onClick={generateProducts} type="button">从 SKU 表生成入仓产品</button>
         </div>
@@ -130,13 +131,7 @@ export default function ProductMasterPage() {
           <SourceNote title="供应方案" detail="供应商报价、MOQ、交期和规格匹配留在货盘报价页，用于供应商决策。" />
           <SourceNote title="产品族汇总" detail="同一产品族的 SKU 自动汇总销量和退货表现，成本只显示 ERP 成本基准，不展示成本变化。" />
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
-          <label className="cursor-pointer rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-700 hover:bg-paper-warm">
-            导入聚水潭月度表
-            <input accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void handleSalesFile(event.target.files?.[0])} type="file" />
-          </label>
-          <span className="text-xs text-slate-500">使用右上角统计月份保存；只写入能匹配内部编码的 SKU。</span>
-        </div>
+        <div className="mt-4 border-t border-line pt-4 text-xs text-slate-500">使用右上角统计月份导入并保存；只写入能匹配内部编码的 SKU。</div>
       </section>
       {salesImportError ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{salesImportError}</p> : null}
       {salesPreview && salesFileMeta ? <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-medium text-slate-800">聚水潭导入预览</h2><p className="mt-1 text-xs text-slate-500">{salesFileMeta.fileName} · {salesFileMeta.sheetName} · 写入月份 {selectedPeriod}</p></div><div className="text-xs text-slate-600">可导入 {salesPreview.rows.filter((row) => skus.some((sku) => sku.internalSkuCode === row.internalSkuCode)).length} 条 · 未匹配 {salesPreview.rows.filter((row) => !skus.some((sku) => sku.internalSkuCode === row.internalSkuCode)).length} 条</div></div>{salesPreview.errors.length ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{salesPreview.errors.map((item) => `第${item.rowNumber}行：${item.message}`).join("；")}</p> : null}<div className="overflow-x-auto rounded-lg border border-line"><table className="min-w-full text-left text-xs"><thead className="bg-paper-warm text-slate-500"><tr><th className="px-3 py-2">商品编码</th><th className="px-3 py-2">净销量</th><th className="px-3 py-2">实退数量</th><th className="px-3 py-2">退货率</th><th className="px-3 py-2">ERP成本价</th></tr></thead><tbody className="divide-y divide-line">{salesPreview.rows.slice(0, 8).map((row) => <tr key={row.internalSkuCode}><td className="px-3 py-2 font-medium">{row.internalSkuCode}</td><td className="px-3 py-2">{row.monthlySales ?? "-"}</td><td className="px-3 py-2">{row.returnQuantity ?? "-"}</td><td className="px-3 py-2">{row.returnRate != null ? `${row.returnRate}%` : "-"}</td><td className="px-3 py-2">{row.erpCostPrice ?? "-"}</td></tr>)}</tbody></table></div><div className="flex justify-end gap-2"><button className="rounded-md border border-line px-3 py-2 text-sm" onClick={() => { setSalesPreview(null); setSalesFileMeta(null); }} type="button">取消</button><button className="rounded-md bg-action px-3 py-2 text-sm font-medium text-white" onClick={saveSalesImport} type="button">确认导入</button></div></section> : null}

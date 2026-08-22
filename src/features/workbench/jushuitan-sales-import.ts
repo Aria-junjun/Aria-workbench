@@ -26,6 +26,17 @@ export type JushuitanSalesImportResult = {
   errors: JushuitanSalesImportIssue[];
 };
 
+export function formatJushuitanImportError(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause ?? "");
+  if (/array buffer allocation failed|invalid array length|out of memory/i.test(message)) {
+    return "表格压缩格式无法读取。请将聚水潭表格另存为普通 .xlsx 后再导入，原有数据不会受影响。";
+  }
+  if (/zip|workbook|worksheet|excel/i.test(message)) {
+    return "聚水潭表格读取失败。请确认文件为 .xlsx、.xls 或 .csv 格式，并且第一张工作表包含“商品编码”列。";
+  }
+  return "聚水潭表格读取失败，请确认文件格式和表头后重试。";
+}
+
 function text(value: unknown): string {
   return value === null || value === undefined ? "" : String(value).trim();
 }

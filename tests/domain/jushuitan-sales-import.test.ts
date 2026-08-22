@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseJushuitanSalesRows } from "@/features/workbench/jushuitan-sales-import";
+import { formatJushuitanImportError, parseJushuitanSalesRows } from "@/features/workbench/jushuitan-sales-import";
 
 describe("Jushuitan sales import", () => {
+  it("turns low-level workbook allocation errors into an actionable message", () => {
+    expect(formatJushuitanImportError(new RangeError("Array buffer allocation failed"))).toContain("另存为普通 .xlsx");
+  });
+
   it("maps product management fields and ignores the total row", () => {
     const result = parseJushuitanSalesRows([
       ["图片", "商品编码", "颜色规格", "商品简称", "成本价", "销售数量", "实发数量", "实发金额", "实退数量", "净销量", "净销售额"],
