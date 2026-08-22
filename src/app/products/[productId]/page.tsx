@@ -27,7 +27,19 @@ export default function ProductDetailPage() {
   const [copyMessage, setCopyMessage] = useState("");
 
   if (!storedProduct || !draft) {
-    return <div className="rounded-lg border border-line bg-white p-4 text-sm text-slate-600">没有找到这个产品知识。</div>;
+    return (
+      <div className="space-y-4 rounded-xl border border-line bg-white p-5">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900">供应方案尚未建立产品详情</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">这个入口来自入仓产品主表的供应方案缺项。当前还没有录入对应的产品知识详情，但不影响先处理 SKU、货盘和供应商关联。</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link className="rounded-md bg-action px-3 py-2 text-sm font-medium text-white" href="/sku-master/import">去管理 SKU 关联</Link>
+          <Link className="rounded-md border border-line px-3 py-2 text-sm" href="/offers">去货盘报价</Link>
+          <Link className="rounded-md border border-line px-3 py-2 text-sm" href="/product-master">返回入仓产品主表</Link>
+        </div>
+      </div>
+    );
   }
   const product = data.products.find((item) => item.id === productId) || storedProduct;
 
