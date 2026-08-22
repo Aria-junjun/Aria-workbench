@@ -19,7 +19,8 @@ describe("Jushuitan sales import", () => {
       internalSkuCode: "Y-10BBT-8",
       productName: "白板贴+白板笔",
       specification: "90CM*2M",
-      monthlySales: 1443,
+      monthlySales: 1538,
+      netSalesQuantity: 1443,
       salesAmount: 37404.61,
       erpCostPrice: 7.875,
       shippedQuantity: 1538,
@@ -27,6 +28,15 @@ describe("Jushuitan sales import", () => {
       returnRate: 3.58,
       source: "imported"
     });
+  });
+
+  it("uses shipped quantity as the product-management sales volume", () => {
+    const result = parseJushuitanSalesRows([
+      ["商品编码", "实发数量", "实退数量", "净销量"],
+      ["Y-01", "100", "4", "96"]
+    ], { fileName: "销售表.xlsx", sheetName: "Sheet1", importedAt: "2026-08-22T00:00:00.000Z" });
+
+    expect(result.rows[0]).toMatchObject({ monthlySales: 100, netSalesQuantity: 96, returnRate: 4 });
   });
 
   it("ignores a blank-code total row", () => {

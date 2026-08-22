@@ -4,6 +4,7 @@ export type JushuitanSalesImportRow = {
   productName: string;
   specification: string;
   monthlySales?: number;
+  netSalesQuantity?: number;
   salesAmount?: number;
   erpCostPrice?: number;
   shippedQuantity?: number;
@@ -80,7 +81,8 @@ export function parseJushuitanSalesRows(
 
     const shippedQuantity = numberValue(firstValue(rawRow, indexes, ["实发数量", "销售数量"]));
     const returnQuantity = numberValue(firstValue(rawRow, indexes, ["实退数量", "退货数量"]));
-    const monthlySales = numberValue(firstValue(rawRow, indexes, ["净销量"])) ?? shippedQuantity;
+    const netSalesQuantity = numberValue(firstValue(rawRow, indexes, ["净销量"]));
+    const monthlySales = shippedQuantity ?? netSalesQuantity;
     const salesAmount = numberValue(firstValue(rawRow, indexes, ["净销售额", "实发金额", "销售金额"]));
     const returnRate = shippedQuantity && returnQuantity !== undefined
       ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2))
@@ -92,6 +94,7 @@ export function parseJushuitanSalesRows(
       productName: text(firstValue(rawRow, indexes, ["商品简称", "商品名称"])),
       specification: text(firstValue(rawRow, indexes, ["颜色规格", "颜色及规格"])),
       monthlySales,
+      netSalesQuantity,
       salesAmount,
       erpCostPrice: numberValue(firstValue(rawRow, indexes, ["成本价"])),
       shippedQuantity,
