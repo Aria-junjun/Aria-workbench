@@ -23,7 +23,7 @@ export type SupplierInboundImportResult = {
   rows: SupplierInboundImportRow[];
   errors: SupplierInboundImportIssue[];
   detectedHeaders: string[];
-  summary: { rowCount: number; totalReceivedQuantity: number; totalAmount?: number };
+  summary: { rowCount: number; rawRowCount?: number; totalReceivedQuantity: number; totalAmount?: number };
 };
 
 function text(value: unknown): string {
@@ -66,6 +66,30 @@ function firstNonEmpty(row: unknown[], index: number | undefined): string | unde
   if (index === undefined) return undefined;
   const value = text(row[index]);
   return value || undefined;
+}
+
+function normalizeMergeKey(value: string): string {
+  return value.toLowerCase().replace(/[\s*×xX·＋+\-_/（）()]/g, "");
+}
+
+export function mergeSupplierInboundRows(rows: SupplierInboundImportRow[]): SupplierInboundImportRow[] {
+  const merged = new Map<string, SupplierInboundImportRow>();
+  for (const row of rows) {
+    const key = `${normalizeMergeKey(row.supplierProductName)}|${normalizeMergeKey(row.supplierSpec)}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...row });
+      continue;
+    }
+    const sameUnitPrice = existing.unitPrice === row.unitPrice;
+    merged.set(key, {
+      ...existing,
+      receivedQuantity: existing.receivedQuantity + row.receivedQuantity,
+      amount: existing.amount !== undefined && row.amount !== undefined ? existing.amount + row.amount : existing.amount ?? row.amount,
+      unitPrice: sameUnitPrice ? existing.unitPrice : undefined,
+    });
+  }
+  return [...merged.values()];
 }
 
 export function formatSupplierInboundImportError(cause: unknown): string {
@@ -137,15 +161,18 @@ export function parseSupplierInboundRows(
     });
   });
 
-  const totalAmount = rows.map((row) => row.amount).filter((value): value is number => value !== undefined).reduce((sum, value) => sum + value, 0);
+  const rawRowCount = rows.length;
+  const mergedRows = mergeSupplierInboundRows(rows);
+  const totalAmount = mergedRows.map((row) => row.amount).filter((value): value is number => value !== undefined).reduce((sum, value) => sum + value, 0);
   return {
-    rows,
+    rows: mergedRows,
     errors,
     detectedHeaders: headers,
     summary: {
-      rowCount: rows.length,
-      totalReceivedQuantity: rows.reduce((sum, row) => sum + row.receivedQuantity, 0),
-      totalAmount: rows.some((row) => row.amount !== undefined) ? totalAmount : undefined
+      rowCount: mergedRows.length,
+      rawRowCount,
+      totalReceivedQuantity: mergedRows.reduce((sum, row) => sum + row.receivedQuantity, 0),
+      totalAmount: mergedRows.some((row) => row.amount !== undefined) ? totalAmount : undefined
     }
   };
 }

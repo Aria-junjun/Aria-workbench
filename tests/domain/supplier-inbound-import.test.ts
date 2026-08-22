@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSupplierInboundRows } from "@/features/workbench/supplier-inbound-import";
+import { mergeSupplierInboundRows, parseSupplierInboundRows } from "@/features/workbench/supplier-inbound-import";
 
 describe("supplier inbound workbook import", () => {
   it("detects headers after title rows, carries down merged cells, and ignores summaries", () => {
@@ -20,7 +20,7 @@ describe("supplier inbound workbook import", () => {
     expect(result.rows).toHaveLength(3);
     expect(result.rows.map((row) => row.receivedQuantity)).toEqual([500, 300, 260]);
     expect(result.rows[1]).toMatchObject({ deliveryDate: "2026-07-02", supplierProductName: "白板贴", supplierSpec: "0.45*3m" });
-    expect(result.summary).toEqual({ rowCount: 3, totalReceivedQuantity: 1060, totalAmount: 2130 });
+    expect(result.summary).toEqual({ rowCount: 3, rawRowCount: 3, totalReceivedQuantity: 1060, totalAmount: 2130 });
     expect(result.detectedHeaders).toEqual(expect.arrayContaining(["送货日期", "产品名称", "产品规格", "送货数量"]));
   });
 
@@ -33,5 +33,17 @@ describe("supplier inbound workbook import", () => {
 
     expect(result.rows).toHaveLength(1);
     expect(result.errors).toEqual([{ rowNumber: 2, code: "INVALID_QUANTITY", message: "送货数量不是有效数字" }]);
+  });
+
+  it("merges only the same supplier product and specification", () => {
+    const rows = [
+      { rowNumber: 2, supplierProductName: "白板贴", supplierSpec: "60*2", receivedQuantity: 100, amount: 200, sourceFileName: "a.xlsx", sourceSheetName: "Sheet1", importedAt: "now" },
+      { rowNumber: 3, supplierProductName: "白板贴", supplierSpec: "60×2", receivedQuantity: 50, amount: 105, sourceFileName: "a.xlsx", sourceSheetName: "Sheet1", importedAt: "now" },
+      { rowNumber: 4, supplierProductName: "哑光墙贴", supplierSpec: "60*2", receivedQuantity: 80, amount: 160, sourceFileName: "a.xlsx", sourceSheetName: "Sheet1", importedAt: "now" },
+    ];
+    expect(mergeSupplierInboundRows(rows)).toMatchObject([
+      { supplierProductName: "白板贴", supplierSpec: "60*2", receivedQuantity: 150, amount: 305 },
+      { supplierProductName: "哑光墙贴", supplierSpec: "60*2", receivedQuantity: 80, amount: 160 },
+    ]);
   });
 });

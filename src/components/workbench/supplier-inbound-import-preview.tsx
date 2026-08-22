@@ -71,7 +71,7 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
           <h2 className="font-medium text-slate-800">供应商月度实际入仓预览</h2>
           <p className="mt-1 text-xs text-slate-500">{fileName} · {sheetName} · 保存月份 {period}</p>
         </div>
-        <div className="text-xs text-slate-600">识别 {result.rows.length} 行 · 已匹配 {matchedCount} 行 · 待确认 {result.rows.length - matchedCount} 行</div>
+        <div className="text-xs text-slate-600">原始 {result.summary.rawRowCount ?? result.rows.length} 行 · 合并后 {result.rows.length} 行 · 已匹配 {matchedCount} 行 · 待确认 {result.rows.length - matchedCount} 行</div>
       </div>
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
         本次只保存表格明确证明的实际入仓数量。没有供应商名称时，请先为整张表选择供应商；未匹配 SKU 的行不会写入。
