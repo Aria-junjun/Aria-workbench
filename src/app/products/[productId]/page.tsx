@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ProductKnowledgeEditor } from "@/components/workbench/product-knowledge-editor";
 import { SectionActions } from "@/components/workbench/edit-fields";
@@ -14,17 +14,25 @@ import { buildProductTechnologyPrompt } from "@/features/workbench/product-techn
 import { labelLifecycleStage, labelSignalStatus, labelProductRecordKind, LIFECYCLE_STAGE_OPTIONS, SIGNAL_STATUS_OPTIONS, labelDormantReason, PRODUCT_RECORD_KIND_OPTIONS } from "@/features/workbench/display-labels";
 import { randomId } from "@/lib/random-id";
 import { buildSupplyDecisionTasks, buildSupplyPlan } from "@/features/workbench/supply-decision";
+import { deriveProductFamilyKey } from "@/features/workbench/product-master";
 
 export default function ProductDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const productId = Array.isArray(params.productId) ? params.productId[0] : params.productId;
+  const familyKey = searchParams.get("familyKey") || undefined;
   const data = useWorkbenchData();
   const storedProduct = data.products.find((item) => item.id === productId);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProductKnowledgeV2 | undefined>(storedProduct);
   const [version, setVersion] = useState(0);
   const [copyMessage, setCopyMessage] = useState("");
+  const fallbackSkuMasters = (data.skuMasters ?? []).filter((item) =>
+    item.productId === productId ||
+    (familyKey && (item.productFamilyKey === familyKey || deriveProductFamilyKey(item.productName, item.productFamilyKey) === familyKey)),
+  );
+  const fallbackProductName = fallbackSkuMasters[0]?.productName || "当前产品";
 
   if (!storedProduct || !draft) {
     return (
@@ -33,6 +41,7 @@ export default function ProductDetailPage() {
           <h1 className="text-lg font-semibold text-slate-900">供应方案尚未建立产品详情</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">这个入口来自入仓产品主表的供应方案缺项。当前还没有录入对应的产品知识详情，但不影响先处理 SKU、货盘和供应商关联。</p>
         </div>
+        <ProductSupplyPlanPanel productId={productId ?? ""} productName={fallbackProductName} productFamilyKey={familyKey} />
         <div className="flex flex-wrap gap-2">
           <Link className="rounded-md bg-action px-3 py-2 text-sm font-medium text-white" href="/sku-master/import">去管理 SKU 关联</Link>
           <Link className="rounded-md border border-line px-3 py-2 text-sm" href="/offers">去货盘报价</Link>
@@ -230,11 +239,14 @@ function MetricInput({ label, value, onChange }: { label: string; value?: number
   return <label className="text-xs text-slate-500">{label}<input className="mt-1 w-full rounded-md border border-line px-2 py-2 text-sm text-slate-800" min="0" onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} type="number" value={value ?? ""} /></label>;
 }
 
-function ProductSupplyPlanPanel({ productId }: { productId: string }) {
+function ProductSupplyPlanPanel({ productId, productName, productFamilyKey }: { productId: string; productName?: string; productFamilyKey?: string }) {
   const data = useWorkbenchData();
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const plan = buildSupplyPlan({
-    products: data.products.map((item) => ({ id: item.id, name: item.name })),
+    products: [
+      ...data.products.map((item) => ({ id: item.id, name: item.name, productFamilyKey: item.productFamilyKey })),
+      ...(data.products.some((item) => item.id === productId) || !productName ? [] : [{ id: productId, name: productName, productFamilyKey }])
+    ],
     skuMasters: (data.skuMasters ?? []).map((item) => ({ ...item })),
     suppliers: data.suppliers.map((item) => ({ id: item.id, name: item.name })),
     offers: data.offers,

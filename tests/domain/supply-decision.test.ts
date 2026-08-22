@@ -31,11 +31,13 @@ describe("product supply plan", () => {
 
     expect(plan.skuRows).toHaveLength(1);
     expect(plan.skuRows[0]).toMatchObject({ internalSkuCode: "Y-01BBT", primarySupplierId: "supplier-a", backupSupplierIds: ["supplier-c"] });
+    expect(plan.pendingSkuCount).toBe(1);
     expect(plan.skuRows[0].suppliers).toHaveLength(3);
     expect(plan.skuRows[0].missingFields).toContain("供应商B缺少交期");
     const tasks = buildSupplyDecisionTasks(plan);
     expect(tasks.map((task) => task.title)).toContain("Y-01BBT：补齐供应商B缺少交期");
     const undecidedPlan = buildSupplyPlan({ ...data, decisions: [] }, "product-1");
+    expect(undecidedPlan.pendingSkuCount).toBe(1);
     expect(buildSupplyDecisionTasks(undecidedPlan).map((task) => task.title)).toContain("Y-01BBT：确认主供应商");
   });
 });

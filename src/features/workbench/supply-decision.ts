@@ -39,6 +39,8 @@ export type SupplyPlan = {
   primarySuppliers: string[];
   backupSuppliers: string[];
   missingFields: string[];
+  /** 需要继续补齐或确认供应方案的 SKU 数量，而不是缺失字段文本数量。 */
+  pendingSkuCount: number;
 };
 
 export type SupplyDecisionTaskDraft = {
@@ -50,7 +52,7 @@ export type SupplyDecisionTaskDraft = {
 
 export function buildSupplyPlan(data: SupplyDecisionData, productId: string): SupplyPlan {
   const product = data.products.find((item) => item.id === productId);
-  if (!product) return { productId, skuRows: [], primarySuppliers: [], backupSuppliers: [], missingFields: ["未找到产品"] };
+  if (!product) return { productId, skuRows: [], primarySuppliers: [], backupSuppliers: [], missingFields: ["未找到产品"], pendingSkuCount: 0 };
 
   const supplierNames = new Map(data.suppliers.map((supplier) => [supplier.id, supplier.name]));
   const skuByOffer = new Map(data.offers.map((offer) => [offer.id, new Map((offer.skus ?? []).map((sku) => [sku.id, sku]))]));
@@ -98,7 +100,8 @@ export function buildSupplyPlan(data: SupplyDecisionData, productId: string): Su
     skuRows: rows,
     primarySuppliers: [...new Set(rows.map((row) => row.primarySupplierId).filter(Boolean) as string[])],
     backupSuppliers: [...new Set(rows.flatMap((row) => row.backupSupplierIds))],
-    missingFields: [...new Set(rows.flatMap((row) => row.missingFields))]
+    missingFields: [...new Set(rows.flatMap((row) => row.missingFields))],
+    pendingSkuCount: rows.filter((row) => row.missingFields.length > 0 || row.suppliers.some((supplier) => supplier.status === "unreviewed") || (row.suppliers.length > 0 && !row.primarySupplierId)).length
   };
 }
 
