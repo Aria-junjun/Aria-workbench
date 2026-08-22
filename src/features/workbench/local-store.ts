@@ -308,6 +308,9 @@ export type LocalSkuOperatingSnapshot = {
   period: string;
   monthlySales?: number;
   salesAmount?: number;
+  erpCostPrice?: number;
+  shippedQuantity?: number;
+  returnQuantity?: number;
   grossMarginRate?: number;
   inventoryDays?: number;
   stockoutCount?: number;
@@ -316,7 +319,7 @@ export type LocalSkuOperatingSnapshot = {
   createdAt: string;
   updatedAt: string;
 };
-export type LocalSkuOperatingSnapshotMetrics = Pick<LocalSkuOperatingSnapshot, "monthlySales" | "salesAmount" | "grossMarginRate" | "inventoryDays" | "stockoutCount" | "returnRate">;
+export type LocalSkuOperatingSnapshotMetrics = Pick<LocalSkuOperatingSnapshot, "monthlySales" | "salesAmount" | "erpCostPrice" | "shippedQuantity" | "returnQuantity" | "grossMarginRate" | "inventoryDays" | "stockoutCount" | "returnRate">;
 
 export type LocalSkuImportBatch = {
   id: string;
@@ -1877,19 +1880,19 @@ export function archiveSkuMaster(id: string) {
   saveLocalWorkbenchData({ ...current, skuMasters: next });
 }
 
-export function saveSkuOperatingSnapshot(skuMasterId: string, period: string, metrics: LocalSkuOperatingSnapshotMetrics) {
-  return saveSkuOperatingSnapshots([{ skuMasterId, period, metrics }])[0];
+export function saveSkuOperatingSnapshot(skuMasterId: string, period: string, metrics: LocalSkuOperatingSnapshotMetrics, source: LocalSkuOperatingSnapshot["source"] = "manual") {
+  return saveSkuOperatingSnapshots([{ skuMasterId, period, metrics, source }])[0];
 }
 
-export function saveSkuOperatingSnapshots(entries: Array<{ skuMasterId: string; period: string; metrics: LocalSkuOperatingSnapshotMetrics }>) {
+export function saveSkuOperatingSnapshots(entries: Array<{ skuMasterId: string; period: string; metrics: LocalSkuOperatingSnapshotMetrics; source?: LocalSkuOperatingSnapshot["source"] }>) {
   if (entries.some((entry) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(entry.period))) throw new Error("经营数据周期必须是 YYYY-MM");
   const current = loadLocalWorkbenchData();
   const snapshots = current.skuOperatingSnapshots ?? [];
   const now = new Date().toISOString();
   const nextSnapshots = [...snapshots];
-  const saved = entries.map(({ skuMasterId, period, metrics }) => {
+  const saved = entries.map(({ skuMasterId, period, metrics, source = "manual" }) => {
     const existing = nextSnapshots.find((item) => item.skuMasterId === skuMasterId && item.period === period);
-    const snapshot: LocalSkuOperatingSnapshot = { id: existing?.id ?? `sku-snapshot-${skuMasterId}-${period}`, skuMasterId, period, ...metrics, source: "manual", createdAt: existing?.createdAt ?? now, updatedAt: now };
+    const snapshot: LocalSkuOperatingSnapshot = { id: existing?.id ?? `sku-snapshot-${skuMasterId}-${period}`, skuMasterId, period, ...metrics, source, createdAt: existing?.createdAt ?? now, updatedAt: now };
     const index = nextSnapshots.findIndex((item) => item.id === snapshot.id);
     if (index >= 0) nextSnapshots[index] = snapshot;
     else nextSnapshots.unshift(snapshot);

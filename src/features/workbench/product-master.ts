@@ -16,6 +16,9 @@ export type ProductMasterGroup = {
 export type SkuMetricInput = {
   monthlySales?: number;
   salesAmount?: number;
+  erpCostPrice?: number;
+  shippedQuantity?: number;
+  returnQuantity?: number;
   grossMarginRate?: number;
   inventoryDays?: number;
   stockoutCount?: number;
@@ -36,12 +39,14 @@ export type ProductFamilySnapshotComparison = {
 
 export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetricSummary {
   const sum = (key: keyof SkuMetricInput) => rows.reduce((total, row) => total + (typeof row[key] === "number" ? row[key]! : 0), 0);
-  const salesRows = rows.filter((row) => typeof row.salesAmount === "number" && typeof row.grossMarginRate === "number");
   const totalSalesAmount = sum("salesAmount");
-  const weightedSalesAmount = salesRows.reduce((total, row) => total + row.salesAmount!, 0);
-  const weightedMargin = salesRows.length > 0 && weightedSalesAmount > 0
-    ? salesRows.reduce((total, row) => total + row.salesAmount! * row.grossMarginRate!, 0) / weightedSalesAmount
+  const costRows = rows.filter((row) => typeof row.erpCostPrice === "number" && typeof row.monthlySales === "number");
+  const weightedSales = costRows.reduce((total, row) => total + row.monthlySales!, 0);
+  const weightedCost = costRows.length > 0 && weightedSales > 0
+    ? costRows.reduce((total, row) => total + row.monthlySales! * row.erpCostPrice!, 0) / weightedSales
     : undefined;
+  const shippedQuantity = sum("shippedQuantity");
+  const returnQuantity = sum("returnQuantity");
   const hasData = rows.some((row) => Object.values(row).some((value) => typeof value === "number"));
   return {
     skuCount: rows.length,
@@ -49,10 +54,13 @@ export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetric
     ...(hasData ? {
       monthlySales: sum("monthlySales"),
       salesAmount: totalSalesAmount,
-      ...(weightedMargin === undefined ? {} : { grossMarginRate: Number(weightedMargin.toFixed(2)) }),
+      ...(weightedCost === undefined ? {} : { erpCostPrice: Number(weightedCost.toFixed(3)) }),
+      ...(rows.some((row) => row.shippedQuantity !== undefined) ? { shippedQuantity } : {}),
+      ...(rows.some((row) => row.returnQuantity !== undefined) ? { returnQuantity } : {}),
+      ...(shippedQuantity > 0 && rows.some((row) => row.returnQuantity !== undefined) ? { returnRate: Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) } : {}),
       inventoryDays: rows.some((row) => row.inventoryDays !== undefined) ? Number((sum("inventoryDays") / rows.filter((row) => row.inventoryDays !== undefined).length).toFixed(2)) : undefined,
       stockoutCount: sum("stockoutCount"),
-      returnRate: rows.some((row) => row.returnRate !== undefined) ? Number((sum("returnRate") / rows.filter((row) => row.returnRate !== undefined).length).toFixed(2)) : undefined
+      ...(rows.some((row) => row.returnRate !== undefined) && shippedQuantity === 0 ? { returnRate: Number((sum("returnRate") / rows.filter((row) => row.returnRate !== undefined).length).toFixed(2)) } : {})
     } : {})
   };
 }
@@ -60,7 +68,7 @@ export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetric
 export function aggregateSkuSnapshots(currentRows: SkuMetricInput[], previousRows: SkuMetricInput[], period: string): ProductFamilySnapshotComparison {
   const current = aggregateSkuMetrics(currentRows);
   const previous = aggregateSkuMetrics(previousRows);
-  const keys: Array<keyof SkuMetricInput> = ["monthlySales", "salesAmount", "grossMarginRate", "inventoryDays", "stockoutCount", "returnRate"];
+  const keys: Array<keyof SkuMetricInput> = ["monthlySales", "salesAmount", "inventoryDays", "stockoutCount", "returnRate"];
   const delta = keys.reduce<SkuMetricInput>((result, key) => {
     const currentValue = current[key];
     const previousValue = previous[key];

@@ -28,22 +28,23 @@ describe("inbound product master", () => {
 
   it("aggregates family metrics from sku-level inputs and weights gross margin by sales", () => {
     const summary = aggregateSkuMetrics([
-      { monthlySales: 10, salesAmount: 100, grossMarginRate: 10 },
-      { monthlySales: 30, salesAmount: 300, grossMarginRate: 30 }
+      { monthlySales: 10, salesAmount: 100, erpCostPrice: 2, shippedQuantity: 11, returnQuantity: 1 },
+      { monthlySales: 30, salesAmount: 300, erpCostPrice: 4, shippedQuantity: 31, returnQuantity: 1 }
     ]);
-    expect(summary).toMatchObject({ monthlySales: 40, salesAmount: 400, grossMarginRate: 25, source: "sku_manual" });
+    expect(summary).toMatchObject({ monthlySales: 40, salesAmount: 400, erpCostPrice: 3.5, returnQuantity: 2, returnRate: 4.76, source: "sku_manual" });
   });
 
   it("compares a selected month with the previous month without inventing missing values", () => {
     const comparison = aggregateSkuSnapshots(
-      [{ monthlySales: 40, salesAmount: 400, grossMarginRate: 25 }],
-      [{ monthlySales: 30, salesAmount: 300, grossMarginRate: 20 }],
+      [{ monthlySales: 40, salesAmount: 400, erpCostPrice: 3.5 }],
+      [{ monthlySales: 30, salesAmount: 300, erpCostPrice: 3.2 }],
       "2026-09"
     );
 
-    expect(comparison.current).toMatchObject({ monthlySales: 40, salesAmount: 400, grossMarginRate: 25 });
-    expect(comparison.previous).toMatchObject({ monthlySales: 30, salesAmount: 300, grossMarginRate: 20 });
-    expect(comparison.delta).toMatchObject({ monthlySales: 10, salesAmount: 100, grossMarginRate: 5 });
+    expect(comparison.current).toMatchObject({ monthlySales: 40, salesAmount: 400, erpCostPrice: 3.5 });
+    expect(comparison.previous).toMatchObject({ monthlySales: 30, salesAmount: 300, erpCostPrice: 3.2 });
+    expect(comparison.delta).toMatchObject({ monthlySales: 10, salesAmount: 100 });
+    expect(comparison.delta.erpCostPrice).toBeUndefined();
     expect(comparison.period).toBe("2026-09");
   });
 
