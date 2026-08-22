@@ -68,6 +68,7 @@ export default function SupplierDetailPage() {
   const workbenchData = useWorkbenchData();
   const data = workbenchData ?? {
     suppliers: [], communications: [], offers: [], products: [],
+    skuMasters: [], monthlyInboundSnapshots: [],
     tasks: [], knowledgeCards: [], knowledgeBooks: [], decisionTools: [],
     knowledgeApplications: [], decisionCases: [],
   };
@@ -104,6 +105,25 @@ export default function SupplierDetailPage() {
   const tasks = data.tasks.filter(
     (t) => t.supplierId === supplierId || t.supplierName === supplier.name
   );
+  const inboundRows = (data.monthlyInboundSnapshots ?? []).filter(
+    (row) => row.supplierId === supplierId || row.supplierName === supplier.name,
+  );
+  const latestInboundPeriod = [...new Set(inboundRows.map((row) => row.period))].sort().at(-1);
+  const latestInbound = latestInboundPeriod
+    ? inboundRows.filter((row) => row.period === latestInboundPeriod)
+    : [];
+  const actualInboundProducts = latestInbound.reduce<Array<{ skuCode: string; productName: string; specification: string; receivedQuantity: number }>>((result, row) => {
+    const sku = data.skuMasters?.find((item) => item.id === row.skuMasterId);
+    if (!sku) return result;
+    const existing = result.find((item) => item.skuCode === sku.internalSkuCode);
+    if (existing) {
+      existing.receivedQuantity += row.receivedQuantity ?? 0;
+    } else {
+      result.push({ skuCode: sku.internalSkuCode, productName: sku.productName, specification: sku.specification, receivedQuantity: row.receivedQuantity ?? 0 });
+    }
+    return result;
+  }, []);
+  const actualInboundTotal = actualInboundProducts.reduce((sum, item) => sum + item.receivedQuantity, 0);
   // 通过货盘桥接的产品
   const linkedProducts = offers
     .filter((o) => o.productId)
@@ -350,6 +370,9 @@ export default function SupplierDetailPage() {
           offers={offers}
           linkedProducts={linkedProducts}
           tasks={tasks}
+          actualInboundProducts={actualInboundProducts}
+          actualInboundPeriod={latestInboundPeriod}
+          actualInboundTotal={actualInboundTotal}
           supplierId={supplierId}
           onGoToRawData={() => setActiveTab("rawData")}
         />
@@ -407,12 +430,15 @@ function TabButton({ tab, activeTab, onClick, label, count }: {
 }
 
 // ===== Tab 1: 评估详情 =====
-function OverviewTab({ latestEval, scoreBreakdown, offers, linkedProducts, tasks, supplierId, onGoToRawData }: {
+function OverviewTab({ latestEval, scoreBreakdown, offers, linkedProducts, tasks, actualInboundProducts, actualInboundPeriod, actualInboundTotal, supplierId, onGoToRawData }: {
   latestEval?: SupplierEvaluationRecord;
   scoreBreakdown: ReturnType<typeof getScoreBreakdown> | null;
   offers: LocalOffer[];
   linkedProducts: { offer: LocalOffer; product: LocalProductKnowledge }[];
   tasks: LocalTask[];
+  actualInboundProducts: { skuCode: string; productName: string; specification: string; receivedQuantity: number }[];
+  actualInboundPeriod?: string;
+  actualInboundTotal: number;
   supplierId: string;
   onGoToRawData?: () => void;
 }) {
@@ -425,6 +451,7 @@ function OverviewTab({ latestEval, scoreBreakdown, offers, linkedProducts, tasks
           <p className="mt-1 text-xs text-muted-light">使用「聊天快速评估」功能，粘贴聊天记录即可自动算分</p>
         </div>
         {/* 关联资源概览 */}
+        <ActualInboundOverview products={actualInboundProducts} period={actualInboundPeriod} total={actualInboundTotal} />
         <ResourceOverview offers={offers} linkedProducts={linkedProducts} tasks={tasks} supplierId={supplierId} />
       </div>
     );
@@ -498,6 +525,7 @@ function OverviewTab({ latestEval, scoreBreakdown, offers, linkedProducts, tasks
       </div>
 
       {/* 关联资源概览 */}
+      <ActualInboundOverview products={actualInboundProducts} period={actualInboundPeriod} total={actualInboundTotal} />
       <ResourceOverview offers={offers} linkedProducts={linkedProducts} tasks={tasks} supplierId={supplierId} />
     </div>
   );
@@ -1855,6 +1883,47 @@ function HistoryTab({ evaluations }: { evaluations: SupplierEvaluationRecord[] }
         );
       })}
     </div>
+  );
+}
+
+function ActualInboundOverview({ products, period, total }: {
+  products: { skuCode: string; productName: string; specification: string; receivedQuantity: number }[];
+  period?: string;
+  total: number;
+}) {
+  return (
+    <section className="pt-4 border-t border-line">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <Package className="h-4 w-4 text-action" />
+            实际入仓协同
+          </h3>
+          <p className="mt-1 text-xs text-muted">来自供应商月度入仓表，不等同于货盘报价或备选供应商。</p>
+        </div>
+        {period ? <span className="text-xs text-muted">最新月份：{period}</span> : null}
+      </div>
+      {products.length === 0 ? (
+        <p className="mt-4 text-xs text-muted-light">暂无已确认的实际入仓记录。</p>
+      ) : (
+        <>
+          <div className="mt-4 grid gap-6 sm:grid-cols-3">
+            <div><div className="text-xs text-muted">实际入仓 SKU</div><div className="mt-1 text-2xl font-bold">{products.length}</div></div>
+            <div><div className="text-xs text-muted">本月实际入仓</div><div className="mt-1 text-2xl font-bold">{total}</div></div>
+            <div><div className="text-xs text-muted">覆盖产品</div><div className="mt-1 text-2xl font-bold">{new Set(products.map((item) => item.productName)).size}</div></div>
+          </div>
+          <div className="mt-4 divide-y divide-line border-y border-line">
+            {products.slice(0, 8).map((item) => (
+              <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs" key={item.skuCode}>
+                <span><strong className="text-slate-800">{item.skuCode}</strong><span className="ml-2 text-muted">{item.productName} · {item.specification}</span></span>
+                <span className="text-slate-600">入仓 {item.receivedQuantity}</span>
+              </div>
+            ))}
+          </div>
+          {products.length > 8 ? <p className="mt-2 text-[11px] text-muted">仅展示最新月份前 8 个 SKU。</p> : null}
+        </>
+      )}
+    </section>
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProductInboundSummary } from "@/features/workbench/product-master";
+import { buildProductInboundSummary, buildProductInboundSupplierSummary } from "@/features/workbench/product-master";
 
 describe("product master inbound summary", () => {
   it("aggregates inbound facts and shipped quantity by product family", () => {
@@ -29,5 +29,26 @@ describe("product master inbound summary", () => {
       [],
       "2026-07"
     )).toEqual({ receivedQuantity: 500, actualStock: undefined, availableStock: undefined, inventoryGap: undefined, inTransitQuantity: undefined, receivedToShippedRatio: undefined, missingPreviousPeriod: true });
+  });
+
+  it("identifies actual inbound suppliers and flags split supply by product", () => {
+    const result = buildProductInboundSupplierSummary(
+      [
+        { id: "sku-a", internalSkuCode: "Y-01", productName: "白板贴", specification: "60*2" },
+        { id: "sku-b", internalSkuCode: "Y-02", productName: "白板贴", specification: "90*2" },
+      ],
+      [
+        { skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 100, supplierId: "s1", supplierName: "供应商甲" },
+        { skuMasterId: "sku-b", period: "2026-07", receivedQuantity: 80, supplierId: "s2", supplierName: "供应商乙" },
+      ],
+      "2026-07",
+    );
+
+    expect(result.totalReceivedQuantity).toBe(180);
+    expect(result.suppliers).toEqual([
+      { supplierId: "s1", supplierName: "供应商甲", receivedQuantity: 100, skuCount: 1 },
+      { supplierId: "s2", supplierName: "供应商乙", receivedQuantity: 80, skuCount: 1 },
+    ]);
+    expect(result.isSplit).toBe(true);
   });
 });

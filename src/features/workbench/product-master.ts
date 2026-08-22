@@ -47,6 +47,17 @@ export type ProductInboundSummary = {
   missingPreviousPeriod: boolean;
 };
 
+export type ProductInboundSupplierSummary = {
+  suppliers: Array<{
+    supplierId?: string;
+    supplierName: string;
+    receivedQuantity: number;
+    skuCount: number;
+  }>;
+  totalReceivedQuantity: number;
+  isSplit: boolean;
+};
+
 type InboundSnapshotForSummary = {
   id?: string;
   sourceFileName?: string;
@@ -69,6 +80,14 @@ type OperatingSnapshotForSummary = {
   period: string;
   shippedQuantity?: number;
   monthlySales?: number;
+};
+
+type InboundSupplierForSummary = {
+  skuMasterId: string;
+  period: string;
+  receivedQuantity?: number;
+  supplierId?: string;
+  supplierName?: string;
 };
 
 function previousMonth(period: string) {
@@ -104,6 +123,40 @@ export function buildProductInboundSummary(
     inTransitQuantity: sum(inbound.map((snapshot) => snapshot.inTransitQuantity)),
     receivedToShippedRatio: shippedQuantity && shippedQuantity > 0 ? Number((receivedQuantity / shippedQuantity).toFixed(2)) : undefined,
     missingPreviousPeriod
+  };
+}
+
+export function buildProductInboundSupplierSummary(
+  skuMasters: ProductMasterSkuInput[],
+  inboundSnapshots: InboundSupplierForSummary[],
+  period: string,
+): ProductInboundSupplierSummary {
+  const skuIds = new Set(skuMasters.map((sku) => sku.id));
+  const grouped = new Map<string, { supplierId?: string; supplierName: string; receivedQuantity: number; skuIds: Set<string> }>();
+
+  inboundSnapshots
+    .filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period)
+    .forEach((snapshot) => {
+      const supplierName = snapshot.supplierName?.trim() || "供应商待确认";
+      const key = snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${supplierName}`;
+      const current = grouped.get(key) ?? {
+        supplierId: snapshot.supplierId,
+        supplierName,
+        receivedQuantity: 0,
+        skuIds: new Set<string>(),
+      };
+      current.receivedQuantity += snapshot.receivedQuantity ?? 0;
+      current.skuIds.add(snapshot.skuMasterId);
+      grouped.set(key, current);
+    });
+
+  const suppliers = [...grouped.values()]
+    .map(({ skuIds: relatedSkuIds, ...supplier }) => ({ ...supplier, skuCount: relatedSkuIds.size }))
+    .sort((left, right) => right.receivedQuantity - left.receivedQuantity || left.supplierName.localeCompare(right.supplierName));
+  return {
+    suppliers,
+    totalReceivedQuantity: suppliers.reduce((total, supplier) => total + supplier.receivedQuantity, 0),
+    isSplit: suppliers.filter((supplier) => supplier.supplierName !== "供应商待确认").length > 1,
   };
 }
 

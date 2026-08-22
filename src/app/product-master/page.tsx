@@ -17,6 +17,7 @@ import {
   aggregateSkuMetrics,
   aggregateSkuSnapshots,
   buildProductInboundSummary,
+  buildProductInboundSupplierSummary,
   groupSkuMastersByProduct,
   deriveProductFamilyKey,
   type SkuMetricInput,
@@ -461,6 +462,11 @@ export default function ProductMasterPage() {
                   snapshots,
                   selectedPeriod,
                 );
+                const inboundSupplierSummary = buildProductInboundSupplierSummary(
+                  productSkus,
+                  data.monthlyInboundSnapshots ?? [],
+                  selectedPeriod,
+                );
                 const hasInboundPeriodData = (data.monthlyInboundSnapshots ?? []).some(
                   (snapshot) => productSkus.some((sku) => sku.id === snapshot.skuMasterId) && snapshot.period === selectedPeriod,
                 );
@@ -536,6 +542,12 @@ export default function ProductMasterPage() {
                           familyKey={group.familyKey}
                           count={plan.pendingSkuCount}
                         />
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          实际供货：{inboundSupplierSummary.suppliers.length === 0
+                            ? "待采集"
+                            : inboundSupplierSummary.suppliers.map((item) => item.supplierName).join("、")}
+                          {inboundSupplierSummary.isSplit ? "（供应商分拆）" : ""}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         {product?.portfolioStatus === "active"
