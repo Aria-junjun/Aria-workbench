@@ -37,6 +37,76 @@ export type ProductFamilySnapshotComparison = {
   delta: SkuMetricInput;
 };
 
+export type ProductInboundSummary = {
+  receivedQuantity: number;
+  actualStock?: number;
+  availableStock?: number;
+  inventoryGap?: number;
+  inTransitQuantity?: number;
+  receivedToShippedRatio?: number;
+  missingPreviousPeriod: boolean;
+};
+
+type InboundSnapshotForSummary = {
+  id?: string;
+  sourceFileName?: string;
+  sourceSheetName?: string;
+  importedAt?: string;
+  skuMasterId: string;
+  period: string;
+  receivedQuantity?: number;
+  actualStock?: number;
+  availableStock?: number;
+  inTransitQuantity?: number;
+};
+
+type OperatingSnapshotForSummary = {
+  id?: string;
+  source?: "manual" | "imported";
+  createdAt?: string;
+  updatedAt?: string;
+  skuMasterId: string;
+  period: string;
+  shippedQuantity?: number;
+  monthlySales?: number;
+};
+
+function previousMonth(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  const date = new Date(year, month - 2, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function buildProductInboundSummary(
+  skuMasters: ProductMasterSkuInput[],
+  inboundSnapshots: InboundSnapshotForSummary[],
+  salesSnapshots: OperatingSnapshotForSummary[],
+  period: string
+): ProductInboundSummary {
+  const skuIds = new Set(skuMasters.map((sku) => sku.id));
+  const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+  const sales = salesSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+  const sum = (values: Array<number | undefined>): number | undefined => {
+    const defined = values.filter((value): value is number => value !== undefined && Number.isFinite(value));
+    return defined.length ? defined.reduce((total, value) => total + value, 0) : undefined;
+  };
+  const receivedQuantity = sum(inbound.map((snapshot) => snapshot.receivedQuantity)) ?? 0;
+  const actualStock = sum(inbound.map((snapshot) => snapshot.actualStock));
+  const availableStock = sum(inbound.map((snapshot) => snapshot.availableStock));
+  const shippedQuantity = sum(sales.map((snapshot) => snapshot.shippedQuantity ?? snapshot.monthlySales));
+  const previousPeriod = previousMonth(period);
+  const missingPreviousPeriod = !inboundSnapshots.some((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === previousPeriod);
+  return {
+    receivedQuantity,
+    actualStock,
+    availableStock,
+    inventoryGap: actualStock !== undefined && availableStock !== undefined ? actualStock - availableStock : undefined,
+    inTransitQuantity: sum(inbound.map((snapshot) => snapshot.inTransitQuantity)),
+    receivedToShippedRatio: shippedQuantity && shippedQuantity > 0 ? Number((receivedQuantity / shippedQuantity).toFixed(2)) : undefined,
+    missingPreviousPeriod
+  };
+}
+
 export function aggregateSkuMetrics(rows: SkuMetricInput[]): ProductFamilyMetricSummary {
   const sum = (key: keyof SkuMetricInput) => rows.reduce((total, row) => total + (typeof row[key] === "number" ? row[key]! : 0), 0);
   const totalSalesAmount = sum("salesAmount");

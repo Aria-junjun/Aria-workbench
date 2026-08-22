@@ -321,6 +321,46 @@ export type LocalSkuOperatingSnapshot = {
 };
 export type LocalSkuOperatingSnapshotMetrics = Pick<LocalSkuOperatingSnapshot, "monthlySales" | "salesAmount" | "erpCostPrice" | "shippedQuantity" | "returnQuantity" | "grossMarginRate" | "inventoryDays" | "stockoutCount" | "returnRate">;
 
+/** 供应商对账表能证明的月度实际入仓事实；空白字段保持未采集，不自动补 0。 */
+export type LocalMonthlyInboundSnapshot = {
+  id: string;
+  skuMasterId: string;
+  period: string;
+  receivedQuantity?: number;
+  actualStock?: number;
+  availableStock?: number;
+  inTransitQuantity?: number;
+  supplierId?: string;
+  supplierName?: string;
+  sourceFileName: string;
+  sourceSheetName: string;
+  importedAt: string;
+};
+
+export type LocalSkuComposition = {
+  id: string;
+  salesSkuCode: string;
+  componentSkuCode: string;
+  componentQuantity: number;
+  relationStatus: "confirmed" | "pending";
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  source: "manual" | "suggested" | "imported";
+  note?: string;
+};
+
+export type LocalSkuSupplierAssignment = {
+  id: string;
+  skuCode: string;
+  supplierId?: string;
+  supplierName?: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  status: "active" | "ended";
+  source: "manual" | "imported" | "offer";
+  note?: string;
+};
+
 export type LocalSkuImportBatch = {
   id: string;
   fileName: string;
@@ -372,6 +412,9 @@ export type LocalWorkbenchData = {
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
+  monthlyInboundSnapshots?: LocalMonthlyInboundSnapshot[];
+  skuCompositions?: LocalSkuComposition[];
+  skuSupplierAssignments?: LocalSkuSupplierAssignment[];
   skuImportBatches?: LocalSkuImportBatch[];
   skuOfferLinks?: LocalSkuOfferLink[];
   supplierOfferDecisions?: LocalSupplierOfferDecision[];
@@ -1905,6 +1948,62 @@ export function saveSkuOperatingSnapshots(entries: Array<{ skuMasterId: string; 
   return saved;
 }
 
+function assertMonthlyPeriod(period: string) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("月度数据周期必须是 YYYY-MM");
+}
+
+/** 保存实际入仓事实，只替换同一 SKU、同一月份，不影响销售快照或其他月份。 */
+export function saveMonthlyInboundSnapshots(entries: Array<Omit<LocalMonthlyInboundSnapshot, "id"> & { id?: string }>) {
+  entries.forEach((entry) => assertMonthlyPeriod(entry.period));
+  const current = loadLocalWorkbenchData();
+  const snapshots = [...(current.monthlyInboundSnapshots ?? [])];
+  const now = new Date().toISOString();
+  const saved = entries.map((entry) => {
+    const existing = snapshots.find((item) => item.skuMasterId === entry.skuMasterId && item.period === entry.period);
+    const snapshot: LocalMonthlyInboundSnapshot = {
+      ...entry,
+      id: entry.id ?? existing?.id ?? `monthly-inbound-${entry.skuMasterId}-${entry.period}`
+    };
+    const index = snapshots.findIndex((item) => item.id === snapshot.id);
+    if (index >= 0) snapshots[index] = snapshot;
+    else snapshots.unshift(snapshot);
+    return snapshot;
+  });
+  saveLocalWorkbenchData({ ...current, monthlyInboundSnapshots: snapshots });
+  return saved;
+}
+
+export function saveSkuCompositions(entries: Array<Omit<LocalSkuComposition, "id"> & { id?: string }>) {
+  const current = loadLocalWorkbenchData();
+  const compositions = [...(current.skuCompositions ?? [])];
+  const saved = entries.map((entry) => {
+    const existing = compositions.find((item) => item.salesSkuCode === entry.salesSkuCode && item.componentSkuCode === entry.componentSkuCode && item.effectiveFrom === entry.effectiveFrom);
+    const relation: LocalSkuComposition = { ...entry, id: entry.id ?? existing?.id ?? `sku-composition-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
+    const index = compositions.findIndex((item) => item.id === relation.id);
+    if (index >= 0) compositions[index] = relation;
+    else compositions.unshift(relation);
+    return relation;
+  });
+  saveLocalWorkbenchData({ ...current, skuCompositions: compositions });
+  return saved;
+}
+
+export function saveSkuSupplierAssignments(entries: Array<Omit<LocalSkuSupplierAssignment, "id"> & { id?: string }>) {
+  entries.forEach((entry) => assertMonthlyPeriod(entry.effectiveFrom));
+  const current = loadLocalWorkbenchData();
+  const assignments = [...(current.skuSupplierAssignments ?? [])];
+  const saved = entries.map((entry) => {
+    const existing = assignments.find((item) => item.skuCode === entry.skuCode && item.effectiveFrom === entry.effectiveFrom);
+    const assignment: LocalSkuSupplierAssignment = { ...entry, id: entry.id ?? existing?.id ?? `sku-supplier-${entry.skuCode}-${entry.effectiveFrom}` };
+    const index = assignments.findIndex((item) => item.id === assignment.id);
+    if (index >= 0) assignments[index] = assignment;
+    else assignments.unshift(assignment);
+    return assignment;
+  });
+  saveLocalWorkbenchData({ ...current, skuSupplierAssignments: assignments });
+  return saved;
+}
+
 export function confirmSkuImportBatch(batchId: string) {
   const current = loadLocalWorkbenchData();
   saveLocalWorkbenchData({
@@ -1985,6 +2084,9 @@ function emptyData(): LocalWorkbenchData {
     researchReports: [],
     skuMasters: [],
     skuImportBatches: [],
+    monthlyInboundSnapshots: [],
+    skuCompositions: [],
+    skuSupplierAssignments: [],
     skuOfferLinks: [],
     supplierOfferDecisions: [],
     supplierOfferDecisionHistory: []
@@ -2113,6 +2215,9 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
       status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const
     })) : [],
     skuOperatingSnapshots: Array.isArray(data.skuOperatingSnapshots) ? data.skuOperatingSnapshots : [],
+    monthlyInboundSnapshots: Array.isArray(data.monthlyInboundSnapshots) ? data.monthlyInboundSnapshots : [],
+    skuCompositions: Array.isArray(data.skuCompositions) ? data.skuCompositions : [],
+    skuSupplierAssignments: Array.isArray(data.skuSupplierAssignments) ? data.skuSupplierAssignments : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],

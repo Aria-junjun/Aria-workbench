@@ -7,6 +7,7 @@ import { unzipSync } from "fflate";
 import { EmptyState } from "@/components/empty-state";
 import {
   createInboundProductsFromSkuMasters,
+  saveMonthlyInboundSnapshots,
   saveSkuOperatingSnapshots,
   type LocalSkuOperatingSnapshot,
 } from "@/features/workbench/local-store";
@@ -15,6 +16,7 @@ import { buildSupplyPlan } from "@/features/workbench/supply-decision";
 import {
   aggregateSkuMetrics,
   aggregateSkuSnapshots,
+  buildProductInboundSummary,
   groupSkuMastersByProduct,
   deriveProductFamilyKey,
   type SkuMetricInput,
@@ -24,6 +26,16 @@ import {
   parseJushuitanSalesRows,
   type JushuitanSalesImportResult,
 } from "@/features/workbench/jushuitan-sales-import";
+import {
+  formatSupplierInboundImportError,
+  parseSupplierInboundRows,
+  type SupplierInboundImportResult,
+} from "@/features/workbench/supplier-inbound-import";
+import {
+  SupplierInboundImportPreview,
+  type ConfirmedInboundRow,
+} from "@/components/workbench/supplier-inbound-import-preview";
+import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 
 export default function ProductMasterPage() {
   const data = useWorkbenchData();
@@ -43,6 +55,9 @@ export default function ProductMasterPage() {
     sheetName: string;
   } | null>(null);
   const [salesImportError, setSalesImportError] = useState("");
+  const [inboundPreview, setInboundPreview] = useState<SupplierInboundImportResult | null>(null);
+  const [inboundFileMeta, setInboundFileMeta] = useState<{ fileName: string; sheetName: string } | null>(null);
+  const [inboundImportError, setInboundImportError] = useState("");
   const skus = (data.skuMasters ?? []).filter(
     (sku) => sku.status !== "archived",
   );
@@ -142,6 +157,27 @@ export default function ProductMasterPage() {
     }
   }
 
+  async function handleInboundFile(file: File | undefined) {
+    if (!file) return;
+    setInboundImportError("");
+    try {
+      const { rows, sheetName } = await readJushuitanWorkbook(file);
+      setInboundPreview(parseSupplierInboundRows(rows, { fileName: file.name, sheetName, importedAt: new Date().toISOString() }));
+      setInboundFileMeta({ fileName: file.name, sheetName });
+    } catch (cause) {
+      setInboundPreview(null);
+      setInboundFileMeta(null);
+      setInboundImportError(formatSupplierInboundImportError(cause));
+    }
+  }
+
+  function saveInboundImport(rows: ConfirmedInboundRow[]) {
+    saveMonthlyInboundSnapshots(rows);
+    setInboundPreview(null);
+    setInboundFileMeta(null);
+    setMessage(`已保存 ${selectedPeriod} 实际入仓：${rows.length} 条 SKU 记录；未匹配行未写入。`);
+  }
+
   function saveSalesImport() {
     if (!salesPreview) return;
     const skuByCode = new Map(skus.map((sku) => [sku.internalSkuCode, sku]));
@@ -225,6 +261,10 @@ export default function ProductMasterPage() {
               type="file"
             />
           </label>
+          <label className="inline-flex h-10 cursor-pointer items-center rounded-md border border-line bg-white px-3 text-sm text-slate-700 hover:bg-paper-warm">
+            导入月度实际入仓表
+            <input accept=".xlsx,.xls,.csv" className="hidden" onChange={(event) => void handleInboundFile(event.target.files?.[0])} type="file" />
+          </label>
           <Link
             className="inline-flex h-10 items-center rounded-md border border-line bg-white px-3 text-sm"
             href="/sku-master/import"
@@ -279,6 +319,8 @@ export default function ProductMasterPage() {
           {salesImportError}
         </p>
       ) : null}
+      {inboundImportError ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{inboundImportError}</p> : null}
+      {inboundPreview && inboundFileMeta ? <SupplierInboundImportPreview result={inboundPreview} period={selectedPeriod} fileName={inboundFileMeta.fileName} sheetName={inboundFileMeta.sheetName} skuMasters={skus} suppliers={data.suppliers} onCancel={() => { setInboundPreview(null); setInboundFileMeta(null); }} onConfirm={saveInboundImport} /> : null}
       {salesPreview && salesFileMeta ? (
         <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -413,6 +455,15 @@ export default function ProductMasterPage() {
                   selectedPeriod,
                 );
                 const metricSummary = comparison.current;
+                const inboundSummary = buildProductInboundSummary(
+                  productSkus,
+                  data.monthlyInboundSnapshots ?? [],
+                  snapshots,
+                  selectedPeriod,
+                );
+                const hasInboundPeriodData = (data.monthlyInboundSnapshots ?? []).some(
+                  (snapshot) => productSkus.some((sku) => sku.id === snapshot.skuMasterId) && snapshot.period === selectedPeriod,
+                );
                 const plan = buildSupplyPlan(
                   {
                     products: [
@@ -503,6 +554,15 @@ export default function ProductMasterPage() {
                           {metricSummary.erpCostPrice != null
                             ? `ERP成本基准 ${metricSummary.erpCostPrice}`
                             : "ERP成本待采集"}
+                        </div>
+                        <div className="mt-1">{hasInboundPeriodData ? `实际入仓 ${inboundSummary.receivedQuantity}` : "实际入仓待采集"}</div>
+                        <div className="mt-1">
+                          {inboundSummary.actualStock != null
+                            ? `实际库存 ${inboundSummary.actualStock}`
+                            : "实际库存待采集"}
+                          {inboundSummary.availableStock != null
+                            ? ` · 可售 ${inboundSummary.availableStock}`
+                            : " · 可售待采集"}
                         </div>
                         <div className="mt-1">
                           {metricSummary.returnRate != null
@@ -606,6 +666,10 @@ export default function ProductMasterPage() {
                               );
                             })}
                           </div>
+                          <SkuCompositionPanel
+                            salesSkuCodes={productSkus.map((sku) => sku.internalSkuCode)}
+                            compositions={data.skuCompositions ?? []}
+                          />
                         </td>
                       </tr>
                     ) : null}

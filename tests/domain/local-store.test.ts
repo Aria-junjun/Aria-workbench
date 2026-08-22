@@ -21,6 +21,7 @@ import {
   saveLocalWorkbenchData,
   saveSupplierEvaluation,
   saveSkuOperatingSnapshot,
+  saveMonthlyInboundSnapshots,
   archiveSkuMaster,
   saveSupplierOfferDecision,
   updateLocalItem,
@@ -92,6 +93,22 @@ describe("local-store operations", () => {
     expect(loadLocalWorkbenchData().skuOperatingSnapshots).toMatchObject([
       { skuMasterId: "sku-1", period: "2026-09", monthlySales: 15 },
       { skuMasterId: "sku-1", period: "2026-08", monthlySales: 12 }
+    ]);
+  });
+
+  it("keeps inbound facts by month and replaces only the same SKU/month", () => {
+    saveLocalWorkbenchData(sampleData());
+    saveMonthlyInboundSnapshots([
+      { skuMasterId: "sku-1", period: "2026-07", receivedQuantity: 500, sourceFileName: "july.xlsx", sourceSheetName: "Sheet1", importedAt: "now" },
+      { skuMasterId: "sku-1", period: "2026-08", receivedQuantity: 300, sourceFileName: "august.xlsx", sourceSheetName: "Sheet1", importedAt: "now" }
+    ]);
+    saveMonthlyInboundSnapshots([
+      { skuMasterId: "sku-1", period: "2026-08", receivedQuantity: 320, sourceFileName: "august-revised.xlsx", sourceSheetName: "Sheet1", importedAt: "later" }
+    ]);
+
+    expect(loadLocalWorkbenchData().monthlyInboundSnapshots).toMatchObject([
+      { skuMasterId: "sku-1", period: "2026-08", receivedQuantity: 320, sourceFileName: "august-revised.xlsx" },
+      { skuMasterId: "sku-1", period: "2026-07", receivedQuantity: 500, sourceFileName: "july.xlsx" }
     ]);
   });
 
