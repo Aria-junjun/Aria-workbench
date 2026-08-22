@@ -294,7 +294,7 @@ export type LocalSkuMaster = {
   stockoutCount?: number;
   returnRate?: number;
   qualityIssueCount?: number;
-  status: "ready" | "needs_spec";
+  status: "ready" | "needs_spec" | "archived";
   source: "excel" | "manual";
   sourceFileName?: string;
   sourceSheetName?: string;
@@ -1868,6 +1868,15 @@ export function updateSkuMaster(id: string, patch: Partial<Pick<LocalSkuMaster, 
   saveLocalWorkbenchData({ ...current, skuMasters: next });
 }
 
+/** 从当前有效 SKU 表中移出，但保留历史快照、货盘关联和决策记录。 */
+export function archiveSkuMaster(id: string) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.skuMasters ?? []).map((item) => item.id === id
+    ? { ...item, status: "archived" as const }
+    : item);
+  saveLocalWorkbenchData({ ...current, skuMasters: next });
+}
+
 export function saveSkuOperatingSnapshot(skuMasterId: string, period: string, metrics: LocalSkuOperatingSnapshotMetrics) {
   return saveSkuOperatingSnapshots([{ skuMasterId, period, metrics }])[0];
 }
@@ -2096,7 +2105,10 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
       tags: Array.isArray(card.tags) ? card.tags : []
     })),
     researchReports: data.researchReports ?? [],
-    skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters : [],
+    skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({
+      ...item,
+      status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const
+    })) : [],
     skuOperatingSnapshots: Array.isArray(data.skuOperatingSnapshots) ? data.skuOperatingSnapshots : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],

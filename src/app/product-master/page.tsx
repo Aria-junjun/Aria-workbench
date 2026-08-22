@@ -15,7 +15,7 @@ export default function ProductMasterPage() {
   const currentPeriod = new Date().toISOString().slice(0, 7);
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
   const [draftMetrics, setDraftMetrics] = useState<Record<string, SkuMetricInput>>({});
-  const skus = data.skuMasters ?? [];
+  const skus = (data.skuMasters ?? []).filter((sku) => sku.status !== "archived");
   const snapshots = data.skuOperatingSnapshots ?? [];
   const productGroups = groupSkuMastersByProduct(skus);
   const inboundGroups = productGroups.filter((group) => data.products.some((product) => product.recordKind === "existing" && product.productMode !== "dropship" && (product.productFamilyKey === group.familyKey || deriveProductFamilyKey(product.name) === group.familyKey)));
@@ -64,11 +64,11 @@ export default function ProductMasterPage() {
           <h1 className="text-2xl font-semibold text-slate-900">入仓产品主表</h1>
           <p className="mt-1 text-sm text-slate-500">实际经营产品的结构化入口。产品机会仍在“产品进程”中保留研究和阶段信息。</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <label className="rounded-md border border-line bg-white px-3 py-2 text-sm text-slate-600">统计月份<input aria-label="统计月份" className="ml-2 rounded border border-line px-2 py-1 text-sm text-slate-800" onChange={(event) => { setSelectedPeriod(event.target.value); setDraftMetrics({}); }} type="month" value={selectedPeriod} /></label>
-          <button className="rounded-md bg-action px-3 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={skus.length === 0} onClick={saveSelectedPeriod} type="button">保存本月快照</button>
-          <Link className="rounded-md border border-line bg-white px-3 py-2 text-sm" href="/sku-master/import">管理 SKU 表</Link>
-          <button className="rounded-md bg-action px-3 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={skus.length === 0} onClick={generateProducts} type="button">从 SKU 表生成入仓产品</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex h-10 items-center rounded-md border border-line bg-white px-3 text-sm text-slate-600">统计月份<input aria-label="统计月份" className="ml-2 h-7 rounded border border-line px-2 text-sm text-slate-800" onChange={(event) => { setSelectedPeriod(event.target.value); setDraftMetrics({}); }} type="month" value={selectedPeriod} /></label>
+          <button className="h-10 rounded-md bg-action px-3 text-sm font-medium text-white disabled:opacity-50" disabled={skus.length === 0} onClick={saveSelectedPeriod} type="button">保存本月快照</button>
+          <Link className="inline-flex h-10 items-center rounded-md border border-line bg-white px-3 text-sm" href="/sku-master/import">管理 SKU 表</Link>
+          <button className="h-10 rounded-md bg-action px-3 text-sm font-medium text-white disabled:opacity-50" disabled={skus.length === 0} onClick={generateProducts} type="button">从 SKU 表生成入仓产品</button>
         </div>
       </div>
       {message ? <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</p> : null}

@@ -21,6 +21,7 @@ import {
   saveLocalWorkbenchData,
   saveSupplierEvaluation,
   saveSkuOperatingSnapshot,
+  archiveSkuMaster,
   saveSupplierOfferDecision,
   updateLocalItem,
   type LocalWorkbenchData,
@@ -92,6 +93,43 @@ describe("local-store operations", () => {
       { skuMasterId: "sku-1", period: "2026-09", monthlySales: 15 },
       { skuMasterId: "sku-1", period: "2026-08", monthlySales: 12 }
     ]);
+  });
+
+  it("archives a SKU without deleting its operating snapshots or offer links", () => {
+    const data = sampleData();
+    data.skuMasters = [{
+      id: "sku-1",
+      internalSkuCode: "Y-01",
+      productName: "商品A",
+      specification: "规格1",
+      status: "ready",
+      source: "manual",
+      importedAt: "2026-08-20"
+    }];
+    data.skuOperatingSnapshots = [{
+      id: "snapshot-1",
+      skuMasterId: "sku-1",
+      period: "2026-08",
+      monthlySales: 10,
+      source: "manual",
+      createdAt: "2026-08-20T00:00:00.000Z",
+      updatedAt: "2026-08-20T00:00:00.000Z"
+    }];
+    data.skuOfferLinks = [{
+      id: "link-1",
+      skuMasterId: "sku-1",
+      offerId: "offer-1",
+      status: "confirmed",
+      confirmedAt: "2026-08-20T00:00:00.000Z"
+    }];
+
+    saveLocalWorkbenchData(data);
+    archiveSkuMaster("sku-1");
+
+    const saved = loadLocalWorkbenchData();
+    expect(saved.skuMasters?.[0].status).toBe("archived");
+    expect(saved.skuOperatingSnapshots).toHaveLength(1);
+    expect(saved.skuOfferLinks).toHaveLength(1);
   });
 
   it("keeps supply decision history when a supplier decision changes", () => {
