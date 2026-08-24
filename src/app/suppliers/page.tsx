@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 
 type Period = "month" | "quarter" | "year";
-type DecisionFilter = "all" | "maintain_primary" | "review_split" | "confirm_supplier";
+type DecisionFilter = "all" | "maintain_primary" | "review_split" | "complete_coverage" | "confirm_supplier";
 const SUPPLIER_PAGE_SIZE = 10;
 
 export default function SuppliersPage() {
@@ -221,6 +221,7 @@ export default function SuppliersPage() {
               <DecisionPill active={decisionFilter === "all"} label="全部动作" value={supplierDecisionRows.length} tone="neutral" onClick={() => setDecisionFilter("all")} />
               <DecisionPill active={decisionFilter === "maintain_primary"} label="保持主供" value={supplierDecisionRows.filter((row) => row.decision === "maintain_primary").length} tone="success" onClick={() => setDecisionFilter("maintain_primary")} />
               <DecisionPill active={decisionFilter === "review_split"} label="复核分拆" value={supplierDecisionRows.filter((row) => row.decision === "review_split").length} tone="warning" onClick={() => setDecisionFilter("review_split")} />
+              <DecisionPill active={decisionFilter === "complete_coverage"} label="补齐未覆盖 SKU" value={supplierDecisionRows.filter((row) => row.decision === "complete_coverage").length} tone="warning" onClick={() => setDecisionFilter("complete_coverage")} />
               <DecisionPill active={decisionFilter === "confirm_supplier"} label="待确认供应商" value={supplierDecisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="danger" onClick={() => setDecisionFilter("confirm_supplier")} />
             </div> : null}
           </div>
@@ -264,7 +265,7 @@ export default function SuppliersPage() {
                     <td className="px-4 py-3 text-right text-slate-600">{row.receivedQuantity || "-"}</td>
                     <td className="px-4 py-3 text-xs text-muted">{row.evidence}</td>
                     <td className="py-3 pl-4">
-                      <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据">
+                      <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.decision === "complete_coverage" ? "/sku-master/import" : row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据">
                         {row.actionLabel}
                       </Link>
                     </td>
@@ -592,7 +593,10 @@ function DecisionPill({ label, value, tone, active, onClick }: { label: string; 
 }
 
 function decisionFilterLabel(filter: Exclude<DecisionFilter, "all">) {
-  return filter === "maintain_primary" ? "保持主供" : filter === "review_split" ? "复核分拆" : "待确认供应商";
+  if (filter === "maintain_primary") return "保持主供";
+  if (filter === "review_split") return "复核分拆";
+  if (filter === "complete_coverage") return "补齐未覆盖 SKU";
+  return "待确认供应商";
 }
 
 function join(values?: string[]) {

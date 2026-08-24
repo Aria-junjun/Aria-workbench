@@ -199,7 +199,7 @@ export type SupplierDecisionOverviewRow = {
   coveredSkuCount: number;
   totalSkuCount: number;
   receivedQuantity: number;
-  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier">;
+  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier" | "complete_coverage">;
   actionLabel: string;
   evidence: string;
   score?: number;
@@ -253,7 +253,14 @@ export function buildSupplierDecisionOverviewRows(
   return [...rows.values()]
     .map((row) => {
       const isUnconfirmed = row.supplierName === "供应商待确认";
-      const decision: SupplierDecisionOverviewRow["decision"] = isUnconfirmed ? "confirm_supplier" : row.splitProduct ? "review_split" : "maintain_primary";
+      const incompleteCoverage = row.skuIds.size < row.totalSkuCount;
+      const decision: SupplierDecisionOverviewRow["decision"] = isUnconfirmed
+        ? "confirm_supplier"
+        : row.splitProduct
+          ? "review_split"
+          : incompleteCoverage
+            ? "complete_coverage"
+            : "maintain_primary";
       return {
         ...(row.supplierId ? { supplierId: row.supplierId } : {}),
         supplierName: row.supplierName,
@@ -263,7 +270,13 @@ export function buildSupplierDecisionOverviewRows(
         totalSkuCount: row.totalSkuCount,
         receivedQuantity: row.receivedQuantity,
         decision,
-        actionLabel: isUnconfirmed ? "补充实际供应商" : row.splitProduct ? "复核主供/备供" : "保持主供",
+        actionLabel: isUnconfirmed
+          ? "补充实际供应商"
+          : row.splitProduct
+            ? "复核主供/备供"
+            : incompleteCoverage
+              ? "补齐未覆盖 SKU"
+              : "保持主供",
         evidence: `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}`,
       };
     })

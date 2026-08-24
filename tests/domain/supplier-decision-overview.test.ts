@@ -37,4 +37,27 @@ describe("supplier decision overview", () => {
     expect(rows).toEqual([expect.objectContaining({ supplierName: "供应商待确认", decision: "confirm_supplier", actionLabel: "补充实际供应商" })]);
     expect(rows[0].score).toBeUndefined();
   });
+
+  it("flags incomplete SKU coverage instead of recommending primary supply", () => {
+    const rows = buildSupplierDecisionOverviewRows(
+      [{
+        familyKey: "白板贴",
+        productName: "白板贴",
+        skus: [
+          { id: "sku-a", internalSkuCode: "Y-01", productName: "白板贴60*2", specification: "60*2" },
+          { id: "sku-b", internalSkuCode: "Y-02", productName: "白板贴90*2", specification: "90*2" },
+        ],
+      }],
+      [{ skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 100, supplierId: "s1", supplierName: "供应商甲" }],
+      "2026-07",
+    );
+
+    expect(rows).toEqual([expect.objectContaining({
+      supplierName: "供应商甲",
+      coveredSkuCount: 1,
+      totalSkuCount: 2,
+      decision: "complete_coverage",
+      actionLabel: "补齐未覆盖 SKU",
+    })]);
+  });
 });
