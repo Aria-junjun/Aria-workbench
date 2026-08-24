@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 type Period = "month" | "quarter" | "year";
+type DecisionFilter = "all" | "maintain_primary" | "review_split" | "confirm_supplier";
 const SUPPLIER_PAGE_SIZE = 10;
 
 export default function SuppliersPage() {
@@ -40,6 +41,7 @@ export default function SuppliersPage() {
   const [mergedMsg, setMergedMsg] = useState<{ pair: string; text: string } | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [supplierPage, setSupplierPage] = useState(1);
+  const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("all");
 
   useEffect(() => {
     setHydrated(true);
@@ -47,6 +49,7 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     setSupplierPage(1);
+    setDecisionFilter("all");
   }, [period]);
 
   const workbenchData = useWorkbenchData();
@@ -99,6 +102,9 @@ export default function SuppliersPage() {
     decisionSnapshots,
     "selected",
   );
+  const focusedDecisionRows = decisionFilter === "all"
+    ? supplierDecisionRows
+    : supplierDecisionRows.filter((row) => row.decision === decisionFilter);
 
   function pin(id: string) {
     togglePinned("suppliers", id);
@@ -190,11 +196,17 @@ export default function SuppliersPage() {
               <p className="mt-1 text-xs text-muted">只显示有实际入仓证据的供应商；评分仅作参考，不作为单独结论。</p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
-              <DecisionPill label="保持主供" value={supplierDecisionRows.filter((row) => row.decision === "maintain_primary").length} tone="success" />
-              <DecisionPill label="复核分拆" value={supplierDecisionRows.filter((row) => row.decision === "review_split").length} tone="warning" />
-              <DecisionPill label="待确认供应商" value={supplierDecisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="danger" />
+              <DecisionPill active={decisionFilter === "all"} label="全部动作" value={supplierDecisionRows.length} tone="neutral" onClick={() => setDecisionFilter("all")} />
+              <DecisionPill active={decisionFilter === "maintain_primary"} label="保持主供" value={supplierDecisionRows.filter((row) => row.decision === "maintain_primary").length} tone="success" onClick={() => setDecisionFilter("maintain_primary")} />
+              <DecisionPill active={decisionFilter === "review_split"} label="复核分拆" value={supplierDecisionRows.filter((row) => row.decision === "review_split").length} tone="warning" onClick={() => setDecisionFilter("review_split")} />
+              <DecisionPill active={decisionFilter === "confirm_supplier"} label="待确认供应商" value={supplierDecisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="danger" onClick={() => setDecisionFilter("confirm_supplier")} />
             </div>
           </div>
+          {decisionFilter !== "all" ? (
+            <div className="rounded-lg bg-paper-warm px-3 py-2 text-xs text-muted">
+              当前显示：{decisionFilterLabel(decisionFilter)} · 共 {focusedDecisionRows.length} 项。点击供应商或“下一步”进入处理页面。
+            </div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -208,7 +220,7 @@ export default function SuppliersPage() {
                 </tr>
               </thead>
               <tbody>
-                {supplierDecisionRows.map((row) => (
+                {focusedDecisionRows.map((row) => (
                   <tr key={`${row.supplierId ?? "unknown"}-${row.supplierName}`} className="border-b border-line-soft">
                     <td className="py-3 pr-4 font-medium">
                       {row.supplierId ? <Link className="hover:text-action" href={`/suppliers/${row.supplierId}`}>{row.supplierName}</Link> : row.supplierName}
@@ -224,6 +236,11 @@ export default function SuppliersPage() {
                     </td>
                   </tr>
                 ))}
+                {focusedDecisionRows.length === 0 ? (
+                  <tr>
+                    <td className="py-6 text-center text-xs text-muted" colSpan={6}>当前周期没有需要处理的项目。</td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -493,9 +510,21 @@ function MiniScore({ value }: { value: number }) {
   return <span className={`font-medium ${color}`}>{v}</span>;
 }
 
-function DecisionPill({ label, value, tone }: { label: string; value: number; tone: "success" | "warning" | "danger" }) {
-  const colors = { success: "bg-success-soft text-success", warning: "bg-warning-soft text-warning", danger: "bg-danger-soft text-danger" };
-  return <span className={`rounded-full px-2 py-1 ${colors[tone]}`}>{label} {value}</span>;
+function DecisionPill({ label, value, tone, active, onClick }: { label: string; value: number; tone: "neutral" | "success" | "warning" | "danger"; active: boolean; onClick: () => void }) {
+  const colors = { neutral: "bg-paper-warm text-muted", success: "bg-success-soft text-success", warning: "bg-warning-soft text-warning", danger: "bg-danger-soft text-danger" };
+  return (
+    <button
+      className={`rounded-full px-2.5 py-1 transition ${colors[tone]} ${active ? "ring-1 ring-action/50" : "opacity-70 hover:opacity-100"}`}
+      onClick={onClick}
+      type="button"
+    >
+      {label} {value}
+    </button>
+  );
+}
+
+function decisionFilterLabel(filter: Exclude<DecisionFilter, "all">) {
+  return filter === "maintain_primary" ? "保持主供" : filter === "review_split" ? "复核分拆" : "待确认供应商";
 }
 
 function join(values?: string[]) {

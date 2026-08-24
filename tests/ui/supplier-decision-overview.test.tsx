@@ -14,6 +14,8 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain("periodMetricLabel(period)");
     expect(source).toContain("证据");
     expect(source).toContain("下一步");
+    expect(source).toContain("decisionFilter");
+    expect(source).toContain("focusedDecisionRows");
     expect(source).toContain("评分仅作参考");
     expect(source).toContain("buildSupplierDecisionOverviewRows");
   });
