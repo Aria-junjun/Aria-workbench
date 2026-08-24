@@ -156,6 +156,69 @@ export const SupplierEvaluationMetricsSchema = z.object({
 });
 export type SupplierEvaluationMetrics = z.infer<typeof SupplierEvaluationMetricsSchema>;
 
+export type SupplierAutoEvidence = {
+  inboundSkuCount: number;
+  inboundQuantity: number;
+  shippedQuantity: number;
+  returnQuantity: number;
+  returnRate?: number;
+  qualityScore?: number;
+  dataCoveragePct: number;
+  erpCostPrice?: number;
+};
+
+/** 聚水潭月度经营表能直接证明的供应商证据；缺失数据不补成满分。 */
+export function buildSupplierAutoEvidence(input: {
+  supplierId: string;
+  period: string;
+  periodType: "month" | "quarter" | "year";
+  inboundSnapshots: Array<{ skuMasterId: string; period: string; supplierId?: string; receivedQuantity?: number }>;
+  operatingSnapshots: Array<{ skuMasterId: string; period: string; shippedQuantity?: number; returnQuantity?: number; erpCostPrice?: number }>;
+}): SupplierAutoEvidence {
+  const inbound = input.inboundSnapshots.filter((row) =>
+    row.supplierId === input.supplierId && sameReportingPeriod(row.period, input.period, input.periodType),
+  );
+  const inboundSkuIds = new Set(inbound.map((row) => row.skuMasterId));
+  const inboundQuantity = inbound.reduce((sum, row) => sum + (row.receivedQuantity ?? 0), 0);
+  const operatingBySku = new Map<string, (typeof input.operatingSnapshots)[number]>();
+  for (const row of input.operatingSnapshots) {
+    if (!inboundSkuIds.has(row.skuMasterId) || !sameReportingPeriod(row.period, input.period, input.periodType)) continue;
+    operatingBySku.set(row.skuMasterId, row);
+  }
+  const operating = [...operatingBySku.values()];
+  const shippedQuantity = operating.reduce((sum, row) => sum + (row.shippedQuantity ?? 0), 0);
+  const returnQuantity = operating.reduce((sum, row) => sum + (row.returnQuantity ?? 0), 0);
+  const hasReturnData = operating.some((row) => row.returnQuantity !== undefined && row.shippedQuantity !== undefined);
+  const returnRate = hasReturnData && shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
+  const qualityScore = returnRate === undefined ? undefined : Number(Math.max(0, 100 - returnRate).toFixed(2));
+  const costRows = operating.filter((row) => row.erpCostPrice !== undefined && row.shippedQuantity !== undefined);
+  const costWeight = costRows.reduce((sum, row) => sum + (row.shippedQuantity ?? 0), 0);
+  const erpCostPrice = costWeight > 0
+    ? Number((costRows.reduce((sum, row) => sum + (row.erpCostPrice! * row.shippedQuantity!), 0) / costWeight).toFixed(4))
+    : undefined;
+
+  return {
+    inboundSkuCount: inboundSkuIds.size,
+    inboundQuantity,
+    shippedQuantity,
+    returnQuantity,
+    returnRate,
+    qualityScore,
+    dataCoveragePct: inboundSkuIds.size > 0 ? Math.round((operatingBySku.size / inboundSkuIds.size) * 100) : 0,
+    erpCostPrice,
+  };
+}
+
+function sameReportingPeriod(value: string, anchor: string, periodType: "month" | "quarter" | "year") {
+  const [anchorYear, anchorMonth] = anchor.split("-").map(Number);
+  if (periodType === "month") return value === anchor;
+  if (periodType === "year") return value === String(anchorYear) || value.startsWith(String(anchorYear) + "-");
+  const quarter = anchor.includes("Q") ? Number(anchor.split("Q")[1]) : Math.ceil(anchorMonth / 3);
+  if (value.includes("Q")) return value === String(anchorYear) + "-Q" + quarter;
+  const [year, month] = value.split("-").map(Number);
+  return year === anchorYear && Math.ceil(month / 3) === quarter;
+}
+
 // ===== 评估记录：4维度得分 + 总分 + 等级 =====
 export const SupplierEvaluationScoresSchema = z.object({
   delivery: z.number().min(0).max(100),

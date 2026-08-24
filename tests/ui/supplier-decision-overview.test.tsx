@@ -16,6 +16,9 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain("下一步");
     expect(source).toContain("decisionFilter");
     expect(source).toContain("focusedDecisionRows");
+    expect(source).toContain("buildSupplierAutoEvidence");
+    expect(source).toContain("聚水潭自动证据");
+    expect(source).toContain("退货率 = 实退数量 ÷ 实发数量");
     expect(source).toContain("评分仅作参考");
     expect(source).toContain("buildSupplierDecisionOverviewRows");
   });

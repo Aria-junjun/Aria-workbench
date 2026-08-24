@@ -9,7 +9,7 @@ import {
   sortPinnedFirst,
   togglePinned,
 } from "@/features/workbench/local-store";
-import { getSupplierKpiSummary, getQcdsWeights, type SupplierEvaluationRecord, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
+import { buildSupplierAutoEvidence, getSupplierKpiSummary, getQcdsWeights, type SupplierEvaluationRecord, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   buildSupplierDecisionOverviewRows,
@@ -65,6 +65,21 @@ export default function SuppliersPage() {
   const decisionSnapshots = (data.monthlyInboundSnapshots ?? [])
     .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
     .map((snapshot) => ({ ...snapshot, period: "selected" }));
+  const autoEvidenceBySupplier = new Map(
+    suppliers.map((supplier) => [supplier.id, buildSupplierAutoEvidence({
+      supplierId: supplier.id,
+      period: decisionAnchor,
+      periodType: period,
+      inboundSnapshots: data.monthlyInboundSnapshots ?? [],
+      operatingSnapshots: data.skuOperatingSnapshots ?? [],
+    })]),
+  );
+  const autoQualityScores = [...autoEvidenceBySupplier.values()]
+    .map((evidence) => evidence.qualityScore)
+    .filter((score): score is number => score !== undefined);
+  const autoQualityAverage = autoQualityScores.length > 0
+    ? Number((autoQualityScores.reduce((sum, score) => sum + score, 0) / autoQualityScores.length).toFixed(1))
+    : "—";
   const periodSuppliers = suppliers.map((supplier) => {
     const selectedEvaluation = getSelectedEvaluation(supplier.evaluations, period, decisionAnchor);
     return {
@@ -256,7 +271,7 @@ export default function SuppliersPage() {
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <KpiFlat label="周期内供应商" value={kpi.total} sub={`主供 ${kpi.active} · 备用 ${kpi.backup}`} accent="text-ink" />
           <KpiFlat label="A级供应商" value={kpi.gradeA} sub={`占比 ${kpi.gradeAPct}%`} accent="text-success" />
-          <KpiFlat label="平均评分参考" value={kpi.avgScore || "—"} sub={periodMetricLabel(period) + "评估记录"} accent="text-action" />
+          <KpiFlat label="聚水潭质量参考" value={autoQualityAverage} sub="实退数量 ÷ 实发数量" accent="text-action" />
           <KpiFlat label="待改善（C/D级）" value={kpi.needsAction} sub={kpi.gradeD > 0 ? `D级 ${kpi.gradeD} · 需启动汰换` : "暂无D级"} accent={kpi.needsAction > 0 ? "text-danger" : "text-success"} />
         </div>
       </section>
@@ -319,7 +334,7 @@ export default function SuppliersPage() {
        {/* 供应商评分明细 */}
        <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
           <div className="mb-2 text-xs text-muted">
-           评分仅作参考 · 入仓型：交付{Math.round(dw.delivery * 100)}% / 成本{Math.round(dw.cost * 100)}% / 质量{Math.round(dw.quality * 100)}% / 服务{Math.round(dw.service * 100)}%
+           聚水潭自动证据 · 退货率 = 实退数量 ÷ 实发数量 · 自动质量参考 = 100 - 退货率；交付、服务等无来源数据不补分
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -328,6 +343,7 @@ export default function SuppliersPage() {
                 <th className="py-3 pr-4 text-left font-medium">供应商</th>
                 <th className="py-3 px-4 text-left font-medium">品类</th>
                 <th className="py-3 px-4 text-center font-medium">评分参考</th>
+                <th className="py-3 px-4 text-center font-medium">聚水潭自动证据</th>
                 <th className="py-3 px-4 text-center font-medium">等级</th>
                 <th className="py-3 px-4 text-center font-medium">交付<div className="text-[9px] text-muted-light">{Math.round(dw.delivery * 100)}%</div></th>
                 <th className="py-3 px-4 text-center font-medium">成本<div className="text-[9px] text-muted-light">{Math.round(dw.cost * 100)}%</div></th>
@@ -341,6 +357,7 @@ export default function SuppliersPage() {
               {paginatedSuppliers.map((supplier) => {
                 const selectedEvaluation = getSelectedEvaluation(supplier.evaluations, period, decisionAnchor);
                 const scores = selectedEvaluation?.scores;
+                const autoEvidence = autoEvidenceBySupplier.get(supplier.id);
                 return (
                   <tr key={supplier.id} className="border-b border-line-soft hover:bg-paper-warm/50 transition-colors group">
                     <td className="py-3 pr-4">
@@ -376,6 +393,16 @@ export default function SuppliersPage() {
                         <span className="text-base font-bold">{Math.round(scores.total)}</span>
                       ) : (
                         <span className="text-muted-light">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center text-xs">
+                      {autoEvidence?.qualityScore !== undefined ? (
+                        <div>
+                          <div className="font-medium text-action">{Math.round(autoEvidence.qualityScore)}分</div>
+                          <div className="text-muted">退货 {autoEvidence.returnRate}% · 覆盖 {autoEvidence.dataCoveragePct}%</div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-light">未采集</span>
                       )}
                     </td>
                     <td className="py-3 px-4 text-center">
