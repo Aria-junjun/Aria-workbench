@@ -90,6 +90,107 @@ type InboundSupplierForSummary = {
   supplierName?: string;
 };
 
+export type ProductSupplierDecision =
+  | "maintain_primary"
+  | "review_split"
+  | "confirm_supplier"
+  | "complete_coverage"
+  | "review_quality";
+
+export type ProductSupplierDecisionRow = {
+  familyKey: string;
+  productName: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierNames: string[];
+  totalSkuCount: number;
+  coveredSkuCount: number;
+  receivedQuantity: number;
+  shippedQuantity?: number;
+  returnQuantity?: number;
+  returnRate?: number;
+  decision: ProductSupplierDecision;
+  actionLabel: string;
+  reason: string;
+};
+
+export type ProductSupplierDecisionGroupInput = {
+  familyKey: string;
+  productName: string;
+  skus: ProductMasterSkuInput[];
+};
+
+type OperatingDecisionSnapshot = OperatingSnapshotForSummary & {
+  returnQuantity?: number;
+};
+
+function decisionForSupplierRow(args: {
+  hasUnconfirmedSupplier: boolean;
+  supplierCount: number;
+  coveredSkuCount: number;
+  totalSkuCount: number;
+  returnRate?: number;
+  qualityReviewRate: number;
+}): Pick<ProductSupplierDecisionRow, "decision" | "actionLabel" | "reason"> {
+  if (args.hasUnconfirmedSupplier) {
+    return { decision: "confirm_supplier", actionLabel: "补充实际供应商", reason: "存在未标注供应商的实际入仓记录，先补齐供应商归属。" };
+  }
+  if (args.supplierCount > 1) {
+    return { decision: "review_split", actionLabel: "复核主供/备供", reason: "同一产品族存在供应商分拆，需要确认主供、备供和分拆原因。" };
+  }
+  if (args.coveredSkuCount < args.totalSkuCount) {
+    return { decision: "complete_coverage", actionLabel: "补齐未覆盖 SKU", reason: "当前实际入仓供应商尚未覆盖产品族的全部 SKU。" };
+  }
+  if (args.returnRate !== undefined && args.returnRate >= args.qualityReviewRate) {
+    return { decision: "review_quality", actionLabel: "复核产品/供应商质量", reason: "产品退货率达到复核阈值；这是产品层质量信号，多供应商时不直接归因。" };
+  }
+  return { decision: "maintain_primary", actionLabel: "保持主供", reason: "当前供应商覆盖全部已入仓 SKU，未触发供应分拆或质量复核信号。" };
+}
+
+export function buildProductSupplierDecisionRows(
+  groups: ProductSupplierDecisionGroupInput[],
+  inboundSnapshots: InboundSupplierForSummary[],
+  operatingSnapshots: OperatingDecisionSnapshot[],
+  period: string,
+  qualityReviewRate = 5,
+): ProductSupplierDecisionRow[] {
+  return groups.map((group) => {
+    const skuIds = new Set(group.skus.map((sku) => sku.id));
+    const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+    const operating = operatingSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+    const supplierNames = [...new Set(inbound.map((snapshot) => snapshot.supplierName?.trim()).filter((name): name is string => Boolean(name)))];
+    const namedSupplierIds = [...new Set(inbound.map((snapshot) => snapshot.supplierId).filter((id): id is string => Boolean(id)))];
+    const coveredSkuIds = new Set(inbound.map((snapshot) => snapshot.skuMasterId));
+    const receivedQuantity = inbound.reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
+    const shippedQuantity = operating.reduce((total, snapshot) => total + (snapshot.shippedQuantity ?? snapshot.monthlySales ?? 0), 0);
+    const returnQuantity = operating.reduce((total, snapshot) => total + (snapshot.returnQuantity ?? 0), 0);
+    const hasReturnQuantity = operating.some((snapshot) => snapshot.returnQuantity !== undefined);
+    const returnRate = hasReturnQuantity && shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
+    const decision = decisionForSupplierRow({
+      hasUnconfirmedSupplier: inbound.some((snapshot) => !snapshot.supplierName?.trim()),
+      supplierCount: supplierNames.length,
+      coveredSkuCount: coveredSkuIds.size,
+      totalSkuCount: group.skus.length,
+      returnRate,
+      qualityReviewRate,
+    });
+    return {
+      familyKey: group.familyKey,
+      productName: group.productName,
+      ...(namedSupplierIds.length === 1 ? { supplierId: namedSupplierIds[0] } : {}),
+      supplierName: supplierNames.length ? supplierNames.join("、") : "供应商待确认",
+      supplierNames,
+      totalSkuCount: group.skus.length,
+      coveredSkuCount: coveredSkuIds.size,
+      receivedQuantity,
+      ...(operating.some((snapshot) => snapshot.shippedQuantity !== undefined || snapshot.monthlySales !== undefined) ? { shippedQuantity } : {}),
+      ...(hasReturnQuantity ? { returnQuantity } : {}),
+      ...(returnRate !== undefined ? { returnRate } : {}),
+      ...decision,
+    };
+  });
+}
+
 function previousMonth(period: string) {
   const [year, month] = period.split("-").map(Number);
   const date = new Date(year, month - 2, 1);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProductInboundSummary, buildProductInboundSupplierSummary } from "@/features/workbench/product-master";
+import { buildProductInboundSummary, buildProductInboundSupplierSummary, buildProductSupplierDecisionRows } from "@/features/workbench/product-master";
 
 describe("product master inbound summary", () => {
   it("aggregates inbound facts and shipped quantity by product family", () => {
@@ -50,5 +50,66 @@ describe("product master inbound summary", () => {
       { supplierId: "s2", supplierName: "供应商乙", receivedQuantity: 80, skuCount: 1 },
     ]);
     expect(result.isSplit).toBe(true);
+  });
+
+  it("turns product and supplier facts into an actionable decision row", () => {
+    const rows = buildProductSupplierDecisionRows(
+      [{
+        familyKey: "白板贴",
+        productName: "白板贴",
+        skus: [
+          { id: "sku-a", internalSkuCode: "Y-01", productName: "白板贴60*2", specification: "60*2" },
+          { id: "sku-b", internalSkuCode: "Y-02", productName: "白板贴90*2", specification: "90*2" },
+        ],
+      }],
+      [
+        { skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 100, supplierId: "s1", supplierName: "供应商甲" },
+        { skuMasterId: "sku-b", period: "2026-07", receivedQuantity: 80, supplierId: "s1", supplierName: "供应商甲" },
+      ],
+      [
+        { skuMasterId: "sku-a", period: "2026-07", shippedQuantity: 100, returnQuantity: 1 },
+        { skuMasterId: "sku-b", period: "2026-07", shippedQuantity: 80, returnQuantity: 0 },
+      ],
+      "2026-07",
+    );
+
+    expect(rows).toEqual([expect.objectContaining({
+      familyKey: "白板贴",
+      supplierName: "供应商甲",
+      coveredSkuCount: 2,
+      totalSkuCount: 2,
+      receivedQuantity: 180,
+      decision: "maintain_primary",
+      actionLabel: "保持主供",
+    })]);
+  });
+
+  it("flags split supply, missing supplier, and high return signals for action", () => {
+    const rows = buildProductSupplierDecisionRows(
+      [
+        { familyKey: "分拆品", productName: "分拆品", skus: [
+          { id: "sku-a", internalSkuCode: "A", productName: "分拆品1", specification: "1" },
+          { id: "sku-b", internalSkuCode: "B", productName: "分拆品2", specification: "2" },
+        ] },
+        { familyKey: "待确认品", productName: "待确认品", skus: [
+          { id: "sku-c", internalSkuCode: "C", productName: "待确认品", specification: "1" },
+        ] },
+      ],
+      [
+        { skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 10, supplierId: "s1", supplierName: "供应商甲" },
+        { skuMasterId: "sku-b", period: "2026-07", receivedQuantity: 10, supplierId: "s2", supplierName: "供应商乙" },
+        { skuMasterId: "sku-c", period: "2026-07", receivedQuantity: 10 },
+      ],
+      [
+        { skuMasterId: "sku-a", period: "2026-07", shippedQuantity: 10, returnQuantity: 1 },
+        { skuMasterId: "sku-b", period: "2026-07", shippedQuantity: 10, returnQuantity: 0 },
+        { skuMasterId: "sku-c", period: "2026-07", shippedQuantity: 10, returnQuantity: 2 },
+      ],
+      "2026-07",
+    );
+
+    expect(rows.map((row) => row.decision)).toEqual(["review_split", "confirm_supplier"]);
+    expect(rows[0].reason).toContain("供应商分拆");
+    expect(rows[1].actionLabel).toBe("补充实际供应商");
   });
 });

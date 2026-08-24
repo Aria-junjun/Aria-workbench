@@ -18,6 +18,7 @@ import {
   aggregateSkuSnapshots,
   buildProductInboundSummary,
   buildProductInboundSupplierSummary,
+  buildProductSupplierDecisionRows,
   groupSkuMastersByProduct,
   deriveProductFamilyKey,
   type SkuMetricInput,
@@ -72,6 +73,21 @@ export default function ProductMasterPage() {
         (product.productFamilyKey === group.familyKey ||
           deriveProductFamilyKey(product.name) === group.familyKey),
     ),
+  );
+  const periodInboundSnapshots = (data.monthlyInboundSnapshots ?? []).filter(
+    (snapshot) => snapshot.period === selectedPeriod,
+  );
+  const decisionRows = buildProductSupplierDecisionRows(
+    inboundGroups.filter((group) =>
+      periodInboundSnapshots.some((snapshot) => group.skuIds.includes(snapshot.skuMasterId)),
+    ).map((group) => ({
+      familyKey: group.familyKey,
+      productName: group.productName,
+      skus: skus.filter((sku) => group.skuIds.includes(sku.id)),
+    })),
+    periodInboundSnapshots,
+    snapshots,
+    selectedPeriod,
   );
   const previousPeriod = getPreviousPeriod(selectedPeriod);
 
@@ -315,6 +331,63 @@ export default function ProductMasterPage() {
           使用右上角统计月份导入并保存；只写入能匹配内部编码的 SKU。
         </div>
       </section>
+      {decisionRows.length > 0 ? (
+        <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-medium text-slate-800">产品—供应商决策联动</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                用聚水潭月度经营数据和实际入仓供应商，生成下一步动作；不替代聚水潭采购、库存和财务功能。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <DecisionCount label="保持主供" value={decisionRows.filter((row) => row.decision === "maintain_primary").length} tone="green" />
+              <DecisionCount label="需要复核" value={decisionRows.filter((row) => row.decision === "review_split" || row.decision === "review_quality").length} tone="amber" />
+              <DecisionCount label="待补供应商" value={decisionRows.filter((row) => row.decision === "confirm_supplier" || row.decision === "complete_coverage").length} tone="red" />
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-paper-warm text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">产品</th>
+                  <th className="px-3 py-2">实际供应商</th>
+                  <th className="px-3 py-2">SKU覆盖</th>
+                  <th className="px-3 py-2">本月入仓</th>
+                  <th className="px-3 py-2">退货率信号</th>
+                  <th className="px-3 py-2">建议动作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {decisionRows.map((row) => (
+                  <tr key={row.familyKey} className="align-top">
+                    <td className="px-3 py-3 font-medium text-slate-800">{row.productName}</td>
+                    <td className="px-3 py-3">
+                      {row.supplierId ? (
+                        <Link className="text-action hover:underline" href={`/suppliers/${row.supplierId}`}>{row.supplierName}</Link>
+                      ) : row.supplierName}
+                    </td>
+                    <td className="px-3 py-3 text-slate-600">{row.coveredSkuCount}/{row.totalSkuCount}</td>
+                    <td className="px-3 py-3 text-slate-600">{row.receivedQuantity || "-"}</td>
+                    <td className="px-3 py-3 text-slate-600">{row.returnRate !== undefined ? `${row.returnRate}%` : "未采集"}</td>
+                    <td className="px-3 py-3">
+                      <Link
+                        className={`font-medium hover:underline ${row.decision === "maintain_primary" ? "text-emerald-700" : "text-amber-700"}`}
+                        href={row.decision === "confirm_supplier" ? "/sku-master/import" : row.supplierId ? `/suppliers/${row.supplierId}` : "/suppliers"}
+                        title={row.reason}
+                      >
+                        {row.actionLabel}
+                      </Link>
+                      <p className="mt-1 max-w-md text-slate-500">{row.reason}</p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-500">当前月份：{selectedPeriod} · 退货率仅作为产品质量复核信号，不在多供应商场景下直接归因。</p>
+        </section>
+      ) : null}
       {salesImportError ? (
         <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
           {salesImportError}
@@ -712,6 +785,15 @@ function SourceNote({ title, detail }: { title: string; detail: string }) {
       <div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div>
     </div>
   );
+}
+
+function DecisionCount({ label, value, tone }: { label: string; value: number; tone: "green" | "amber" | "red" }) {
+  const colors = {
+    green: "bg-emerald-50 text-emerald-700",
+    amber: "bg-amber-50 text-amber-700",
+    red: "bg-red-50 text-red-700",
+  };
+  return <span className={`rounded-full px-2.5 py-1 ${colors[tone]}`}>{label} {value}</span>;
 }
 
 function MissingSupplyLink({
