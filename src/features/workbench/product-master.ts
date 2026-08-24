@@ -404,7 +404,7 @@ export function groupSkuMastersByProduct(rows: ProductMasterSkuInput[]): Product
     const productName = row.productName.trim();
     if (!productName) continue;
     const familyKey = deriveProductFamilyKey(productName, row.productFamilyKey);
-    const current = groups.get(familyKey) ?? { familyKey, productName: productName.split("+")[0], skuIds: [], internalSkuCodes: [] };
+    const current = groups.get(familyKey) ?? { familyKey, productName: familyKey, skuIds: [], internalSkuCodes: [] };
     if (!current.skuIds.includes(row.id)) current.skuIds.push(row.id);
     if (!current.internalSkuCodes.includes(row.internalSkuCode)) current.internalSkuCodes.push(row.internalSkuCode);
     groups.set(familyKey, current);

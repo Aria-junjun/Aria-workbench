@@ -21,6 +21,17 @@ describe("inbound product master", () => {
     expect(deriveProductFamilyKey("白板贴背胶")).toBe("白板贴背胶");
   });
 
+  it("uses the normalized family name instead of the first SKU specification", () => {
+    const groups = groupSkuMastersByProduct([
+      { id: "sku-1", internalSkuCode: "Y-01", productName: "无胶白板贴小纸管0.3*0.6m", specification: "0.3*0.6m" },
+      { id: "sku-2", internalSkuCode: "Y-02", productName: "无胶白板贴小纸管0.45*2m", specification: "0.45*2m" },
+    ]);
+
+    expect(groups).toEqual([
+      expect.objectContaining({ familyKey: "无胶白板贴小纸管", productName: "无胶白板贴小纸管", skuIds: ["sku-1", "sku-2"] }),
+    ]);
+  });
+
   it("promotes an opportunity without deleting its research fields", () => {
     const promoted = promoteProductToInbound({ name: "白板贴", recordKind: "opportunity", opportunities: ["市场需求"], lifecycleStage: "validate" });
     expect(promoted).toMatchObject({ name: "白板贴", recordKind: "existing", productMode: "inbound", portfolioStatus: "active", opportunities: ["市场需求"], lifecycleStage: "validate" });

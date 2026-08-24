@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 type Period = "month" | "quarter" | "year";
+const SUPPLIER_PAGE_SIZE = 10;
 
 export default function SuppliersPage() {
   const [query, setQuery] = useState("");
@@ -44,6 +45,7 @@ export default function SuppliersPage() {
   const [merging, setMerging] = useState<string | null>(null);
   const [mergedMsg, setMergedMsg] = useState<{ pair: string; text: string } | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [supplierPage, setSupplierPage] = useState(1);
 
   useEffect(() => {
     setHydrated(true);
@@ -76,6 +78,17 @@ export default function SuppliersPage() {
          supplier.contactMethod, join(supplier.categories), join(supplier.riskTags), supplier.notes],
         query
       )
+  );
+
+  useEffect(() => {
+    setSupplierPage(1);
+  }, [query, pinnedOnly, selectedCategory, selectedGrade, selectedModel]);
+
+  const supplierPageCount = Math.max(1, Math.ceil(filtered.length / SUPPLIER_PAGE_SIZE));
+  const activeSupplierPage = Math.min(supplierPage, supplierPageCount);
+  const paginatedSuppliers = filtered.slice(
+    (activeSupplierPage - 1) * SUPPLIER_PAGE_SIZE,
+    activeSupplierPage * SUPPLIER_PAGE_SIZE,
   );
 
   // 表头权重：筛选了具体模式时显示对应权重，否则用入仓型默认
@@ -425,7 +438,7 @@ export default function SuppliersPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((supplier) => {
+              {paginatedSuppliers.map((supplier) => {
                 const evals = supplier.evaluations ?? [];
                 const latest = evals.length > 0 ? evals[evals.length - 1] : undefined;
                 const scores = latest?.scores;
@@ -502,9 +515,32 @@ export default function SuppliersPage() {
             </tbody>
           </table>
         </div>
-        {filtered.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted">没有匹配的供应商</div>
-        ) : null}
+         {filtered.length === 0 ? (
+           <div className="py-12 text-center text-sm text-muted">没有匹配的供应商</div>
+         ) : null}
+         {filtered.length > 0 && supplierPageCount > 1 ? (
+           <div className="flex items-center justify-between border-t border-line py-3 text-xs text-muted">
+             <span>第 {activeSupplierPage} / {supplierPageCount} 页 · 共 {filtered.length} 家供应商</span>
+             <div className="flex items-center gap-2">
+               <button
+                 className="border border-line px-3 py-1.5 hover:border-action disabled:cursor-not-allowed disabled:opacity-40"
+                 disabled={activeSupplierPage === 1}
+                 onClick={() => setSupplierPage((page) => Math.max(1, page - 1))}
+                 type="button"
+               >
+                 上一页
+               </button>
+               <button
+                 className="border border-line px-3 py-1.5 hover:border-action disabled:cursor-not-allowed disabled:opacity-40"
+                 disabled={activeSupplierPage === supplierPageCount}
+                 onClick={() => setSupplierPage((page) => Math.min(supplierPageCount, page + 1))}
+                 type="button"
+               >
+                 下一页
+               </button>
+             </div>
+           </div>
+         ) : null}
       </section>
     </div>
   );
