@@ -191,6 +191,85 @@ export function buildProductSupplierDecisionRows(
   });
 }
 
+export type SupplierDecisionOverviewRow = {
+  supplierId?: string;
+  supplierName: string;
+  productCount: number;
+  productNames: string[];
+  coveredSkuCount: number;
+  totalSkuCount: number;
+  receivedQuantity: number;
+  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier">;
+  actionLabel: string;
+  evidence: string;
+  score?: number;
+};
+
+export function buildSupplierDecisionOverviewRows(
+  groups: ProductSupplierDecisionGroupInput[],
+  inboundSnapshots: InboundSupplierForSummary[],
+  period: string,
+): SupplierDecisionOverviewRow[] {
+  const rows = new Map<string, {
+    supplierId?: string;
+    supplierName: string;
+    productNames: Set<string>;
+    productKeys: Set<string>;
+    skuIds: Set<string>;
+    totalSkuCount: number;
+    receivedQuantity: number;
+    splitProduct: boolean;
+  }>();
+
+  for (const group of groups) {
+    const skuIds = new Set(group.skus.map((sku) => sku.id));
+    const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+    const supplierKeys = new Set(inbound.map((snapshot) => snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${snapshot.supplierName?.trim() || "供应商待确认"}`));
+    for (const snapshot of inbound) {
+      const supplierName = snapshot.supplierName?.trim() || "供应商待确认";
+      const key = snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${supplierName}`;
+      const current = rows.get(key) ?? {
+        supplierId: snapshot.supplierId,
+        supplierName,
+        productNames: new Set<string>(),
+        productKeys: new Set<string>(),
+        skuIds: new Set<string>(),
+        totalSkuCount: 0,
+        receivedQuantity: 0,
+        splitProduct: false,
+      };
+      current.productNames.add(group.productName);
+      if (!current.productKeys.has(group.familyKey)) {
+        current.productKeys.add(group.familyKey);
+        current.totalSkuCount += group.skus.length;
+      }
+      current.skuIds.add(snapshot.skuMasterId);
+      current.receivedQuantity += snapshot.receivedQuantity ?? 0;
+      current.splitProduct = current.splitProduct || supplierKeys.size > 1;
+      rows.set(key, current);
+    }
+  }
+
+  return [...rows.values()]
+    .map((row) => {
+      const isUnconfirmed = row.supplierName === "供应商待确认";
+      const decision: SupplierDecisionOverviewRow["decision"] = isUnconfirmed ? "confirm_supplier" : row.splitProduct ? "review_split" : "maintain_primary";
+      return {
+        ...(row.supplierId ? { supplierId: row.supplierId } : {}),
+        supplierName: row.supplierName,
+        productCount: row.productNames.size,
+        productNames: [...row.productNames],
+        coveredSkuCount: row.skuIds.size,
+        totalSkuCount: row.totalSkuCount,
+        receivedQuantity: row.receivedQuantity,
+        decision,
+        actionLabel: isUnconfirmed ? "补充实际供应商" : row.splitProduct ? "复核主供/备供" : "保持主供",
+        evidence: `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}`,
+      };
+    })
+    .sort((left, right) => right.receivedQuantity - left.receivedQuantity || left.supplierName.localeCompare(right.supplierName));
+}
+
 function previousMonth(period: string) {
   const [year, month] = period.split("-").map(Number);
   const date = new Date(year, month - 2, 1);

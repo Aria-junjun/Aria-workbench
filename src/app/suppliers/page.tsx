@@ -12,6 +12,11 @@ import {
 } from "@/features/workbench/local-store";
 import { getSupplierKpiSummary, getQcdsWeights, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
+import {
+  buildSupplierDecisionOverviewRows,
+  deriveProductFamilyKey,
+  groupSkuMastersByProduct,
+} from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import {
   AlertTriangle,
@@ -48,7 +53,7 @@ export default function SuppliersPage() {
   const data = workbenchData ?? {
     suppliers: [], communications: [], offers: [], products: [],
     tasks: [], knowledgeCards: [], knowledgeBooks: [], decisionTools: [],
-    knowledgeApplications: [], decisionCases: [],
+    knowledgeApplications: [], decisionCases: [], skuMasters: [], monthlyInboundSnapshots: [],
   };
 
   const suppliers = hydrated ? sortPinnedFirst(data.suppliers) : [];
@@ -77,6 +82,26 @@ export default function SuppliersPage() {
   const displayModel: SupplierBusinessModel = selectedModel ? (selectedModel as SupplierBusinessModel) : "inbound";
   const dw = getQcdsWeights(displayModel);
   const modelLabel = selectedModel === "dropship" ? "代发型" : selectedModel === "hybrid" ? "综合型" : "入仓型（默认）";
+  const skuMasters = (data.skuMasters ?? []).filter((sku) => sku.status !== "archived");
+  const existingProductFamilyKeys = new Set(
+    data.products
+      .filter((product) => product.recordKind === "existing" && product.productMode !== "dropship")
+      .map((product) => product.productFamilyKey || deriveProductFamilyKey(product.name)),
+  );
+  const decisionGroups = groupSkuMastersByProduct(skuMasters)
+    .filter((group) => existingProductFamilyKeys.has(group.familyKey))
+    .map((group) => ({
+      familyKey: group.familyKey,
+      productName: group.productName,
+      skus: skuMasters.filter((sku) => group.skuIds.includes(sku.id)),
+    }));
+  const inboundPeriods = (data.monthlyInboundSnapshots ?? []).map((snapshot) => snapshot.period).filter(Boolean);
+  const decisionPeriod = inboundPeriods.sort().at(-1) ?? new Date().toISOString().slice(0, 7);
+  const supplierDecisionRows = buildSupplierDecisionOverviewRows(
+    decisionGroups,
+    data.monthlyInboundSnapshots ?? [],
+    decisionPeriod,
+  );
 
   function pin(id: string) {
     togglePinned("suppliers", id);
@@ -163,7 +188,7 @@ export default function SuppliersPage() {
       {/* KPI 仪表盘 - 扁平无卡片 */}
       <section>
         <div className="mb-3 flex items-center gap-2">
-          <h2 className="text-sm font-semibold">供应商评估总览 · {periodLabel(period)}</h2>
+          <h2 className="text-sm font-semibold">供应商事实与评分参考 · {periodLabel(period)}</h2>
         </div>
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4 py-2">
           <KpiFlat
@@ -192,6 +217,54 @@ export default function SuppliersPage() {
           />
         </div>
       </section>
+
+      {supplierDecisionRows.length > 0 ? (
+        <section className="space-y-3 border-y border-line py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">供应商决策总览 · {decisionPeriod}</h2>
+              <p className="mt-1 text-xs text-muted">只显示有实际入仓证据的供应商；评分仅作参考，不作为单独结论。</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <DecisionPill label="保持主供" value={supplierDecisionRows.filter((row) => row.decision === "maintain_primary").length} tone="success" />
+              <DecisionPill label="复核分拆" value={supplierDecisionRows.filter((row) => row.decision === "review_split").length} tone="warning" />
+              <DecisionPill label="待确认供应商" value={supplierDecisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="danger" />
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-line text-xs text-muted">
+                  <th className="py-2 pr-4 text-left font-medium">供应商</th>
+                  <th className="px-4 py-2 text-left font-medium">实际供货产品</th>
+                  <th className="px-4 py-2 text-center font-medium">SKU覆盖</th>
+                  <th className="px-4 py-2 text-right font-medium">本月实际入仓</th>
+                  <th className="px-4 py-2 text-left font-medium">证据</th>
+                  <th className="py-2 pl-4 text-left font-medium">下一步</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplierDecisionRows.map((row) => (
+                  <tr key={`${row.supplierId ?? "unknown"}-${row.supplierName}`} className="border-b border-line-soft">
+                    <td className="py-3 pr-4 font-medium">
+                      {row.supplierId ? <Link className="hover:text-action" href={`/suppliers/${row.supplierId}`}>{row.supplierName}</Link> : row.supplierName}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{row.productNames.join("、")}</td>
+                    <td className="px-4 py-3 text-center text-slate-600">{row.coveredSkuCount}/{row.totalSkuCount}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">{row.receivedQuantity || "-"}</td>
+                    <td className="px-4 py-3 text-xs text-muted">{row.evidence}</td>
+                    <td className="py-3 pl-4">
+                      <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据">
+                        {row.actionLabel}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {/* 筛选栏 - 扁平 */}
       <div className="flex flex-wrap items-center gap-3 border-y border-line py-3">
@@ -332,7 +405,7 @@ export default function SuppliersPage() {
       {/* 供应商大表格 - 去卡片化 */}
       <section>
         <div className="mb-2 text-xs text-muted">
-          评分权重 · {modelLabel}：交付{Math.round(dw.delivery * 100)}% / 成本{Math.round(dw.cost * 100)}% / 质量{Math.round(dw.quality * 100)}% / 服务{Math.round(dw.service * 100)}%
+                  评分仅作参考 · {modelLabel}：交付{Math.round(dw.delivery * 100)}% / 成本{Math.round(dw.cost * 100)}% / 质量{Math.round(dw.quality * 100)}% / 服务{Math.round(dw.service * 100)}%
           {!selectedModel ? "（筛选特定模式可查看对应权重）" : ""}
         </div>
         <div className="overflow-x-auto">
@@ -341,7 +414,7 @@ export default function SuppliersPage() {
               <tr className="border-b border-line text-xs text-muted">
                 <th className="py-3 pr-4 text-left font-medium">供应商</th>
                 <th className="py-3 px-4 text-left font-medium">品类</th>
-                <th className="py-3 px-4 text-center font-medium">综合得分</th>
+                <th className="py-3 px-4 text-center font-medium">评分参考</th>
                 <th className="py-3 px-4 text-center font-medium">等级</th>
                 <th className="py-3 px-4 text-center font-medium">交付<div className="text-[9px] text-muted-light">{Math.round(dw.delivery * 100)}%</div></th>
                 <th className="py-3 px-4 text-center font-medium">成本<div className="text-[9px] text-muted-light">{Math.round(dw.cost * 100)}%</div></th>
@@ -483,6 +556,11 @@ function MiniScore({ value }: { value: number }) {
   const v = Math.round(value);
   const color = v >= 85 ? "text-success" : v >= 70 ? "text-action" : v >= 60 ? "text-warning" : "text-danger";
   return <span className={`font-medium ${color}`}>{v}</span>;
+}
+
+function DecisionPill({ label, value, tone }: { label: string; value: number; tone: "success" | "warning" | "danger" }) {
+  const colors = { success: "bg-success-soft text-success", warning: "bg-warning-soft text-warning", danger: "bg-danger-soft text-danger" };
+  return <span className={`rounded-full px-2 py-1 ${colors[tone]}`}>{label} {value}</span>;
 }
 
 function join(values?: string[]) {
