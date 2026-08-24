@@ -5,12 +5,11 @@ import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import {
   findDuplicateSuppliers,
-  includesQuery,
   mergeSuppliers,
   sortPinnedFirst,
   togglePinned,
 } from "@/features/workbench/local-store";
-import { getSupplierKpiSummary, getQcdsWeights, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
+import { getSupplierKpiSummary, getQcdsWeights, type SupplierEvaluationRecord, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   buildSupplierDecisionOverviewRows,
@@ -33,12 +32,7 @@ type Period = "month" | "quarter" | "year";
 const SUPPLIER_PAGE_SIZE = 10;
 
 export default function SuppliersPage() {
-  const [query, setQuery] = useState("");
-  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [period, setPeriod] = useState<Period>("quarter");
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [selectedGrade, setSelectedGrade] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
   const [version, setVersion] = useState(0);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicatePairs, setDuplicatePairs] = useState<ReturnType<typeof findDuplicateSuppliers>>([]);
@@ -51,6 +45,10 @@ export default function SuppliersPage() {
     setHydrated(true);
   }, []);
 
+  useEffect(() => {
+    setSupplierPage(1);
+  }, [period]);
+
   const workbenchData = useWorkbenchData();
   const data = workbenchData ?? {
     suppliers: [], communications: [], offers: [], products: [],
@@ -59,42 +57,30 @@ export default function SuppliersPage() {
   };
 
   const suppliers = hydrated ? sortPinnedFirst(data.suppliers) : [];
-  const kpi = getSupplierKpiSummary(suppliers);
-
-  // 收集所有品类
-  const allCategories = hydrated
-    ? [...new Set(suppliers.flatMap((s) => s.categories))].sort()
-    : [];
-
-  // 筛选
-  const filtered = suppliers.filter(
-    (supplier) =>
-      (!pinnedOnly || supplier.pinned) &&
-      (!selectedCategory || supplier.categories.includes(selectedCategory)) &&
-      (!selectedGrade || supplier.latestEvaluationGrade === selectedGrade) &&
-      (!selectedModel || (supplier.businessModel ?? "inbound") === selectedModel) &&
-      includesQuery(
-        [supplier.name, supplier.location, supplier.sourcePlatform, supplier.storeUrl,
-         supplier.contactMethod, join(supplier.categories), join(supplier.riskTags), supplier.notes],
-        query
-      )
-  );
-
-  useEffect(() => {
-    setSupplierPage(1);
-  }, [query, pinnedOnly, selectedCategory, selectedGrade, selectedModel]);
-
-  const supplierPageCount = Math.max(1, Math.ceil(filtered.length / SUPPLIER_PAGE_SIZE));
+  const inboundPeriods = (data.monthlyInboundSnapshots ?? []).map((snapshot) => snapshot.period).filter(Boolean).sort();
+  const decisionAnchor = inboundPeriods.at(-1) ?? new Date().toISOString().slice(0, 7);
+  const decisionSnapshots = (data.monthlyInboundSnapshots ?? [])
+    .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
+    .map((snapshot) => ({ ...snapshot, period: "selected" }));
+  const periodSuppliers = suppliers.map((supplier) => {
+    const selectedEvaluation = getSelectedEvaluation(supplier.evaluations, period, decisionAnchor);
+    return {
+      ...supplier,
+      latestEvaluationGrade: selectedEvaluation?.scores.grade,
+      latestEvaluationScore: selectedEvaluation?.scores.total,
+    };
+  });
+  const kpi = getSupplierKpiSummary(periodSuppliers);
+  const supplierPageCount = Math.max(1, Math.ceil(suppliers.length / SUPPLIER_PAGE_SIZE));
   const activeSupplierPage = Math.min(supplierPage, supplierPageCount);
-  const paginatedSuppliers = filtered.slice(
+  const paginatedSuppliers = suppliers.slice(
     (activeSupplierPage - 1) * SUPPLIER_PAGE_SIZE,
     activeSupplierPage * SUPPLIER_PAGE_SIZE,
   );
 
   // 表头权重：筛选了具体模式时显示对应权重，否则用入仓型默认
-  const displayModel: SupplierBusinessModel = selectedModel ? (selectedModel as SupplierBusinessModel) : "inbound";
+  const displayModel: SupplierBusinessModel = "inbound";
   const dw = getQcdsWeights(displayModel);
-  const modelLabel = selectedModel === "dropship" ? "代发型" : selectedModel === "hybrid" ? "综合型" : "入仓型（默认）";
   const skuMasters = (data.skuMasters ?? []).filter((sku) => sku.status !== "archived");
   const existingProductFamilyKeys = new Set(
     data.products
@@ -108,12 +94,10 @@ export default function SuppliersPage() {
       productName: group.productName,
       skus: skuMasters.filter((sku) => group.skuIds.includes(sku.id)),
     }));
-  const inboundPeriods = (data.monthlyInboundSnapshots ?? []).map((snapshot) => snapshot.period).filter(Boolean);
-  const decisionPeriod = inboundPeriods.sort().at(-1) ?? new Date().toISOString().slice(0, 7);
   const supplierDecisionRows = buildSupplierDecisionOverviewRows(
     decisionGroups,
-    data.monthlyInboundSnapshots ?? [],
-    decisionPeriod,
+    decisionSnapshots,
+    "selected",
   );
 
   function pin(id: string) {
@@ -198,44 +182,11 @@ export default function SuppliersPage() {
         </div>
       </div>
 
-      {/* KPI 仪表盘 - 扁平无卡片 */}
-      <section>
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="text-sm font-semibold">供应商事实与评分参考 · {periodLabel(period)}</h2>
-        </div>
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4 py-2">
-          <KpiFlat
-            label="供应商总数"
-            value={kpi.total}
-            sub={`活跃 ${kpi.active} · 备用 ${kpi.backup}`}
-            accent="text-ink"
-          />
-          <KpiFlat
-            label="A级供应商"
-            value={kpi.gradeA}
-            sub={`占比 ${kpi.gradeAPct}%`}
-            accent="text-success"
-          />
-          <KpiFlat
-            label="平均综合得分"
-            value={kpi.avgScore}
-            sub={period === "quarter" ? "本季度" : period === "month" ? "本月" : "本年"}
-            accent="text-action"
-          />
-          <KpiFlat
-            label="待改善（C/D级）"
-            value={kpi.needsAction}
-            sub={kpi.gradeD > 0 ? `D级 ${kpi.gradeD} · 需启动汰换` : "暂无D级"}
-            accent={kpi.needsAction > 0 ? "text-danger" : "text-success"}
-          />
-        </div>
-      </section>
-
       {supplierDecisionRows.length > 0 ? (
-        <section className="space-y-3 border-y border-line py-4">
+        <section className="space-y-3 rounded-xl border border-line bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold">供应商决策总览 · {decisionPeriod}</h2>
+              <h2 className="text-sm font-semibold">供应商决策总览 · {periodLabel(period, decisionAnchor)}</h2>
               <p className="mt-1 text-xs text-muted">只显示有实际入仓证据的供应商；评分仅作参考，不作为单独结论。</p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
@@ -251,7 +202,7 @@ export default function SuppliersPage() {
                   <th className="py-2 pr-4 text-left font-medium">供应商</th>
                   <th className="px-4 py-2 text-left font-medium">实际供货产品</th>
                   <th className="px-4 py-2 text-center font-medium">SKU覆盖</th>
-                  <th className="px-4 py-2 text-right font-medium">本月实际入仓</th>
+                  <th className="px-4 py-2 text-right font-medium">{periodMetricLabel(period)}实际入仓</th>
                   <th className="px-4 py-2 text-left font-medium">证据</th>
                   <th className="py-2 pl-4 text-left font-medium">下一步</th>
                 </tr>
@@ -279,86 +230,19 @@ export default function SuppliersPage() {
         </section>
       ) : null}
 
-      {/* 筛选栏 - 扁平 */}
-      <div className="flex flex-wrap items-center gap-3 border-y border-line py-3">
-        <input
-          className="flex-1 min-w-[200px] border-0 border-b border-line bg-transparent px-1 py-1.5 text-sm outline-none focus:border-action"
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索供应商、品类、地区、风险..."
-          value={query}
-        />
-        <button
-          className={`text-sm transition-colors ${
-            pinnedOnly ? "text-action font-medium" : "text-muted hover:text-ink"
-          }`}
-          onClick={() => setPinnedOnly((v) => !v)}
-          type="button"
-        >
-          {pinnedOnly ? "✓ 置顶" : "置顶"}
-        </button>
-      </div>
-
-      {/* 品类 + 等级 + 合作模式筛选 - 下拉选择 */}
-      <div className="flex flex-wrap items-center gap-3 border-y border-line py-3">
-        <select
-          className="border border-line px-3 py-1.5 text-sm bg-white min-w-[160px]"
-          value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value)}
-        >
-          <option value="">全部分类</option>
-          {allCategories.map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
-        </select>
-        <select
-          className="border border-line px-3 py-1.5 text-sm bg-white min-w-[120px]"
-          value={selectedGrade}
-          onChange={(e) => setSelectedGrade(e.target.value)}
-        >
-          <option value="">全部等级</option>
-          <option value="A">A级</option>
-          <option value="B">B级</option>
-          <option value="C">C级</option>
-          <option value="D">D级</option>
-        </select>
-        <select
-          className="border border-line px-3 py-1.5 text-sm bg-white min-w-[120px]"
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-        >
-          <option value="">全部模式</option>
-          <option value="inbound">入仓型</option>
-          <option value="dropship">代发型</option>
-          <option value="hybrid">综合型</option>
-        </select>
-        {selectedCategory && (
-          <button
-            className="text-xs text-muted hover:text-danger"
-            onClick={() => setSelectedCategory("")}
-            type="button"
-          >
-            清除分类 ×
-          </button>
-        )}
-        {selectedGrade && (
-          <button
-            className="text-xs text-muted hover:text-danger"
-            onClick={() => setSelectedGrade("")}
-            type="button"
-          >
-            清除等级 ×
-          </button>
-        )}
-        {selectedModel && (
-          <button
-            className="text-xs text-muted hover:text-danger"
-            onClick={() => setSelectedModel("")}
-            type="button"
-          >
-            清除模式 ×
-          </button>
-        )}
-      </div>
+      {/* 评分总览与明细 */}
+      <section className="space-y-4 rounded-xl border border-line bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-sm font-semibold">供应商评分总览 · {periodLabel(period, decisionAnchor)}</h2>
+          <p className="mt-1 text-xs text-muted">仅统计当前周期有评估记录的供应商；无对应记录时不跨周期补值。</p>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiFlat label="周期内供应商" value={kpi.total} sub={`主供 ${kpi.active} · 备用 ${kpi.backup}`} accent="text-ink" />
+          <KpiFlat label="A级供应商" value={kpi.gradeA} sub={`占比 ${kpi.gradeAPct}%`} accent="text-success" />
+          <KpiFlat label="平均评分参考" value={kpi.avgScore || "—"} sub={periodMetricLabel(period) + "评估记录"} accent="text-action" />
+          <KpiFlat label="待改善（C/D级）" value={kpi.needsAction} sub={kpi.gradeD > 0 ? `D级 ${kpi.gradeD} · 需启动汰换` : "暂无D级"} accent={kpi.needsAction > 0 ? "text-danger" : "text-success"} />
+        </div>
+      </section>
 
       {/* 重复检测面板 */}
       {showDuplicates && (
@@ -415,11 +299,10 @@ export default function SuppliersPage() {
         </section>
       )}
 
-      {/* 供应商大表格 - 去卡片化 */}
-      <section>
-        <div className="mb-2 text-xs text-muted">
-                  评分仅作参考 · {modelLabel}：交付{Math.round(dw.delivery * 100)}% / 成本{Math.round(dw.cost * 100)}% / 质量{Math.round(dw.quality * 100)}% / 服务{Math.round(dw.service * 100)}%
-          {!selectedModel ? "（筛选特定模式可查看对应权重）" : ""}
+       {/* 供应商评分明细 */}
+       <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
+          <div className="mb-2 text-xs text-muted">
+           评分仅作参考 · 入仓型：交付{Math.round(dw.delivery * 100)}% / 成本{Math.round(dw.cost * 100)}% / 质量{Math.round(dw.quality * 100)}% / 服务{Math.round(dw.service * 100)}%
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -439,9 +322,8 @@ export default function SuppliersPage() {
             </thead>
             <tbody>
               {paginatedSuppliers.map((supplier) => {
-                const evals = supplier.evaluations ?? [];
-                const latest = evals.length > 0 ? evals[evals.length - 1] : undefined;
-                const scores = latest?.scores;
+                const selectedEvaluation = getSelectedEvaluation(supplier.evaluations, period, decisionAnchor);
+                const scores = selectedEvaluation?.scores;
                 return (
                   <tr key={supplier.id} className="border-b border-line-soft hover:bg-paper-warm/50 transition-colors group">
                     <td className="py-3 pr-4">
@@ -491,23 +373,23 @@ export default function SuppliersPage() {
                     <td className="py-3 px-4 text-center">{scores ? <MiniScore value={scores.quality} /> : "—"}</td>
                     <td className="py-3 px-4 text-center">{scores ? <MiniScore value={scores.service} /> : "—"}</td>
                     <td className="py-3 px-4">
-                      {latest && latest.riskLabels.length > 0 && latest.riskLabels[0] !== "无风险" ? (
-                        <div className="flex flex-wrap gap-1">
-                          {latest.riskLabels.slice(0, 3).map((label, i) => (
-                            <span key={i} className="text-[10px] text-danger">{label}</span>
-                          ))}
-                          {latest.riskLabels.length > 3 ? (
-                            <span className="text-[10px] text-muted">+{latest.riskLabels.length - 3}</span>
-                          ) : null}
-                        </div>
-                      ) : latest ? (
-                        <span className="text-[10px] text-success">无风险</span>
+                       {selectedEvaluation && selectedEvaluation.riskLabels.length > 0 && selectedEvaluation.riskLabels[0] !== "无风险" ? (
+                         <div className="flex flex-wrap gap-1">
+                           {selectedEvaluation.riskLabels.slice(0, 3).map((label, i) => (
+                             <span key={i} className="text-[10px] text-danger">{label}</span>
+                           ))}
+                           {selectedEvaluation.riskLabels.length > 3 ? (
+                             <span className="text-[10px] text-muted">+{selectedEvaluation.riskLabels.length - 3}</span>
+                           ) : null}
+                         </div>
+                       ) : selectedEvaluation ? (
+                         <span className="text-[10px] text-success">无风险</span>
                       ) : (
                         <span className="text-[10px] text-muted-light">—</span>
                       )}
                     </td>
                     <td className="py-3 pl-4 text-center text-xs text-muted">
-                      {latest ? new Date(latest.evaluatedAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : "—"}
+                       {selectedEvaluation ? new Date(selectedEvaluation.evaluatedAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : "—"}
                     </td>
                   </tr>
                 );
@@ -515,12 +397,9 @@ export default function SuppliersPage() {
             </tbody>
           </table>
         </div>
-         {filtered.length === 0 ? (
-           <div className="py-12 text-center text-sm text-muted">没有匹配的供应商</div>
-         ) : null}
-         {filtered.length > 0 && supplierPageCount > 1 ? (
+          {suppliers.length > 0 && supplierPageCount > 1 ? (
            <div className="flex items-center justify-between border-t border-line py-3 text-xs text-muted">
-             <span>第 {activeSupplierPage} / {supplierPageCount} 页 · 共 {filtered.length} 家供应商</span>
+              <span>第 {activeSupplierPage} / {supplierPageCount} 页 · 共 {suppliers.length} 家供应商</span>
              <div className="flex items-center gap-2">
                <button
                  className="border border-line px-3 py-1.5 hover:border-action disabled:cursor-not-allowed disabled:opacity-40"
@@ -554,11 +433,31 @@ const PERIOD_LABELS: Record<Period, string> = {
   year: "年度",
 };
 
-function periodLabel(p: Period) {
-  const now = new Date();
-  if (p === "month") return `${now.getFullYear()}年${now.getMonth() + 1}月`;
-  if (p === "quarter") return `${now.getFullYear()} Q${Math.floor(now.getMonth() / 3) + 1}`;
-  return `${now.getFullYear()}年`;
+function periodLabel(p: Period, anchor: string) {
+  const [year, month] = anchor.split("-").map(Number);
+  if (p === "month") return `${year}年${month}月`;
+  if (p === "quarter") return `${year} Q${Math.ceil(month / 3)}`;
+  return `${year}年`;
+}
+
+function periodMetricLabel(p: Period) {
+  return p === "month" ? "本月" : p === "quarter" ? "本季度" : "本年度";
+}
+
+function isInPeriod(value: string, type: Period, anchor: string) {
+  const [anchorYear, anchorMonth] = anchor.split("-").map(Number);
+  if (type === "month") return value === anchor;
+  if (value.startsWith(`${anchorYear}-Q`)) return value === `${anchorYear}-Q${Math.ceil(anchorMonth / 3)}`;
+  const [year, month] = value.split("-").map(Number);
+  if (type === "year") return year === anchorYear;
+  return year === anchorYear && Math.ceil(month / 3) === Math.ceil(anchorMonth / 3);
+}
+
+function getSelectedEvaluation(evaluations: SupplierEvaluationRecord[] | undefined, period: Period, anchor: string) {
+  return [...(evaluations ?? [])]
+    .filter((evaluation) => evaluation.periodType === period && isInPeriod(evaluation.period, period, anchor))
+    .sort((left, right) => `${left.period}-${left.evaluatedAt}`.localeCompare(`${right.period}-${right.evaluatedAt}`))
+    .at(-1);
 }
 
 // 扁平KPI：大字 + 两排小字，无边框无阴影
