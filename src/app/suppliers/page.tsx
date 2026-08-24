@@ -120,6 +120,13 @@ export default function SuppliersPage() {
   const focusedDecisionRows = decisionFilter === "all"
     ? supplierDecisionRows
     : supplierDecisionRows.filter((row) => row.decision === decisionFilter);
+  const decisionDataStatus = getDecisionDataStatus({
+    supplierCount: suppliers.length,
+    skuCount: skuMasters.length,
+    inboundCount: decisionSnapshots.length,
+    existingProductCount: existingProductFamilyKeys.size,
+    decisionRowCount: supplierDecisionRows.length,
+  });
 
   function pin(id: string) {
     togglePinned("suppliers", id);
@@ -203,26 +210,38 @@ export default function SuppliersPage() {
         </div>
       </div>
 
-      {supplierDecisionRows.length > 0 ? (
+      {(
         <section className="space-y-3 rounded-xl border border-line bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold">供应商决策总览 · {periodLabel(period, decisionAnchor)}</h2>
               <p className="mt-1 text-xs text-muted">只显示有实际入仓证据的供应商；评分仅作参考，不作为单独结论。</p>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs">
+            {supplierDecisionRows.length > 0 ? <div className="flex flex-wrap gap-2 text-xs">
               <DecisionPill active={decisionFilter === "all"} label="全部动作" value={supplierDecisionRows.length} tone="neutral" onClick={() => setDecisionFilter("all")} />
               <DecisionPill active={decisionFilter === "maintain_primary"} label="保持主供" value={supplierDecisionRows.filter((row) => row.decision === "maintain_primary").length} tone="success" onClick={() => setDecisionFilter("maintain_primary")} />
               <DecisionPill active={decisionFilter === "review_split"} label="复核分拆" value={supplierDecisionRows.filter((row) => row.decision === "review_split").length} tone="warning" onClick={() => setDecisionFilter("review_split")} />
               <DecisionPill active={decisionFilter === "confirm_supplier"} label="待确认供应商" value={supplierDecisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="danger" onClick={() => setDecisionFilter("confirm_supplier")} />
-            </div>
+            </div> : null}
           </div>
-          {decisionFilter !== "all" ? (
+          {supplierDecisionRows.length === 0 ? (
+            <div className="rounded-lg border border-warning/30 bg-warning-soft/20 px-4 py-4 text-sm">
+              <div className="font-medium text-ink">当前周期暂未生成供应商决策</div>
+              <p className="mt-1 text-xs leading-5 text-muted">{decisionDataStatus.message}</p>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                <span>已读取供应商 {suppliers.length} 家</span>
+                <span>产品编码 {skuMasters.length} 个</span>
+                <span>入仓记录 {decisionSnapshots.length} 条</span>
+                <Link className="text-action hover:underline" href="/product-master">去入仓产品查看数据来源</Link>
+              </div>
+            </div>
+          ) : null}
+          {decisionFilter !== "all" && supplierDecisionRows.length > 0 ? (
             <div className="rounded-lg bg-paper-warm px-3 py-2 text-xs text-muted">
               当前显示：{decisionFilterLabel(decisionFilter)} · 共 {focusedDecisionRows.length} 项。点击供应商或“下一步”进入处理页面。
             </div>
           ) : null}
-          <div className="overflow-x-auto">
+          {supplierDecisionRows.length > 0 ? <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line text-xs text-muted">
@@ -258,9 +277,9 @@ export default function SuppliersPage() {
                 ) : null}
               </tbody>
             </table>
-          </div>
+          </div> : null}
         </section>
-      ) : null}
+      )}
 
       {/* 评分总览与明细 */}
       <section className="space-y-4 rounded-xl border border-line bg-white p-5 shadow-sm">
@@ -486,6 +505,28 @@ function periodLabel(p: Period, anchor: string) {
 
 function periodMetricLabel(p: Period) {
   return p === "month" ? "本月" : p === "quarter" ? "本季度" : "本年度";
+}
+
+function getDecisionDataStatus(input: {
+  supplierCount: number;
+  skuCount: number;
+  inboundCount: number;
+  existingProductCount: number;
+  decisionRowCount: number;
+}) {
+  if (input.skuCount === 0) {
+    return { message: "还没有产品编码主表，供应商决策需要先知道产品和 SKU 范围。" };
+  }
+  if (input.inboundCount === 0) {
+    return { message: "当前周期没有入仓记录；请在入仓产品页面选择对应月份查看，页面不会用供应商评分代替实际供货证据。" };
+  }
+  if (input.existingProductCount === 0) {
+    return { message: "已有入仓记录，但还没有把产品归类为入仓产品，因此暂时不能生成供应商决策。" };
+  }
+  if (input.decisionRowCount === 0) {
+    return { message: "已有基础数据，但产品族、SKU 和入仓记录尚未匹配到同一周期，暂不生成结论。" };
+  }
+  return { message: "当前周期没有可生成的供应商决策。" };
 }
 
 function isInPeriod(value: string, type: Period, anchor: string) {

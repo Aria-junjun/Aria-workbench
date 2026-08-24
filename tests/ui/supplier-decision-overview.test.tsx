@@ -22,4 +22,12 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain("评分仅作参考");
     expect(source).toContain("buildSupplierDecisionOverviewRows");
   });
+
+  it("explains why the decision overview is empty instead of hiding the section", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/suppliers/page.tsx"), "utf8");
+
+    expect(source).toContain("当前周期暂未生成供应商决策");
+    expect(source).toContain("已读取供应商");
+    expect(source).toContain("去入仓产品查看数据来源");
+  });
 });
