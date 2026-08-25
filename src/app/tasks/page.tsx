@@ -8,6 +8,7 @@ import { applyTaskReviewToProduct, includesQuery, saveLocalWorkbenchData, type L
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { labelPriority, labelReviewOutcome, labelTaskType } from "@/features/workbench/display-labels";
 import { getStageMeta } from "@/features/workbench/stage-checklist-template";
+import { getTaskDueState, type TaskDueState } from "@/features/workbench/task-due";
 import { randomId } from "@/lib/random-id";
 
 type SortField = "createdAt" | "priority";
@@ -33,6 +34,12 @@ const stageColors: Record<string, { bg: string; text: string }> = {
   discontinued: { bg: "bg-red-400", text: "text-red-600" }
 };
 
+const dueStateMeta: Record<Exclude<TaskDueState, "none" | "normal">, { label: string; className: string }> = {
+  overdue: { label: "已逾期", className: "bg-danger-soft text-danger" },
+  due_today: { label: "今天到期", className: "bg-warning-soft text-warning" },
+  due_soon: { label: "即将到期", className: "bg-warning-soft text-warning" }
+};
+
 function classifyTaskSegment(task: LocalTask): SegmentKey {
   if (task.priority === "high" && task.status !== "done") return "urgent";
   if (task.type === "product_stage" || task.productId) return "product";
@@ -54,7 +61,7 @@ export default function TasksPage() {
   const [collapsedSegments, setCollapsedSegments] = useState<Record<SegmentKey, boolean>>({ urgent: false, product: false, supplier: false, other: false });
   const [createDraft, setCreateDraft] = useState({
     title: "",
-    dueText: "",
+    dueDate: "",
     priority: "medium" as "high" | "medium" | "low",
     type: "follow_up" as string,
     supplierId: "",
@@ -181,7 +188,7 @@ export default function TasksPage() {
 
   function startEdit(task: LocalTask) {
     setEditingId(task.id);
-    setEditDraft({ title: task.title, priority: task.priority, dueText: task.dueText, type: task.type });
+    setEditDraft({ title: task.title, priority: task.priority, dueDate: task.dueDate, type: task.type });
   }
 
   function saveEdit(taskId: string) {
@@ -208,7 +215,7 @@ export default function TasksPage() {
     const newTask: LocalTask = {
       id: randomId(),
       title: createDraft.title.trim(),
-      dueText: createDraft.dueText || undefined,
+      dueDate: createDraft.dueDate || undefined,
       priority: createDraft.priority,
       type: createDraft.type || "follow_up",
       status: "open",
@@ -220,14 +227,14 @@ export default function TasksPage() {
       pinned: false
     };
     saveLocalWorkbenchData({ ...data, tasks: [newTask, ...data.tasks] });
-    setCreateDraft({ title: "", dueText: "", priority: "medium", type: "follow_up", supplierId: "", productId: "" });
+    setCreateDraft({ title: "", dueDate: "", priority: "medium", type: "follow_up", supplierId: "", productId: "" });
     setShowCreate(false);
     setVersion((v) => v + 1);
   }
 
   function cancelCreate() {
     setShowCreate(false);
-    setCreateDraft({ title: "", dueText: "", priority: "medium", type: "follow_up", supplierId: "", productId: "" });
+    setCreateDraft({ title: "", dueDate: "", priority: "medium", type: "follow_up", supplierId: "", productId: "" });
   }
 
   function toggleSegmentCollapse(key: SegmentKey) {
@@ -237,6 +244,14 @@ export default function TasksPage() {
   const products = data.products;
   const openFiltered = filtered.filter((t) => t.status !== "done");
   const doneFiltered = filtered.filter((t) => t.status === "done");
+  const dueSummary = useMemo(() => {
+    return tasks.reduce((summary, task) => {
+      const state = getTaskDueState(task);
+      if (state === "overdue") summary.overdue += 1;
+      if (state === "due_today" || state === "due_soon") summary.soon += 1;
+      return summary;
+    }, { overdue: 0, soon: 0 });
+  }, [tasks]);
 
   return (
     <div className="space-y-5" data-version={version}>
@@ -248,6 +263,10 @@ export default function TasksPage() {
               ? <>待处理 <span className="font-semibold text-warning">{openFiltered.length}</span> 项 · 已完成 {doneFiltered.length} 项</>
               : "当前没有待办事项"}
           </p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {dueSummary.overdue > 0 ? <span className="rounded-full bg-danger-soft px-2.5 py-1 text-danger">已逾期 {dueSummary.overdue}</span> : null}
+            {dueSummary.soon > 0 ? <span className="rounded-full bg-warning-soft px-2.5 py-1 text-warning">即将到期 {dueSummary.soon}</span> : null}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -292,12 +311,16 @@ export default function TasksPage() {
                 <option value="medium">中优先级</option>
                 <option value="low">低优先级</option>
               </select>
-              <input
-                className="rounded-xl border border-line bg-white px-3 py-2 text-sm"
-                onChange={(e) => setCreateDraft({ ...createDraft, dueText: e.target.value })}
-                placeholder="截止时间，如：本周五"
-                value={createDraft.dueText}
-              />
+              <label className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-sm text-muted">
+                截止日期
+                <input
+                  aria-label="截止日期"
+                  className="text-ink outline-none"
+                  onChange={(e) => setCreateDraft({ ...createDraft, dueDate: e.target.value })}
+                  type="date"
+                  value={createDraft.dueDate}
+                />
+              </label>
               <select
                 className="rounded-xl border border-line bg-white px-3 py-2 text-sm"
                 onChange={(e) => setCreateDraft({ ...createDraft, type: e.target.value })}
@@ -629,9 +652,10 @@ function SegmentPanel(props: SegmentPanelProps) {
                       </select>
                       <input
                         className="rounded-md border border-line px-2 py-1.5 text-xs"
-                        onChange={(e) => setEditDraft({ ...editDraft, dueText: e.target.value })}
-                        placeholder="截止时间"
-                        value={editDraft.dueText || ""}
+                        aria-label="编辑截止日期"
+                        onChange={(e) => setEditDraft({ ...editDraft, dueDate: e.target.value })}
+                        type="date"
+                        value={editDraft.dueDate || ""}
                       />
                       <input
                         className="rounded-md border border-line px-2 py-1.5 text-xs"
@@ -662,7 +686,13 @@ function SegmentPanel(props: SegmentPanelProps) {
                           <span className={task.status === "done" ? "text-success" : "text-muted"}>
                             {task.status === "done" ? "已完成" : "待处理"}
                           </span>
-                          {task.dueText ? <span className="text-muted">{task.dueText}</span> : null}
+                          {task.dueDate ? <span className="text-muted">截止 {task.dueDate}</span> : task.dueText ? <span className="text-muted">{task.dueText}</span> : null}
+                          {(() => {
+                            const state = getTaskDueState(task);
+                            if (state === "none" || state === "normal") return null;
+                            const meta = dueStateMeta[state];
+                            return <span className={`rounded px-1.5 py-0.5 ${meta.className}`}>{meta.label}</span>;
+                          })()}
                           {task.type ? <span className="text-slate-500">{labelTaskType(task.type)}</span> : null}
                           {task.supplierName ? (
                             <Link className="text-action hover:underline flex items-center gap-0.5" href={`/suppliers/${task.supplierId}`}>

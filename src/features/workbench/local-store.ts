@@ -171,6 +171,8 @@ export type LocalTask = {
   productStage?: string;
   title: string;
   dueText?: string;
+  /** 标准截止日期，格式为 YYYY-MM-DD；旧待办继续使用 dueText。 */
+  dueDate?: string;
   priority: string;
   type?: string;
   status: "open" | "done";
