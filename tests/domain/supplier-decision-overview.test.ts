@@ -38,7 +38,7 @@ describe("supplier decision overview", () => {
     expect(rows[0].score).toBeUndefined();
   });
 
-  it("flags incomplete SKU coverage instead of recommending primary supply", () => {
+  it("keeps partial SKU coverage as reference without creating a supplier action", () => {
     const rows = buildSupplierDecisionOverviewRows(
       [{
         familyKey: "白板贴",
@@ -56,8 +56,8 @@ describe("supplier decision overview", () => {
       supplierName: "供应商甲",
       coveredSkuCount: 1,
       totalSkuCount: 2,
-      decision: "complete_coverage",
-      actionLabel: "补齐未覆盖 SKU",
+      decision: "maintain_primary",
+      actionLabel: "保持主供",
     })]);
   });
 

@@ -256,7 +256,6 @@ export function buildSupplierDecisionOverviewRows(
   return [...rows.values()]
     .map((row) => {
       const isUnconfirmed = row.supplierName === "供应商待确认";
-      const incompleteCoverage = row.skuIds.size < row.totalSkuCount;
       const familySkuIds = new Set(
         groups
           .filter((group) => row.productKeys.has(group.familyKey))
@@ -282,10 +281,8 @@ export function buildSupplierDecisionOverviewRows(
         ? "confirm_supplier"
         : row.splitProduct
           ? "review_split"
-          : incompleteCoverage
-            ? "complete_coverage"
-            : qualitySignal
-              ? "review_quality"
+          : qualitySignal
+            ? "review_quality"
             : "maintain_primary";
       const qualityEvidence = returnRate !== undefined ? ` · 退货率 ${returnRate}%（产品信号）` : "";
       return {
@@ -302,11 +299,9 @@ export function buildSupplierDecisionOverviewRows(
           ? "补充实际供应商"
           : row.splitProduct
             ? "复核主供/备供"
-            : incompleteCoverage
-              ? "补齐未覆盖 SKU"
-              : qualitySignal
-                ? "复核产品/供应商质量"
-                : "保持主供",
+            : qualitySignal
+              ? "复核产品/供应商质量"
+              : "保持主供",
         evidence: `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}${qualityEvidence}`,
       };
     })
