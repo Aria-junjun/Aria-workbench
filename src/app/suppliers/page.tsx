@@ -65,6 +65,9 @@ export default function SuppliersPage() {
   const decisionSnapshots = (data.monthlyInboundSnapshots ?? [])
     .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
     .map((snapshot) => ({ ...snapshot, period: "selected" }));
+  const decisionOperatingSnapshots = (data.skuOperatingSnapshots ?? [])
+    .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
+    .map((snapshot) => ({ ...snapshot, period: "selected" }));
   const autoEvidenceBySupplier = new Map(
     suppliers.map((supplier) => [supplier.id, buildSupplierAutoEvidence({
       supplierId: supplier.id,
@@ -116,7 +119,7 @@ export default function SuppliersPage() {
     decisionGroups,
     decisionSnapshots,
     "selected",
-    data.skuOperatingSnapshots ?? [],
+    decisionOperatingSnapshots,
   );
   const focusedDecisionRows = decisionFilter === "all"
     ? supplierDecisionRows

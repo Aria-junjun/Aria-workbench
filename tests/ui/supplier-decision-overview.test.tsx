@@ -22,6 +22,8 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain("退货率 = 实退数量 ÷ 实发数量");
     expect(source).toContain("评分仅作参考");
     expect(source).toContain("buildSupplierDecisionOverviewRows");
+    expect(source).toContain("decisionOperatingSnapshots");
+    expect(source).toContain("isInPeriod(snapshot.period, period, decisionAnchor)");
   });
 
   it("explains why the decision overview is empty instead of hiding the section", () => {
