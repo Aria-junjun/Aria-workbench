@@ -38,6 +38,7 @@ import {
   type ConfirmedInboundRow,
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
+import { getProductFamilyAttention } from "@/features/workbench/product-master-presentation";
 
 export default function ProductMasterPage() {
   const data = useWorkbenchData();
@@ -495,15 +496,20 @@ export default function ProductMasterPage() {
         />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
-          <table className="min-w-full text-left text-sm">
+          <table className="min-w-[1160px] w-full text-left text-sm">
             <thead className="bg-paper-warm text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3">产品</th>
+                <th className="w-[220px] px-4 py-3">产品 / SKU</th>
                 <th className="px-4 py-3">SKU数</th>
-                <th className="px-4 py-3">内部编码</th>
                 <th className="px-4 py-3">供应方案</th>
                 <th className="px-4 py-3">经营状态</th>
-                <th className="px-4 py-3">经营数据</th>
+                <th className="px-4 py-3">本月实发</th>
+                <th className="px-4 py-3">较上月</th>
+                <th className="px-4 py-3">实际入仓</th>
+                <th className="px-4 py-3">库存 / 可售</th>
+                <th className="px-4 py-3">退货率</th>
+                <th className="px-4 py-3">ERP成本</th>
+                <th className="px-4 py-3">关注提示</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -564,10 +570,17 @@ export default function ProductMasterPage() {
                   product?.id ?? group.familyKey,
                 );
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
+                const attention = getProductFamilyAttention({
+                  pendingSkuCount: plan.pendingSkuCount,
+                  returnRate: metricSummary.returnRate,
+                  currentSales: metricSummary.monthlySales,
+                  previousSales: comparison.previous.monthlySales,
+                  hasCurrentData: metricSummary.source !== "pending",
+                });
                 return (
                   <Fragment key={group.familyKey}>
-                    <tr className="hover:bg-paper-warm/50">
-                      <td className="px-4 py-3">
+                    <tr className="bg-white hover:bg-paper-warm/50">
+                      <td className="px-4 py-3 align-top">
                         <div className="flex items-center gap-2">
                           <button
                             aria-label={`${expanded ? "收起" : "展开"}${group.productName} SKU`}
@@ -599,15 +612,8 @@ export default function ProductMasterPage() {
                           {product?.category || "待补类目"}
                         </div>
                       </td>
-                      <td className="px-4 py-3">{productSkus.length}</td>
-                      <td className="max-w-56 px-4 py-3 text-xs text-slate-600">
-                        {productSkus
-                          .slice(0, 4)
-                          .map((sku) => sku.internalSkuCode)
-                          .join("、") || "待关联"}
-                        {productSkus.length > 4 ? "…" : ""}
-                      </td>
-                      <td className="px-4 py-3 text-xs">
+                      <td className="px-4 py-3 align-top font-medium">{productSkus.length}</td>
+                      <td className="px-4 py-3 align-top text-xs">
                         主供 {plan.primarySuppliers.length} · 备供{" "}
                         {plan.backupSuppliers.length}
                         <MissingSupplyLink
@@ -622,7 +628,7 @@ export default function ProductMasterPage() {
                           {inboundSupplierSummary.isSplit ? "（供应商分拆）" : ""}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         {product?.portfolioStatus === "active"
                           ? "继续经营"
                           : product?.portfolioStatus === "optimize"
@@ -631,130 +637,71 @@ export default function ProductMasterPage() {
                               ? "淘汰"
                               : "观察"}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
-                        {metricSummary.source === "pending"
-                          ? "待采集"
-                          : `实发数量 ${metricSummary.monthlySales ?? 0}`}
-                        <div className="mt-1">
-                          {metricSummary.erpCostPrice != null
-                            ? `ERP成本基准 ${metricSummary.erpCostPrice}`
-                            : "ERP成本待采集"}
-                        </div>
-                        <div className="mt-1">{hasInboundPeriodData ? `实际入仓 ${inboundSummary.receivedQuantity}` : "实际入仓待采集"}</div>
-                        <div className="mt-1">
-                          {inboundSummary.actualStock != null
-                            ? `实际库存 ${inboundSummary.actualStock}`
-                            : "实际库存待采集"}
-                          {inboundSummary.availableStock != null
-                            ? ` · 可售 ${inboundSummary.availableStock}`
-                            : " · 可售待采集"}
-                        </div>
-                        <div className="mt-1">
-                          {metricSummary.returnRate != null
-                            ? `退货率 ${metricSummary.returnRate}%`
-                            : "退货率待采集"}
-                        </div>
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          来源：
-                          {metricSummary.source === "pending"
-                            ? "待录入"
-                            : "聚水潭月度表"}
-                        </div>
-                        {comparison.delta.monthlySales != null ? (
-                          <div
-                            className={`mt-1 text-[11px] ${comparison.delta.monthlySales >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                          >
-                            较上月实发数量{" "}
-                            {comparison.delta.monthlySales >= 0 ? "+" : ""}
-                            {comparison.delta.monthlySales}
-                          </div>
-                        ) : null}
+                      <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.monthlySales ?? "待采集"}</td>
+                      <td className={`px-4 py-3 align-top text-xs font-medium ${comparison.delta.monthlySales != null && comparison.delta.monthlySales < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                        {comparison.delta.monthlySales == null ? "—" : `${comparison.delta.monthlySales >= 0 ? "+" : ""}${comparison.delta.monthlySales}`}
+                      </td>
+                      <td className="px-4 py-3 align-top text-xs text-slate-700">{hasInboundPeriodData ? inboundSummary.receivedQuantity : "待采集"}</td>
+                      <td className="px-4 py-3 align-top text-xs text-slate-500">
+                        {inboundSummary.actualStock != null ? inboundSummary.actualStock : "待采集"}
+                        <span className="text-slate-400"> / </span>
+                        {inboundSummary.availableStock != null ? inboundSummary.availableStock : "待采集"}
+                      </td>
+                      <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.returnRate != null ? `${metricSummary.returnRate}%` : "待采集"}</td>
+                      <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.erpCostPrice != null ? metricSummary.erpCostPrice : "待采集"}</td>
+                      <td className="px-4 py-3 align-top text-xs">
+                        <div className={attention[0] === "当前无明显异常" ? "text-slate-500" : "font-medium text-amber-700"}>{attention[0]}</div>
+                        {attention[1] ? <div className="mt-1 text-slate-500">{attention[1]}</div> : null}
                       </td>
                     </tr>
                     {expanded ? (
-                      <tr className="bg-paper-warm/30">
-                        <td className="px-4 py-3" colSpan={6}>
-                          <div className="mb-2 text-xs text-slate-500">
-                            录入 {selectedPeriod}
-                            ；主销售量按实发数量，聚水潭导入数据保存为历史快照，产品主表不做财务利润核算。
-                          </div>
-                          <div className="space-y-2">
-                            {productSkus.map((sku) => {
-                              const draft = draftFor(sku);
-                              return (
-                                <div
-                                  className="rounded border border-line bg-white px-3 py-2"
-                                  key={sku.id}
-                                >
-                                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                                    <span className="font-medium text-slate-800">
-                                      {sku.internalSkuCode}
-                                    </span>
-                                    <span className="text-slate-500">
-                                      {sku.specification || "规格待补"}
-                                    </span>
-                                  </div>
-                                  <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                                    <SkuMetricInput
-                                      label="实发数量"
-                                      value={draft.monthlySales}
-                                      onChange={(value) =>
-                                        updateDraft(
-                                          sku.id,
-                                          "monthlySales",
-                                          value,
-                                        )
-                                      }
-                                    />
-                                    <SkuMetricInput
-                                      label="净销售额（参考）"
-                                      value={draft.salesAmount}
-                                      onChange={(value) =>
-                                        updateDraft(
-                                          sku.id,
-                                          "salesAmount",
-                                          value,
-                                        )
-                                      }
-                                    />
-                                    <SkuMetricInput
-                                      label="ERP成本价"
-                                      value={draft.erpCostPrice}
-                                      onChange={(value) =>
-                                        updateDraft(
-                                          sku.id,
-                                          "erpCostPrice",
-                                          value,
-                                        )
-                                      }
-                                    />
-                                    <SkuMetricInput
-                                      label="实退数量"
-                                      value={draft.returnQuantity}
-                                      onChange={(value) =>
-                                        updateDraft(
-                                          sku.id,
-                                          "returnQuantity",
-                                          value,
-                                        )
-                                      }
-                                    />
-                                    <SkuMetricInput
-                                      label="退货率%"
-                                      value={draft.returnRate}
-                                      onChange={(value) =>
-                                        updateDraft(sku.id, "returnRate", value)
-                                      }
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <SkuCompositionPanel
-                            salesSkuCodes={productSkus.map((sku) => sku.internalSkuCode)}
-                            compositions={data.skuCompositions ?? []}
-                          />
+                      <tr className="bg-paper-warm/30 text-xs">
+                        <td className="px-4 py-2 text-slate-500" colSpan={11}>
+                          统计月份：{selectedPeriod}；主销售量按实发数量，历史数据保留为月度快照。
+                        </td>
+                      </tr>
+                    ) : null}
+                    {expanded ? productSkus.map((sku) => {
+                      const draft = draftFor(sku);
+                      const previous = snapshotFor(sku.id, previousPeriod);
+                      const skuInboundSummary = buildProductInboundSummary([sku], data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
+                      const skuHasInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === selectedPeriod);
+                      const skuSupplierSummary = buildProductInboundSupplierSummary([sku], data.monthlyInboundSnapshots ?? [], selectedPeriod);
+                      const skuAttention = getProductFamilyAttention({
+                        pendingSkuCount: 0,
+                        returnRate: draft.returnRate,
+                        currentSales: draft.monthlySales,
+                        previousSales: previous?.monthlySales,
+                        hasCurrentData: draft.monthlySales !== undefined,
+                      });
+                      const skuDelta = draft.monthlySales != null && previous?.monthlySales != null ? draft.monthlySales - previous.monthlySales : undefined;
+                      return (
+                        <tr className="bg-paper-warm/20 align-top text-xs" key={sku.id}>
+                          <td className="px-4 py-2 pl-10">
+                            <div className="font-medium text-slate-800">{sku.internalSkuCode}</div>
+                            <div className="mt-0.5 text-slate-500">{sku.specification || "规格待补"}</div>
+                          </td>
+                          <td className="px-4 py-2 text-slate-400">—</td>
+                          <td className="px-4 py-2 text-slate-500">
+                            {skuSupplierSummary.suppliers.length ? skuSupplierSummary.suppliers.map((item) => item.supplierName).join("、") : "待采集"}
+                          </td>
+                          <td className="px-4 py-2 text-slate-400">—</td>
+                          <td className="px-4 py-2">
+                            <CompactMetricInput ariaLabel={`${sku.internalSkuCode} 实发数量`} value={draft.monthlySales} onChange={(value) => updateDraft(sku.id, "monthlySales", value)} />
+                          </td>
+                          <td className={`px-4 py-2 font-medium ${skuDelta != null && skuDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{skuDelta == null ? "—" : `${skuDelta >= 0 ? "+" : ""}${skuDelta}`}</td>
+                          <td className="px-4 py-2 text-slate-700">{skuHasInbound ? skuInboundSummary.receivedQuantity : "待采集"}</td>
+                          <td className="px-4 py-2 text-slate-500">{skuInboundSummary.actualStock ?? "待采集"} / {skuInboundSummary.availableStock ?? "待采集"}</td>
+                          <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} 退货率`} suffix="%" value={draft.returnRate} onChange={(value) => updateDraft(sku.id, "returnRate", value)} /></td>
+                          <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} ERP成本`} value={draft.erpCostPrice} onChange={(value) => updateDraft(sku.id, "erpCostPrice", value)} /></td>
+                          <td className="px-4 py-2"><span className={skuAttention[0] === "当前无明显异常" ? "text-slate-400" : "text-amber-700"}>{skuAttention[0]}</span></td>
+                        </tr>
+                      );
+                    }) : null}
+                    {expanded ? (
+                      <tr className="bg-paper-warm/20">
+                        <td className="px-4 py-2" colSpan={11}>
+                          <SkuCompositionPanel salesSkuCodes={productSkus.map((sku) => sku.internalSkuCode)} compositions={data.skuCompositions ?? []} />
                         </td>
                       </tr>
                     ) : null}
@@ -820,20 +767,22 @@ function MissingSupplyLink({
   );
 }
 
-function SkuMetricInput({
-  label,
+function CompactMetricInput({
+  ariaLabel,
   value,
+  suffix,
   onChange,
 }: {
-  label: string;
+  ariaLabel: string;
   value?: number;
+  suffix?: string;
   onChange: (value?: number) => void;
 }) {
   return (
-    <label className="text-[11px] text-slate-500">
-      {label}
+    <label className="inline-flex items-center gap-1 text-xs text-slate-700">
       <input
-        className="mt-1 w-full rounded border border-line px-2 py-1 text-xs text-slate-800"
+        aria-label={ariaLabel}
+        className="w-20 rounded border border-line bg-white px-2 py-1 text-xs text-slate-800"
         min="0"
         onChange={(event) =>
           onChange(
@@ -843,6 +792,7 @@ function SkuMetricInput({
         type="number"
         value={value ?? ""}
       />
+      {suffix ? <span className="text-slate-500">{suffix}</span> : null}
     </label>
   );
 }
