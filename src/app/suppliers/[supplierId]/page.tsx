@@ -153,7 +153,15 @@ export default function SupplierDetailPage() {
   const latestEval = evaluations.length > 0 ? evaluations[evaluations.length - 1] : undefined;
   const businessModel = supplier.businessModel ?? "inbound";
   const manualDeductions = supplier.manualDeductions ?? [];
-  const scoreBreakdown = latestEval ? getScoreBreakdown(latestEval.rawMetrics, businessModel, manualDeductions) : null;
+  const hasEvaluationEvidence = Boolean(
+    latestEval && (
+      Object.values(latestEval.rawMetrics ?? {}).some((value) => typeof value === "number" && Number.isFinite(value)) ||
+      manualDeductions.length > 0
+    ),
+  );
+  const scoreBreakdown = latestEval && hasEvaluationEvidence
+    ? getScoreBreakdown(latestEval.rawMetrics, businessModel, manualDeductions)
+    : null;
 
   const typeLabel = labelSupplierType(supplier.supplierType);
   const typeColor = supplier.supplierType === "factory" ? "text-success" : supplier.supplierType === "trader" ? "text-warning" : "text-muted";
@@ -289,11 +297,10 @@ export default function SupplierDetailPage() {
             <div className="flex items-center gap-3">
               {latestEval && scoreBreakdown ? (
                 <GradeCircle grade={scoreBreakdown.grade} score={scoreBreakdown.total} />
-              ) : latestEval ? (
-                <GradeCircle grade={latestEval.scores.grade} score={latestEval.scores.total} />
               ) : (
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-line bg-paper-warm">
+                <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-2 border-line bg-paper-warm">
                   <Building2 className="h-6 w-6 text-muted-light" />
+                  <span className="mt-0.5 text-[9px] text-muted">未评估</span>
                 </div>
               )}
               <div>
@@ -1940,7 +1947,9 @@ function CostReductionTab({ costReductionRecords, offers }: {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium">{o.name}</div>
-                    <div className="text-xs text-muted">{o.productName || "未关联产品"} · {o.category || "未分类"}</div>
+                    <div className={o.productId ? "text-xs text-muted" : "text-xs font-medium text-warning"}>
+                      {o.productName ? o.productName : "未关联产品 · 去规格关联"} · {o.category || "未分类"}
+                    </div>
                   </div>
                   <div className="text-right">
                     {o.quotedPrice ? <div className="text-sm font-bold">{o.quotedPrice}</div> : null}
