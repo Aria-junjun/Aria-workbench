@@ -387,6 +387,20 @@ export type LocalSkuOfferLink = {
 
 export type SupplierOfferDecisionStatus = "unreviewed" | "candidate" | "primary" | "backup" | "not_selected" | "rejected";
 
+export type SupplierDecisionAction = "maintain_primary" | "review_split" | "review_quality" | "confirm_supplier";
+
+export type LocalSupplierDecisionRecord = {
+  id: string;
+  supplierId: string;
+  period: string;
+  action: SupplierDecisionAction;
+  reason?: string;
+  evidence?: string;
+  status: "open" | "completed";
+  createdAt: string;
+  completedAt?: string;
+};
+
 export type LocalSupplierOfferDecision = {
   id: string;
   productId: string;
@@ -421,6 +435,7 @@ export type LocalWorkbenchData = {
   skuOfferLinks?: LocalSkuOfferLink[];
   supplierOfferDecisions?: LocalSupplierOfferDecision[];
   supplierOfferDecisionHistory?: LocalSupplierOfferDecision[];
+  supplierDecisionRecords?: LocalSupplierDecisionRecord[];
 };
 
 export type LocalCollectionName = "suppliers" | "communications" | "offers" | "products" | "tasks" | "knowledgeCards" | "knowledgeBooks" | "decisionTools" | "knowledgeApplications" | "decisionCases" | "researchReports";
@@ -2071,6 +2086,31 @@ export function saveSupplierOfferDecision(input: Omit<LocalSupplierOfferDecision
   return nextDecision;
 }
 
+export function saveSupplierDecisionRecord(input: Omit<LocalSupplierDecisionRecord, "id" | "createdAt" | "status" | "completedAt"> & { id?: string }) {
+  const current = loadLocalWorkbenchData();
+  const record: LocalSupplierDecisionRecord = {
+    ...input,
+    id: input.id ?? `supplier-decision-record-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    status: "open",
+    createdAt: new Date().toISOString(),
+  };
+  saveLocalWorkbenchData({
+    ...current,
+    supplierDecisionRecords: [record, ...(current.supplierDecisionRecords ?? [])],
+  });
+  return record;
+}
+
+export function completeSupplierDecisionRecord(recordId: string) {
+  const current = loadLocalWorkbenchData();
+  saveLocalWorkbenchData({
+    ...current,
+    supplierDecisionRecords: (current.supplierDecisionRecords ?? []).map((record) => record.id === recordId
+      ? { ...record, status: "completed" as const, completedAt: new Date().toISOString() }
+      : record),
+  });
+}
+
 function emptyData(): LocalWorkbenchData {
   return {
     suppliers: [],
@@ -2091,7 +2131,8 @@ function emptyData(): LocalWorkbenchData {
     skuSupplierAssignments: [],
     skuOfferLinks: [],
     supplierOfferDecisions: [],
-    supplierOfferDecisionHistory: []
+    supplierOfferDecisionHistory: [],
+    supplierDecisionRecords: [],
   };
 }
 
@@ -2223,7 +2264,8 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],
-    supplierOfferDecisionHistory: Array.isArray(data.supplierOfferDecisionHistory) ? data.supplierOfferDecisionHistory : []
+    supplierOfferDecisionHistory: Array.isArray(data.supplierOfferDecisionHistory) ? data.supplierOfferDecisionHistory : [],
+    supplierDecisionRecords: Array.isArray(data.supplierDecisionRecords) ? data.supplierDecisionRecords : [],
   };
 }
 

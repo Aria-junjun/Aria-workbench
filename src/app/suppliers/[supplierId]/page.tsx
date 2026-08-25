@@ -14,12 +14,16 @@ import {
   addManualDeduction,
   updateManualDeduction,
   deleteManualDeduction,
+  saveSupplierDecisionRecord,
+  completeSupplierDecisionRecord,
   type LocalSupplier,
   type LocalOffer,
   type LocalCommunication,
   type LocalTask,
   type LocalProductKnowledge,
   type ChatAnalyzeResult,
+  type SupplierDecisionAction,
+  type LocalSupplierDecisionRecord,
 } from "@/features/workbench/local-store";
 import {
   getScoreBreakdown,
@@ -77,6 +81,7 @@ export default function SupplierDetailPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<LocalSupplier | undefined>(supplier);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [decisionVersion, setDecisionVersion] = useState(0);
 
   // 聊天快速评估 state
   const [showChatEval, setShowChatEval] = useState(false);
@@ -124,6 +129,16 @@ export default function SupplierDetailPage() {
     return result;
   }, []);
   const actualInboundTotal = actualInboundProducts.reduce((sum, item) => sum + item.receivedQuantity, 0);
+  const decisionRecords = (data.supplierDecisionRecords ?? [])
+    .filter((record) => record.supplierId === supplierId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const latestInboundSkuIds = new Set(latestInbound.map((row) => row.skuMasterId));
+  const latestOperatingRows = latestInboundPeriod
+    ? (data.skuOperatingSnapshots ?? []).filter((row) => latestInboundSkuIds.has(row.skuMasterId) && row.period === latestInboundPeriod)
+    : [];
+  const shippedQuantity = latestOperatingRows.reduce((sum, row) => sum + (row.shippedQuantity ?? row.monthlySales ?? 0), 0);
+  const returnQuantity = latestOperatingRows.reduce((sum, row) => sum + (row.returnQuantity ?? 0), 0);
+  const productReturnRate = shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
   // 通过货盘桥接的产品
   const linkedProducts = offers
     .filter((o) => o.productId)
@@ -154,6 +169,28 @@ export default function SupplierDetailPage() {
     if (!window.confirm("确认删除这个供应商吗？")) return;
     deleteLocalItem("suppliers", draft.id);
     router.push("/suppliers");
+  }
+
+  function recordDecision(action: SupplierDecisionAction) {
+    const labels: Record<SupplierDecisionAction, string> = {
+      maintain_primary: "保持主供",
+      review_split: "调整主/备供",
+      review_quality: "发起质量复核",
+      confirm_supplier: "补充供应商归属",
+    };
+    saveSupplierDecisionRecord({
+      supplierId,
+      period: latestInboundPeriod ?? defaultPeriod(),
+      action,
+      reason: labels[action],
+      evidence: `实际入仓 ${actualInboundTotal} · ${actualInboundProducts.length} 个 SKU${productReturnRate !== undefined ? ` · 产品退货率 ${productReturnRate}%` : ""}`,
+    });
+    setDecisionVersion((value) => value + 1);
+  }
+
+  function completeDecision(recordId: string) {
+    completeSupplierDecisionRecord(recordId);
+    setDecisionVersion((value) => value + 1);
   }
 
   function handleAnalyzeChat() {
@@ -191,7 +228,7 @@ export default function SupplierDetailPage() {
   const costReductionRecords = supplier.costReductionRecords ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-decision-version={decisionVersion}>
       {/* 返回导航 */}
       <Link className="inline-flex items-center gap-1 text-sm text-muted hover:text-ink" href="/suppliers">
         <ChevronRight className="h-4 w-4 rotate-180" />
@@ -353,6 +390,16 @@ export default function SupplierDetailPage() {
         </section>
       ) : null}
 
+      <SupplierDecisionLoop
+        records={decisionRecords}
+        period={latestInboundPeriod}
+        inboundTotal={actualInboundTotal}
+        inboundSkuCount={actualInboundProducts.length}
+        returnRate={productReturnRate}
+        onRecordDecision={recordDecision}
+        onCompleteDecision={completeDecision}
+      />
+
       {/* Tab 导航 - 扁平下划线式 */}
       <div className="flex items-center gap-0 border-b border-line">
         <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="评估详情" />
@@ -426,6 +473,78 @@ function TabButton({ tab, activeTab, onClick, label, count }: {
         <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-action" />
       ) : null}
     </button>
+  );
+}
+
+function SupplierDecisionLoop({ records, period, inboundTotal, inboundSkuCount, returnRate, onRecordDecision, onCompleteDecision }: {
+  records: LocalSupplierDecisionRecord[];
+  period?: string;
+  inboundTotal: number;
+  inboundSkuCount: number;
+  returnRate?: number;
+  onRecordDecision: (action: SupplierDecisionAction) => void;
+  onCompleteDecision: (recordId: string) => void;
+}) {
+  const labels: Record<SupplierDecisionAction, string> = {
+    maintain_primary: "保持主供",
+    review_split: "调整主/备供",
+    review_quality: "发起质量复核",
+    confirm_supplier: "补充供应商归属",
+  };
+
+  return (
+    <section className="space-y-4 border border-line bg-white p-5 shadow-sm">
+      <div>
+        <h2 className="text-sm font-semibold">供应商决策闭环</h2>
+        <p className="mt-1 text-xs text-muted">先看实际供货证据，再记录供应商动作；SKU覆盖仅作为参考，不自动生成待办。</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-4">
+        <DecisionEvidence label="统计周期" value={period ?? "未采集"} />
+        <DecisionEvidence label="本周期实际入仓" value={inboundTotal ? String(inboundTotal) : "未采集"} />
+        <DecisionEvidence label="实际供货 SKU" value={inboundSkuCount ? String(inboundSkuCount) + " 个" : "未采集"} />
+        <DecisionEvidence label="产品质量信号" value={returnRate !== undefined ? "退货率 " + String(returnRate) + "%" : "未采集"} danger={returnRate !== undefined && returnRate >= 5} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-line-soft pt-4">
+        <span className="mr-1 text-xs text-muted">记录决策：</span>
+        {(["maintain_primary", "review_split", "review_quality"] as SupplierDecisionAction[]).map((action) => (
+          <button
+            key={action}
+            className="border border-line px-3 py-1.5 text-xs font-medium text-ink hover:border-action hover:text-action"
+            onClick={() => onRecordDecision(action)}
+            type="button"
+          >
+            {labels[action]}
+          </button>
+        ))}
+      </div>
+      {records.length > 0 ? (
+        <div className="border-t border-line-soft pt-3">
+          <div className="mb-2 text-xs font-medium text-muted">决策历史</div>
+          <div className="space-y-2">
+            {records.slice(0, 5).map((record) => (
+              <div key={record.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="font-medium text-ink">{labels[record.action]}</span>
+                  <span className="ml-2 text-muted">{record.period} · {record.evidence || "无附加证据"}</span>
+                </div>
+                {record.status === "open" ? (
+                  <button className="text-action hover:underline" onClick={() => onCompleteDecision(record.id)} type="button">标记已处理</button>
+                ) : <span className="text-success">已处理</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function DecisionEvidence({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div>
+      <div className="text-xs text-muted">{label}</div>
+      <div className={danger ? "mt-1 text-sm font-medium text-danger" : "mt-1 text-sm font-medium text-ink"}>{value}</div>
+    </div>
   );
 }
 

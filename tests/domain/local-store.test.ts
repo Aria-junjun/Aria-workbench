@@ -24,6 +24,8 @@ import {
   saveMonthlyInboundSnapshots,
   archiveSkuMaster,
   saveSupplierOfferDecision,
+  saveSupplierDecisionRecord,
+  completeSupplierDecisionRecord,
   updateLocalItem,
   type LocalWorkbenchData,
   type LocalSupplier
@@ -158,6 +160,33 @@ describe("local-store operations", () => {
     expect(saved.supplierOfferDecisions?.[0].status).toBe("primary");
     expect(saved.supplierOfferDecisionHistory).toHaveLength(2);
     expect(saved.supplierOfferDecisionHistory?.map((item) => item.status)).toEqual(["candidate", "primary"]);
+  });
+
+  it("stores and completes a supplier decision record without changing source evidence", () => {
+    saveLocalWorkbenchData(sampleData());
+
+    const record = saveSupplierDecisionRecord({
+      supplierId: "supplier-1",
+      period: "2026-Q3",
+      action: "review_split",
+      reason: "同一产品族存在多个实际供货供应商",
+      evidence: "7月实际入仓记录",
+    });
+
+    expect(loadLocalWorkbenchData().supplierDecisionRecords).toEqual([expect.objectContaining({
+      id: record.id,
+      supplierId: "supplier-1",
+      action: "review_split",
+      status: "open",
+    })]);
+
+    completeSupplierDecisionRecord(record.id);
+
+    expect(loadLocalWorkbenchData().supplierDecisionRecords?.[0]).toMatchObject({
+      id: record.id,
+      status: "completed",
+    });
+    expect(loadLocalWorkbenchData().monthlyInboundSnapshots).toEqual(sampleData().monthlyInboundSnapshots ?? []);
   });
 
   it("normalizes legacy product backups before saving and exporting", () => {
