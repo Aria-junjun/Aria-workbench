@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, Pin, PinOff, Pencil, Plus, Trash2, X, AlertCircle, Lightbulb, Package, Truck, CheckSquare } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { applyTaskReviewToProduct, includesQuery, saveLocalWorkbenchData, type LocalTask } from "@/features/workbench/local-store";
@@ -50,6 +50,7 @@ function classifyTaskSegment(task: LocalTask): SegmentKey {
 export default function TasksPage() {
   const [query, setQuery] = useState("");
   const [version, setVersion] = useState(0);
+  const [dateTick, setDateTick] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<LocalTask>>({});
   const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -72,6 +73,16 @@ export default function TasksPage() {
 
   const data = useWorkbenchData();
   const tasks = data.tasks;
+
+  useEffect(() => {
+    const refreshDueStates = () => setDateTick((current) => current + 1);
+    window.addEventListener("focus", refreshDueStates);
+    document.addEventListener("visibilitychange", refreshDueStates);
+    return () => {
+      window.removeEventListener("focus", refreshDueStates);
+      document.removeEventListener("visibilitychange", refreshDueStates);
+    };
+  }, []);
   const suppliers = useMemo(() => {
     const map = new Map<string, string>();
     tasks.forEach((t) => { if (t.supplierId && t.supplierName) map.set(t.supplierId, t.supplierName); });
@@ -80,7 +91,7 @@ export default function TasksPage() {
 
   const filtered = useMemo(() => {
     let result = tasks.filter((task) => {
-      const matchesQuery = includesQuery([task.title, task.dueText, task.priority, task.type, task.status, task.productName, task.productStage], query);
+      const matchesQuery = includesQuery([task.title, task.dueDate, task.dueText, task.priority, task.type, task.status, task.productName, task.productStage], query);
       const matchesSupplier = !filterSupplier || task.supplierId === filterSupplier;
       const matchesStatus = filterStatus === "all" || task.status === filterStatus;
       return matchesQuery && matchesSupplier && matchesStatus;
@@ -251,7 +262,7 @@ export default function TasksPage() {
       if (state === "due_today" || state === "due_soon") summary.soon += 1;
       return summary;
     }, { overdue: 0, soon: 0 });
-  }, [tasks]);
+  }, [tasks, dateTick]);
 
   return (
     <div className="space-y-5" data-version={version}>
@@ -461,7 +472,7 @@ export default function TasksPage() {
                             <span className={`h-1.5 w-1.5 rounded-full ${task.priority === "high" ? "bg-danger" : task.priority === "medium" ? "bg-warning" : "bg-muted-light"}`} />
                             <span className="text-ink truncate flex-1">{task.title}</span>
                             {task.productName && <span className="text-[10px] text-muted-light">· {task.productName}</span>}
-                            {task.dueText && <span className="text-[10px] text-muted-light">· {task.dueText}</span>}
+                            {(task.dueDate || task.dueText) && <span className="text-[10px] text-muted-light">· {task.dueDate || task.dueText}</span>}
                           </div>
                         </div>
                       ))}
