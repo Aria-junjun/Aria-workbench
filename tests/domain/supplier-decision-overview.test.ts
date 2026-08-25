@@ -60,4 +60,25 @@ describe("supplier decision overview", () => {
       actionLabel: "补齐未覆盖 SKU",
     })]);
   });
+
+  it("carries product return signals into supplier decisions without treating them as direct attribution", () => {
+    const rows = buildSupplierDecisionOverviewRows(
+      [{
+        familyKey: "白板贴",
+        productName: "白板贴",
+        skus: [{ id: "sku-a", internalSkuCode: "Y-01", productName: "白板贴60*2", specification: "60*2" }],
+      }],
+      [{ skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 100, supplierId: "s1", supplierName: "供应商甲" }],
+      "2026-07",
+      [{ skuMasterId: "sku-a", period: "2026-07", shippedQuantity: 100, returnQuantity: 6 }],
+    );
+
+    expect(rows[0]).toMatchObject({
+      supplierName: "供应商甲",
+      returnRate: 6,
+      decision: "review_quality",
+      actionLabel: "复核产品/供应商质量",
+    });
+    expect(rows[0].evidence).toContain("退货率 6%");
+  });
 });

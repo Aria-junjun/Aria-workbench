@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 
 type Period = "month" | "quarter" | "year";
-type DecisionFilter = "all" | "maintain_primary" | "review_split" | "complete_coverage" | "confirm_supplier";
+type DecisionFilter = "all" | "maintain_primary" | "review_split" | "complete_coverage" | "confirm_supplier" | "review_quality";
 const SUPPLIER_PAGE_SIZE = 10;
 
 export default function SuppliersPage() {
@@ -116,6 +116,7 @@ export default function SuppliersPage() {
     decisionGroups,
     decisionSnapshots,
     "selected",
+    data.skuOperatingSnapshots ?? [],
   );
   const focusedDecisionRows = decisionFilter === "all"
     ? supplierDecisionRows
@@ -223,6 +224,7 @@ export default function SuppliersPage() {
               <DecisionPill active={decisionFilter === "review_split"} label="复核分拆" value={supplierDecisionRows.filter((row) => row.decision === "review_split").length} tone="warning" onClick={() => setDecisionFilter("review_split")} />
               <DecisionPill active={decisionFilter === "complete_coverage"} label="补齐未覆盖 SKU" value={supplierDecisionRows.filter((row) => row.decision === "complete_coverage").length} tone="warning" onClick={() => setDecisionFilter("complete_coverage")} />
               <DecisionPill active={decisionFilter === "confirm_supplier"} label="待确认供应商" value={supplierDecisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="danger" onClick={() => setDecisionFilter("confirm_supplier")} />
+              <DecisionPill active={decisionFilter === "review_quality"} label="复核质量信号" value={supplierDecisionRows.filter((row) => row.decision === "review_quality").length} tone="warning" onClick={() => setDecisionFilter("review_quality")} />
             </div> : null}
           </div>
           {supplierDecisionRows.length === 0 ? (
@@ -250,6 +252,7 @@ export default function SuppliersPage() {
                   <th className="px-4 py-2 text-left font-medium">实际供货产品</th>
                   <th className="px-4 py-2 text-center font-medium">SKU覆盖</th>
                   <th className="px-4 py-2 text-right font-medium">{periodMetricLabel(period)}实际入仓</th>
+                  <th className="px-4 py-2 text-center font-medium">产品退货信号</th>
                   <th className="px-4 py-2 text-left font-medium">证据</th>
                   <th className="py-2 pl-4 text-left font-medium">下一步</th>
                 </tr>
@@ -263,6 +266,9 @@ export default function SuppliersPage() {
                     <td className="px-4 py-3 text-slate-600">{row.productNames.join("、")}</td>
                     <td className="px-4 py-3 text-center text-slate-600">{row.coveredSkuCount}/{row.totalSkuCount}</td>
                     <td className="px-4 py-3 text-right text-slate-600">{row.receivedQuantity || "-"}</td>
+                    <td className={`px-4 py-3 text-center ${row.returnRate !== undefined && row.returnRate >= 5 ? "text-danger" : "text-muted"}`}>
+                      {row.returnRate !== undefined ? `${row.returnRate}%` : "未采集"}
+                    </td>
                     <td className="px-4 py-3 text-xs text-muted">{row.evidence}</td>
                     <td className="py-3 pl-4">
                       <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.decision === "complete_coverage" ? "/sku-master/import" : row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据">
@@ -273,7 +279,7 @@ export default function SuppliersPage() {
                 ))}
                 {focusedDecisionRows.length === 0 ? (
                   <tr>
-                    <td className="py-6 text-center text-xs text-muted" colSpan={6}>当前周期没有需要处理的项目。</td>
+                    <td className="py-6 text-center text-xs text-muted" colSpan={7}>当前周期没有需要处理的项目。</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -596,6 +602,7 @@ function decisionFilterLabel(filter: Exclude<DecisionFilter, "all">) {
   if (filter === "maintain_primary") return "保持主供";
   if (filter === "review_split") return "复核分拆";
   if (filter === "complete_coverage") return "补齐未覆盖 SKU";
+  if (filter === "review_quality") return "复核质量信号";
   return "待确认供应商";
 }
 

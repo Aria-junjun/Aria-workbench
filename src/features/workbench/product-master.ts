@@ -199,7 +199,8 @@ export type SupplierDecisionOverviewRow = {
   coveredSkuCount: number;
   totalSkuCount: number;
   receivedQuantity: number;
-  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier" | "complete_coverage">;
+  returnRate?: number;
+  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier" | "complete_coverage" | "review_quality">;
   actionLabel: string;
   evidence: string;
   score?: number;
@@ -209,6 +210,8 @@ export function buildSupplierDecisionOverviewRows(
   groups: ProductSupplierDecisionGroupInput[],
   inboundSnapshots: InboundSupplierForSummary[],
   period: string,
+  operatingSnapshots: OperatingDecisionSnapshot[] = [],
+  qualityReviewRate = 5,
 ): SupplierDecisionOverviewRow[] {
   const rows = new Map<string, {
     supplierId?: string;
@@ -254,13 +257,37 @@ export function buildSupplierDecisionOverviewRows(
     .map((row) => {
       const isUnconfirmed = row.supplierName === "供应商待确认";
       const incompleteCoverage = row.skuIds.size < row.totalSkuCount;
+      const familySkuIds = new Set(
+        groups
+          .filter((group) => row.productKeys.has(group.familyKey))
+          .flatMap((group) => group.skus.map((sku) => sku.id)),
+      );
+      const familyOperating = operatingSnapshots.filter(
+        (snapshot) => familySkuIds.has(snapshot.skuMasterId) && snapshot.period === period,
+      );
+      const shippedQuantity = familyOperating.reduce(
+        (total, snapshot) => total + (snapshot.shippedQuantity ?? snapshot.monthlySales ?? 0),
+        0,
+      );
+      const returnQuantity = familyOperating.reduce(
+        (total, snapshot) => total + (snapshot.returnQuantity ?? 0),
+        0,
+      );
+      const hasReturnQuantity = familyOperating.some((snapshot) => snapshot.returnQuantity !== undefined);
+      const returnRate = hasReturnQuantity && shippedQuantity > 0
+        ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2))
+        : undefined;
+      const qualitySignal = returnRate !== undefined && returnRate >= qualityReviewRate;
       const decision: SupplierDecisionOverviewRow["decision"] = isUnconfirmed
         ? "confirm_supplier"
         : row.splitProduct
           ? "review_split"
           : incompleteCoverage
             ? "complete_coverage"
+            : qualitySignal
+              ? "review_quality"
             : "maintain_primary";
+      const qualityEvidence = returnRate !== undefined ? ` · 退货率 ${returnRate}%（产品信号）` : "";
       return {
         ...(row.supplierId ? { supplierId: row.supplierId } : {}),
         supplierName: row.supplierName,
@@ -269,6 +296,7 @@ export function buildSupplierDecisionOverviewRows(
         coveredSkuCount: row.skuIds.size,
         totalSkuCount: row.totalSkuCount,
         receivedQuantity: row.receivedQuantity,
+        ...(returnRate !== undefined ? { returnRate } : {}),
         decision,
         actionLabel: isUnconfirmed
           ? "补充实际供应商"
@@ -276,8 +304,10 @@ export function buildSupplierDecisionOverviewRows(
             ? "复核主供/备供"
             : incompleteCoverage
               ? "补齐未覆盖 SKU"
-              : "保持主供",
-        evidence: `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}`,
+              : qualitySignal
+                ? "复核产品/供应商质量"
+                : "保持主供",
+        evidence: `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}${qualityEvidence}`,
       };
     })
     .sort((left, right) => right.receivedQuantity - left.receivedQuantity || left.supplierName.localeCompare(right.supplierName));
