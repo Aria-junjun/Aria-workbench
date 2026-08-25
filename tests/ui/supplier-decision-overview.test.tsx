@@ -10,11 +10,11 @@ describe("supplier decision overview UI contract", () => {
 
     expect(source).toContain("供应商决策总览");
     expect(source).toContain("实际供货产品");
-    expect(source).toContain("SKU覆盖");
+    expect(source).toContain("实际供货 SKU");
     expect(source).toContain("periodMetricLabel(period)");
     expect(source).toContain("证据");
     expect(source).toContain("下一步");
-    expect(source).toContain("补齐未覆盖 SKU");
+    expect(source).not.toContain("补齐未覆盖 SKU");
     expect(source).toContain("decisionFilter");
     expect(source).toContain("focusedDecisionRows");
     expect(source).toContain("buildSupplierAutoEvidence");
