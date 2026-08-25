@@ -181,6 +181,7 @@ export default function OfferDetailPage() {
           </div>
         )}
       </section>
+      <p className="text-xs text-slate-500">规格匹配不等于主供关系；实际供应商以有效期内的供应关系或实际入仓证据为准。</p>
 
       {/* 关联信息 */}
       {supplier ? (

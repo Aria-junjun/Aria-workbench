@@ -21,6 +21,21 @@ export type SkuRelationshipSummary = {
   reason: string;
 };
 
+export function formatSkuRelationshipStatus(summary: Pick<SkuRelationshipSummary, "matchStatus" | "supplyStatus">): {
+  matchLabel: string;
+  supplyLabel: string;
+} {
+  const matchLabel = summary.matchStatus === "matched" ? "货盘已匹配" : "货盘未匹配";
+  const supplyLabel = summary.supplyStatus === "assigned"
+    ? "实际供应已确认"
+    : summary.supplyStatus === "evidenced"
+      ? "有入仓证据，待建立关系"
+      : summary.supplyStatus === "supplier_unconfirmed"
+        ? "供应商待确认"
+        : "实际供应待确认";
+  return { matchLabel, supplyLabel };
+}
+
 export type ClassifySkuRelationshipInput = {
   skuMasterId: string;
   skuCode: string;

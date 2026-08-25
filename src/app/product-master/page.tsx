@@ -39,6 +39,10 @@ import {
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 import { getProductFamilyAttention } from "@/features/workbench/product-master-presentation";
+import {
+  classifySkuRelationship,
+  formatSkuRelationshipStatus,
+} from "@/features/workbench/relationship-rules";
 
 export default function ProductMasterPage() {
   const data = useWorkbenchData();
@@ -569,6 +573,17 @@ export default function ProductMasterPage() {
                   },
                   product?.id ?? group.familyKey,
                 );
+                const relationshipSummaries = productSkus.map((sku) => classifySkuRelationship({
+                  skuMasterId: sku.id,
+                  skuCode: sku.internalSkuCode,
+                  period: selectedPeriod,
+                  offerLinks: data.skuOfferLinks ?? [],
+                  assignments: data.skuSupplierAssignments ?? [],
+                  inboundFacts: periodInboundSnapshots,
+                }));
+                const assignedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "assigned").length;
+                const evidencedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "evidenced").length;
+                const unconfirmedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "supplier_unconfirmed" || summary.supplyStatus === "unconfirmed").length;
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
                 const attention = getProductFamilyAttention({
                   pendingSkuCount: plan.pendingSkuCount,
@@ -614,8 +629,10 @@ export default function ProductMasterPage() {
                       </td>
                       <td className="px-4 py-3 align-top font-medium">{productSkus.length}</td>
                       <td className="px-4 py-3 align-top text-xs">
-                        主供 {plan.primarySuppliers.length} · 备供{" "}
+                        <div>主供 {plan.primarySuppliers.length} · 备供{" "}
                         {plan.backupSuppliers.length}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-600">实际供应关系：已确认 {assignedCount} · 有入仓证据 {evidencedCount} · 待确认 {unconfirmedCount}</div>
                         <MissingSupplyLink
                           productId={product?.id}
                           familyKey={group.familyKey}
@@ -667,6 +684,15 @@ export default function ProductMasterPage() {
                       const skuInboundSummary = buildProductInboundSummary([sku], data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                       const skuHasInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === selectedPeriod);
                       const skuSupplierSummary = buildProductInboundSupplierSummary([sku], data.monthlyInboundSnapshots ?? [], selectedPeriod);
+                      const skuRelationship = classifySkuRelationship({
+                        skuMasterId: sku.id,
+                        skuCode: sku.internalSkuCode,
+                        period: selectedPeriod,
+                        offerLinks: data.skuOfferLinks ?? [],
+                        assignments: data.skuSupplierAssignments ?? [],
+                        inboundFacts: periodInboundSnapshots,
+                      });
+                      const skuRelationshipLabel = formatSkuRelationshipStatus(skuRelationship);
                       const skuAttention = getProductFamilyAttention({
                         pendingSkuCount: 0,
                         returnRate: draft.returnRate,
@@ -683,7 +709,9 @@ export default function ProductMasterPage() {
                           </td>
                           <td className="px-4 py-2 text-slate-400">—</td>
                           <td className="px-4 py-2 text-slate-500">
-                            {skuSupplierSummary.suppliers.length ? skuSupplierSummary.suppliers.map((item) => item.supplierName).join("、") : "待采集"}
+                            <div>{skuSupplierSummary.suppliers.length ? skuSupplierSummary.suppliers.map((item) => item.supplierName).join("、") : "待采集"}</div>
+                            <div className="mt-1 text-[11px] text-slate-600">{skuRelationshipLabel.supplyLabel}</div>
+                            <div className="mt-1 text-[11px] text-slate-400" title={skuRelationship.reason}>供应关系依据：{skuRelationship.reason}</div>
                           </td>
                           <td className="px-4 py-2 text-slate-400">—</td>
                           <td className="px-4 py-2">

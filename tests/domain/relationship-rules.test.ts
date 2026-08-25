@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifySkuRelationship } from "@/features/workbench/relationship-rules";
+import { classifySkuRelationship, formatSkuRelationshipStatus } from "@/features/workbench/relationship-rules";
 
 describe("SKU relationship rules", () => {
   it("treats a confirmed offer link as a match but does not infer a primary supplier", () => {
@@ -46,5 +46,12 @@ describe("SKU relationship rules", () => {
 
     expect(result.matchStatus).toBe("unmatched");
     expect(result.supplyStatus).toBe("supplier_unconfirmed");
+  });
+
+  it("uses distinct labels for matching and actual supply", () => {
+    expect(formatSkuRelationshipStatus({
+      matchStatus: "matched",
+      supplyStatus: "unconfirmed",
+    })).toEqual({ matchLabel: "货盘已匹配", supplyLabel: "实际供应待确认" });
   });
 });
