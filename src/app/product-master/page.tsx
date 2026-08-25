@@ -344,7 +344,7 @@ export default function ProductMasterPage() {
             <div className="flex flex-wrap gap-2 text-xs">
               <DecisionCount label="保持主供" value={decisionRows.filter((row) => row.decision === "maintain_primary").length} tone="green" />
               <DecisionCount label="需要复核" value={decisionRows.filter((row) => row.decision === "review_split" || row.decision === "review_quality").length} tone="amber" />
-              <DecisionCount label="待补供应商" value={decisionRows.filter((row) => row.decision === "confirm_supplier" || row.decision === "complete_coverage").length} tone="red" />
+              <DecisionCount label="待补供应商" value={decisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="red" />
             </div>
           </div>
           <div className="overflow-x-auto rounded-lg border border-line">

@@ -112,4 +112,27 @@ describe("product master inbound summary", () => {
     expect(rows[0].reason).toContain("供应商分拆");
     expect(rows[1].actionLabel).toBe("补充实际供应商");
   });
+
+  it("keeps partial SKU coverage as reference instead of a supplier action", () => {
+    const rows = buildProductSupplierDecisionRows(
+      [{
+        familyKey: "白板贴",
+        productName: "白板贴",
+        skus: [
+          { id: "sku-a", internalSkuCode: "Y-01", productName: "白板贴60*2", specification: "60*2" },
+          { id: "sku-b", internalSkuCode: "Y-02", productName: "白板贴90*2", specification: "90*2" },
+        ],
+      }],
+      [{ skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 100, supplierId: "s1", supplierName: "供应商甲" }],
+      [{ skuMasterId: "sku-a", period: "2026-07", shippedQuantity: 100, returnQuantity: 0 }],
+      "2026-07",
+    );
+
+    expect(rows[0]).toMatchObject({
+      coveredSkuCount: 1,
+      totalSkuCount: 2,
+      decision: "maintain_primary",
+      actionLabel: "保持主供",
+    });
+  });
 });

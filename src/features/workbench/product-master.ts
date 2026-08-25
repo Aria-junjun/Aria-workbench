@@ -94,7 +94,6 @@ export type ProductSupplierDecision =
   | "maintain_primary"
   | "review_split"
   | "confirm_supplier"
-  | "complete_coverage"
   | "review_quality";
 
 export type ProductSupplierDecisionRow = {
@@ -138,13 +137,10 @@ function decisionForSupplierRow(args: {
   if (args.supplierCount > 1) {
     return { decision: "review_split", actionLabel: "复核主供/备供", reason: "同一产品族存在供应商分拆，需要确认主供、备供和分拆原因。" };
   }
-  if (args.coveredSkuCount < args.totalSkuCount) {
-    return { decision: "complete_coverage", actionLabel: "补齐未覆盖 SKU", reason: "当前实际入仓供应商尚未覆盖产品族的全部 SKU。" };
-  }
   if (args.returnRate !== undefined && args.returnRate >= args.qualityReviewRate) {
     return { decision: "review_quality", actionLabel: "复核产品/供应商质量", reason: "产品退货率达到复核阈值；这是产品层质量信号，多供应商时不直接归因。" };
   }
-  return { decision: "maintain_primary", actionLabel: "保持主供", reason: "当前供应商覆盖全部已入仓 SKU，未触发供应分拆或质量复核信号。" };
+  return { decision: "maintain_primary", actionLabel: "保持主供", reason: "当前实际供货关系未触发供应商分拆或质量复核信号；SKU覆盖仅作参考。" };
 }
 
 export function buildProductSupplierDecisionRows(
@@ -200,7 +196,7 @@ export type SupplierDecisionOverviewRow = {
   totalSkuCount: number;
   receivedQuantity: number;
   returnRate?: number;
-  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier" | "complete_coverage" | "review_quality">;
+  decision: Extract<ProductSupplierDecision, "maintain_primary" | "review_split" | "confirm_supplier" | "review_quality">;
   actionLabel: string;
   evidence: string;
   score?: number;
