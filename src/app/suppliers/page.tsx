@@ -60,11 +60,26 @@ export default function SuppliersPage() {
   };
 
   const suppliers = hydrated ? sortPinnedFirst(data.suppliers) : [];
+  // 兼容历史入仓记录：旧数据可能只有供应商名称，没有 supplierId。
+  // 只在名称唯一匹配供应商主档时回填，避免把同名供应商错误合并。
+  const supplierIdByName = new Map<string, string>();
+  const duplicateSupplierNames = new Set<string>();
+  for (const supplier of suppliers) {
+    const key = supplier.name.trim().toLowerCase();
+    if (!key) continue;
+    if (supplierIdByName.has(key)) duplicateSupplierNames.add(key);
+    else supplierIdByName.set(key, supplier.id);
+  }
+  for (const key of duplicateSupplierNames) supplierIdByName.delete(key);
   const inboundPeriods = (data.monthlyInboundSnapshots ?? []).map((snapshot) => snapshot.period).filter(Boolean).sort();
   const decisionAnchor = inboundPeriods.at(-1) ?? new Date().toISOString().slice(0, 7);
   const decisionSnapshots = (data.monthlyInboundSnapshots ?? [])
     .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
-    .map((snapshot) => ({ ...snapshot, period: "selected" }));
+    .map((snapshot) => ({
+      ...snapshot,
+      supplierId: snapshot.supplierId ?? (snapshot.supplierName ? supplierIdByName.get(snapshot.supplierName.trim().toLowerCase()) : undefined),
+      period: "selected",
+    }));
   const decisionOperatingSnapshots = (data.skuOperatingSnapshots ?? [])
     .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
     .map((snapshot) => ({ ...snapshot, period: "selected" }));
