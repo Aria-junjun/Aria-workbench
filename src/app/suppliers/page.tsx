@@ -288,8 +288,8 @@ export default function SuppliersPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-muted">{row.evidence}</td>
                     <td className="py-3 pl-4">
-                      <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据">
-                        {row.actionLabel}
+                      <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据；供应关系需要明确维护">
+                        {row.decision === "confirm_supplier" ? "维护供应关系" : row.actionLabel}
                       </Link>
                     </td>
                   </tr>

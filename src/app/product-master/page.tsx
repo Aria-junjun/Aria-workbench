@@ -576,14 +576,17 @@ export default function ProductMasterPage() {
                 const relationshipSummaries = productSkus.map((sku) => classifySkuRelationship({
                   skuMasterId: sku.id,
                   skuCode: sku.internalSkuCode,
+                  productFamilyKey: group.familyKey,
                   period: selectedPeriod,
                   offerLinks: data.skuOfferLinks ?? [],
                   assignments: data.skuSupplierAssignments ?? [],
+                  productSupplierAssignments: data.productSupplierAssignments ?? [],
                   inboundFacts: periodInboundSnapshots,
                 }));
                 const assignedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "assigned").length;
                 const evidencedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "evidenced").length;
                 const unconfirmedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "supplier_unconfirmed" || summary.supplyStatus === "unconfirmed").length;
+                const skuExceptionCount = relationshipSummaries.filter((summary) => summary.supplierRelationshipSource === "sku_assignment").length;
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
                 const attention = getProductFamilyAttention({
                   pendingSkuCount: plan.pendingSkuCount,
@@ -633,6 +636,7 @@ export default function ProductMasterPage() {
                         {plan.backupSuppliers.length}
                         </div>
                         <div className="mt-1 text-[11px] text-slate-600">实际供应关系：已确认 {assignedCount} · 有入仓证据 {evidencedCount} · 待确认 {unconfirmedCount}</div>
+                        <div className="mt-1 text-[11px] text-slate-500">SKU例外：{skuExceptionCount} · 产品族默认关系优先覆盖</div>
                         <MissingSupplyLink
                           productId={product?.id}
                           familyKey={group.familyKey}
@@ -687,9 +691,11 @@ export default function ProductMasterPage() {
                       const skuRelationship = classifySkuRelationship({
                         skuMasterId: sku.id,
                         skuCode: sku.internalSkuCode,
+                        productFamilyKey: group.familyKey,
                         period: selectedPeriod,
                         offerLinks: data.skuOfferLinks ?? [],
                         assignments: data.skuSupplierAssignments ?? [],
+                        productSupplierAssignments: data.productSupplierAssignments ?? [],
                         inboundFacts: periodInboundSnapshots,
                       });
                       const skuRelationshipLabel = formatSkuRelationshipStatus(skuRelationship);

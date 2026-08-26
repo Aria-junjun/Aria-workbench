@@ -24,6 +24,7 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain("buildSupplierDecisionOverviewRows");
     expect(source).toContain("decisionOperatingSnapshots");
     expect(source).toContain("isInPeriod(snapshot.period, period, decisionAnchor)");
+    expect(source).toContain("维护供应关系");
   });
 
   it("explains why the decision overview is empty instead of hiding the section", () => {
