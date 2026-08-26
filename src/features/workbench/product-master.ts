@@ -58,6 +58,54 @@ export type ProductInboundSupplierSummary = {
   isSplit: boolean;
 };
 
+export type ProductSupplierDisplay = {
+  label: "当前供应商" | "本期入仓供应商" | "供货关系";
+  names: string[];
+  note: string;
+};
+
+export function buildProductSupplierDisplay(
+  relationships: Array<{ supplierName?: string; supplierRelationshipSource: string }>,
+  inboundSuppliers: Array<{ supplierName: string }>,
+): ProductSupplierDisplay {
+  const assignedNames = [...new Set(
+    relationships
+      .filter((summary) => summary.supplierRelationshipSource === "family_assignment" || summary.supplierRelationshipSource === "sku_assignment")
+      .map((summary) => summary.supplierName?.trim())
+      .filter((name): name is string => Boolean(name)),
+  )];
+  const inboundNames = [...new Set(
+    inboundSuppliers
+      .map((supplier) => supplier.supplierName.trim())
+      .filter(Boolean),
+  )];
+
+  if (assignedNames.length) {
+    const unexpectedInboundNames = inboundNames.filter((name) => !assignedNames.includes(name));
+    return {
+      label: "当前供应商",
+      names: assignedNames,
+      note: unexpectedInboundNames.length
+        ? `本期入仓记录出现${unexpectedInboundNames.join("、")}，仅作异常证据，不自动更改供应关系`
+        : "关系持续有效",
+    };
+  }
+
+  if (inboundNames.length) {
+    return {
+      label: "本期入仓供应商",
+      names: inboundNames,
+      note: "有本期入仓证据，尚未建立持续供应关系",
+    };
+  }
+
+  return {
+    label: "供货关系",
+    names: ["待确认"],
+    note: "尚未建立供应关系，也没有本期入仓证据",
+  };
+}
+
 type InboundSnapshotForSummary = {
   id?: string;
   sourceFileName?: string;

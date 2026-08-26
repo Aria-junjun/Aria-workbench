@@ -15,6 +15,7 @@ import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   aggregateSkuMetrics,
   aggregateSkuSnapshots,
+  buildProductSupplierDisplay,
   buildProductInboundSummary,
   buildProductInboundSupplierSummary,
   buildProductSupplierDecisionRows,
@@ -625,6 +626,10 @@ export default function ProductMasterPage() {
                   inboundFacts: periodInboundSnapshots,
                 }));
                 const skuExceptionCount = relationshipSummaries.filter((summary) => summary.supplierRelationshipSource === "sku_assignment").length;
+                const supplierDisplay = buildProductSupplierDisplay(
+                  relationshipSummaries,
+                  inboundSupplierSummary.suppliers,
+                );
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
                 const attention = getProductFamilyAttention({
                   pendingSkuCount: 0,
@@ -672,10 +677,10 @@ export default function ProductMasterPage() {
                       <td className="px-4 py-3 align-top text-xs">
                         <ProductFamilySupplierAction relationships={relationshipSummaries} exceptionCount={skuExceptionCount} />
                         <div className="mt-1 text-[11px] text-slate-500">
-                          实际供货：{inboundSupplierSummary.suppliers.length === 0
-                            ? "待采集"
-                            : inboundSupplierSummary.suppliers.map((item) => item.supplierName).join("、")}
-                          {inboundSupplierSummary.isSplit ? "（供应商分拆）" : ""}
+                          {supplierDisplay.label}：{supplierDisplay.names.join("、")}
+                          <div className={supplierDisplay.note.includes("异常") ? "mt-1 text-amber-700" : "mt-1 text-slate-400"}>
+                            {supplierDisplay.note}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 align-top">
@@ -728,6 +733,10 @@ export default function ProductMasterPage() {
                         inboundFacts: periodInboundSnapshots,
                       });
                       const skuRelationshipLabel = formatSkuRelationshipStatus(skuRelationship);
+                      const skuSupplierDisplay = buildProductSupplierDisplay(
+                        [skuRelationship],
+                        skuSupplierSummary.suppliers,
+                      );
                       const skuAttention = getProductFamilyAttention({
                         pendingSkuCount: 0,
                         returnRate: draft.returnRate,
@@ -744,7 +753,8 @@ export default function ProductMasterPage() {
                           </td>
                           <td className="px-4 py-2 text-slate-400">—</td>
                           <td className="px-4 py-2 text-slate-500">
-                            <div>{skuSupplierSummary.suppliers.length ? skuSupplierSummary.suppliers.map((item) => item.supplierName).join("、") : "待采集"}</div>
+                            <div>{skuSupplierDisplay.label}：{skuSupplierDisplay.names.join("、")}</div>
+                            <div className={skuSupplierDisplay.note.includes("异常") ? "mt-1 text-amber-700" : "mt-1 text-slate-400"}>{skuSupplierDisplay.note}</div>
                             <div className="mt-1 text-[11px] text-slate-600">{skuRelationshipLabel.supplyLabel}</div>
                             <div className="mt-1 text-[11px] text-slate-400" title={skuRelationship.reason}>供应关系依据：{skuRelationship.reason}</div>
                             <SkuSupplierExceptionEditor

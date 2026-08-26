@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateSkuMetrics, aggregateSkuSnapshots, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound, sortProductMasterGroupsByOperatingData, sortProductMasterSkusByOperatingData } from "@/features/workbench/product-master";
+import { aggregateSkuMetrics, aggregateSkuSnapshots, buildProductSupplierDisplay, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound, sortProductMasterGroupsByOperatingData, sortProductMasterSkusByOperatingData } from "@/features/workbench/product-master";
 
 describe("inbound product master", () => {
   it("groups imported SKUs by product name without duplicating rows", () => {
@@ -96,5 +96,21 @@ describe("inbound product master", () => {
     ], "2026-07");
 
     expect(sorted.map((sku) => sku.internalSkuCode)).toEqual(["B", "A", "C"]);
+  });
+
+  it("keeps an established supplier relationship across months and treats inbound supplier as evidence", () => {
+    const display = buildProductSupplierDisplay(
+      [{ supplierName: "供应商甲", supplierRelationshipSource: "family_assignment" }],
+      [{ supplierName: "供应商甲" }],
+    );
+
+    expect(display).toMatchObject({ label: "当前供应商", names: ["供应商甲"], note: "关系持续有效" });
+
+    const changed = buildProductSupplierDisplay(
+      [{ supplierName: "供应商甲", supplierRelationshipSource: "family_assignment" }],
+      [{ supplierName: "供应商乙" }],
+    );
+    expect(changed).toMatchObject({ label: "当前供应商", names: ["供应商甲"] });
+    expect(changed.note).toContain("本期入仓记录出现");
   });
 });
