@@ -86,14 +86,20 @@ export function SupplierRelationshipEditor({
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <div className="text-sm text-ink">
           <span className="mb-1 block text-muted">关系范围（可多选）</span>
-          <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-border bg-white p-3">
-            {productFamilies.length ? productFamilies.map((family) => (
-              <label key={family.key} className="flex cursor-pointer items-center gap-2 text-sm">
-                <input type="checkbox" checked={selectedFamilyKeys.includes(family.key)} onChange={() => toggleFamily(family.key)} />
-                <span>{family.label}</span>
-              </label>
-            )) : <span className="text-muted">暂无可维护的产品族</span>}
-          </div>
+          <details className="relative" aria-label="关系范围选择器">
+            <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-white px-3 py-2 text-sm text-ink">
+              <span>{selectedFamilyKeys.length ? `已选择 ${selectedFamilyKeys.length} 个产品族` : "请选择产品族"}</span>
+              <span className="text-muted">⌄</span>
+            </summary>
+            <div className="absolute left-0 right-0 top-12 z-10 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-border bg-white p-3 shadow-lg">
+              {productFamilies.length ? productFamilies.map((family) => (
+                <label key={family.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input type="checkbox" checked={selectedFamilyKeys.includes(family.key)} onChange={() => toggleFamily(family.key)} />
+                  <span>{family.label}</span>
+                </label>
+              )) : <span className="text-muted">暂无可维护的产品族</span>}
+            </div>
+          </details>
           <span className="mt-1 block text-xs text-muted">已选择 {selectedFamilyKeys.length} 个产品族</span>
         </div>
 
