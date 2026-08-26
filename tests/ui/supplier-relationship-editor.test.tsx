@@ -12,10 +12,14 @@ describe("supplier relationship editor", () => {
     expect(source).toContain("生效月份");
     expect(source).toContain("变更原因");
     expect(source).toContain("关系依据");
-    expect(source).toContain("批量保存供应关系");
-    expect(source).toContain("关系保存入口");
+    expect(source).toContain("供应关系将随页面右上角");
+    expect(source).not.toContain(">批量保存供应关系</button>");
+    expect(source).not.toContain("关系保存入口");
     expect(source).toContain("关系范围选择器");
     expect(source).toContain("<details");
+    expect(source).toContain("SupplierRelationshipEditorHandle");
+    expect(source).toContain("forwardRef");
+    expect(source).toContain("editable");
     expect(source).toContain("selectedFamilyKeys");
     expect(source).toContain("selectedFamilyKeys.map");
   });

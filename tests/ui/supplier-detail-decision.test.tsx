@@ -14,5 +14,8 @@ describe("supplier detail decision loop UI contract", () => {
     expect(source).toContain("记录决策");
     expect(source).toContain("completeSupplierDecisionRecord");
     expect(source).toContain("supplierDecisionRecords");
+    expect(source).toContain("relationshipEditorRef");
+    expect(source).toContain("editable={editing}");
+    expect(source).toContain(">保存</button>");
   });
 });

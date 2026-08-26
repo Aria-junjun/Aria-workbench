@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import {
   saveProductSupplierAssignments,
   type LocalProductSupplierAssignment,
@@ -11,23 +11,30 @@ export type SupplierRelationshipEditorFamily = {
   label: string;
 };
 
+export type SupplierRelationshipEditorHandle = {
+  save: () => boolean;
+  reset: () => void;
+};
+
 type SupplierRelationshipEditorProps = {
   supplierId: string;
   supplierName: string;
   productFamilies: SupplierRelationshipEditorFamily[];
   currentPeriod: string;
   existingAssignments: LocalProductSupplierAssignment[];
+  editable?: boolean;
   onSaved?: () => void;
 };
 
-export function SupplierRelationshipEditor({
+export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorHandle, SupplierRelationshipEditorProps>(function SupplierRelationshipEditor({
   supplierId,
   supplierName,
   productFamilies,
   currentPeriod,
   existingAssignments,
+  editable = true,
   onSaved,
-}: SupplierRelationshipEditorProps) {
+}: SupplierRelationshipEditorProps, ref) {
   const [selectedFamilyKeys, setSelectedFamilyKeys] = useState<string[]>(productFamilies[0]?.key ? [productFamilies[0].key] : []);
   const [role, setRole] = useState<"primary" | "backup">("primary");
   const [effectiveFrom, setEffectiveFrom] = useState(currentPeriod);
@@ -39,10 +46,8 @@ export function SupplierRelationshipEditor({
     () => existingAssignments.filter((item) => selectedFamilyKeys.includes(item.productFamilyKey) && item.status === "active"),
     [existingAssignments, selectedFamilyKeys],
   );
-  const canSave = selectedFamilyKeys.length > 0 && Boolean(effectiveFrom) && Boolean(reason.trim()) && Boolean(evidence.trim());
-
   function save() {
-    if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) return;
+    if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) return false;
     saveProductSupplierAssignments(selectedFamilyKeys.map((productFamilyKey) => ({
         productFamilyKey,
         supplierId,
@@ -56,7 +61,19 @@ export function SupplierRelationshipEditor({
       })));
     setSavedMessage(`已保存 ${selectedFamilyKeys.length} 个产品族的供应关系，并保留了变更历史。`);
     onSaved?.();
+    return true;
   }
+
+  function reset() {
+    setSelectedFamilyKeys(productFamilies[0]?.key ? [productFamilies[0].key] : []);
+    setRole("primary");
+    setEffectiveFrom(currentPeriod);
+    setReason("");
+    setEvidence("");
+    setSavedMessage("");
+  }
+
+  useImperativeHandle(ref, () => ({ save, reset }));
 
   function toggleFamily(familyKey: string) {
     setSelectedFamilyKeys((current) => current.includes(familyKey) ? current.filter((key) => key !== familyKey) : [...current, familyKey]);
@@ -69,32 +86,21 @@ export function SupplierRelationshipEditor({
           <h2 className="text-base font-semibold text-ink">维护供应关系</h2>
           <p className="mt-1 text-sm text-muted">一次选择多个产品族，统一建立主供或备供关系；产品族默认覆盖全部有效 SKU，个别 SKU 可在产品主表设置例外。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-full bg-brand-soft px-3 py-1 text-xs text-brand">当前供应商：{supplierName}</span>
-          <button
-            type="button"
-            aria-label="关系保存入口"
-            className="rounded-xl bg-brand px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!canSave}
-            onClick={save}
-          >
-            批量保存
-          </button>
-        </div>
+        <span className="rounded-full bg-brand-soft px-3 py-1 text-xs text-brand">当前供应商：{supplierName}</span>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <div className="text-sm text-ink">
           <span className="mb-1 block text-muted">关系范围（可多选）</span>
-          <details className="relative" aria-label="关系范围选择器">
-            <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-white px-3 py-2 text-sm text-ink">
+          <details className={`relative ${editable ? "" : "pointer-events-none"}`} aria-label="关系范围选择器">
+            <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-sm text-ink">
               <span>{selectedFamilyKeys.length ? `已选择 ${selectedFamilyKeys.length} 个产品族` : "请选择产品族"}</span>
               <span className="text-muted">⌄</span>
             </summary>
             <div className="absolute left-0 right-0 top-12 z-10 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-border bg-white p-3 shadow-lg">
               {productFamilies.length ? productFamilies.map((family) => (
                 <label key={family.key} className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input type="checkbox" checked={selectedFamilyKeys.includes(family.key)} onChange={() => toggleFamily(family.key)} />
+                  <input type="checkbox" disabled={!editable} checked={selectedFamilyKeys.includes(family.key)} onChange={() => toggleFamily(family.key)} />
                   <span>{family.label}</span>
                 </label>
               )) : <span className="text-muted">暂无可维护的产品族</span>}
@@ -105,7 +111,7 @@ export function SupplierRelationshipEditor({
 
         <label className="text-sm text-ink">
           <span className="mb-1 block text-muted">关系类型</span>
-          <select className="w-full rounded-xl border border-border bg-white px-3 py-2" value={role} onChange={(event) => setRole(event.target.value as "primary" | "backup")}>
+          <select disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={role} onChange={(event) => setRole(event.target.value as "primary" | "backup")}>
             <option value="primary">设为主供</option>
             <option value="backup">设为备供</option>
           </select>
@@ -113,7 +119,7 @@ export function SupplierRelationshipEditor({
 
         <label className="text-sm text-ink">
           <span className="mb-1 block text-muted">生效月份</span>
-          <input className="w-full rounded-xl border border-border bg-white px-3 py-2" type="month" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
+          <input disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" type="month" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
         </label>
 
         <div className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted">
@@ -122,19 +128,16 @@ export function SupplierRelationshipEditor({
 
         <label className="text-sm text-ink md:col-span-2">
           <span className="mb-1 block text-muted">变更原因</span>
-          <input className="w-full rounded-xl border border-border bg-white px-3 py-2" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：确认该供应商作为当前主供" />
+          <input disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：确认该供应商作为当前主供" />
         </label>
 
         <label className="text-sm text-ink md:col-span-2">
           <span className="mb-1 block text-muted">关系依据</span>
-          <textarea className="min-h-20 w-full rounded-xl border border-border bg-white px-3 py-2" value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="例如：2026-07 实际入仓记录、确认聊天记录或货盘报价" />
+          <textarea disabled={!editable} className="min-h-20 w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="例如：2026-07 实际入仓记录、确认聊天记录或货盘报价" />
         </label>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button type="button" className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!canSave} onClick={save}>批量保存供应关系</button>
-        {savedMessage ? <span className="text-sm text-success">{savedMessage}</span> : <span className="text-xs text-muted">此按钮只保存供应关系；上方供应商档案需通过“编辑”单独保存。货盘匹配不会自动改变主供关系。</span>}
-      </div>
+      {savedMessage ? <div className="mt-4 text-sm text-success">{savedMessage}</div> : <div className="mt-4 text-xs text-muted">供应关系将随页面右上角“保存”统一提交；货盘匹配不会自动改变主供关系。</div>}
     </section>
   );
-}
+});

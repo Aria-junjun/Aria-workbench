@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
-import { ListField, SectionActions, TextField } from "@/components/workbench/edit-fields";
+import { useRef, useState } from "react";
+import { ListField, TextField } from "@/components/workbench/edit-fields";
 import {
   analyzeChatAsDraft,
   commitChatAnalysis,
@@ -41,7 +41,7 @@ import {
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { deriveProductFamilyKey } from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
-import { SupplierRelationshipEditor } from "@/components/workbench/supplier-relationship-editor";
+import { SupplierRelationshipEditor, type SupplierRelationshipEditorHandle } from "@/components/workbench/supplier-relationship-editor";
 import {
   AlertCircle,
   AlertTriangle,
@@ -84,6 +84,7 @@ export default function SupplierDetailPage() {
   const [draft, setDraft] = useState<LocalSupplier | undefined>(supplier);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [decisionVersion, setDecisionVersion] = useState(0);
+  const relationshipEditorRef = useRef<SupplierRelationshipEditorHandle>(null);
 
   // 聊天快速评估 state
   const [showChatEval, setShowChatEval] = useState(false);
@@ -176,14 +177,14 @@ export default function SupplierDetailPage() {
   function save() {
     if (!draft) return;
     updateLocalItem("suppliers", draft.id, draft);
+    relationshipEditorRef.current?.save();
     setEditing(false);
   }
 
-  function remove() {
-    if (!draft) return;
-    if (!window.confirm("确认删除这个供应商吗？")) return;
-    deleteLocalItem("suppliers", draft.id);
-    router.push("/suppliers");
+  function cancelEditing() {
+    setEditing(false);
+    setDraft(supplier);
+    relationshipEditorRef.current?.reset();
   }
 
   function recordDecision(action: SupplierDecisionAction) {
@@ -250,6 +251,25 @@ export default function SupplierDetailPage() {
         供应商列表
       </Link>
 
+      <div className="flex justify-end gap-2">
+        {editing ? (
+          <>
+            <button className="bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90" onClick={save} type="button">保存</button>
+            <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={cancelEditing} type="button">取消</button>
+          </>
+        ) : (
+          <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => setEditing(true)} type="button">编辑</button>
+        )}
+        <button
+          className="inline-flex items-center gap-1.5 bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90 transition-colors"
+          onClick={() => setShowChatEval((v) => !v)}
+          type="button"
+        >
+          <ClipboardList className="h-4 w-4" />
+          聊天快速评估
+        </button>
+      </div>
+
       {/* 供应商名片 - 去卡片化 */}
       <section className="pb-5 border-b border-line">
         {editing && draft ? (
@@ -297,7 +317,6 @@ export default function SupplierDetailPage() {
                 onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
               />
             </div>
-            <SectionActions editing={true} onEdit={() => {}} onSave={save} onCancel={() => { setEditing(false); setDraft(supplier); }} onDelete={remove} />
           </div>
         ) : (
           <div className="flex flex-wrap items-start gap-4">
@@ -347,19 +366,6 @@ export default function SupplierDetailPage() {
                   ) : null}
                 </div>
               </div>
-            </div>
-            <div className="ml-auto flex gap-2">
-              <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm transition-colors" onClick={() => setEditing(true)} type="button">
-                编辑
-              </button>
-              <button
-                className="inline-flex items-center gap-1.5 bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90 transition-colors"
-                onClick={() => setShowChatEval((v) => !v)}
-                type="button"
-              >
-                <ClipboardList className="h-4 w-4" />
-                聊天快速评估
-              </button>
             </div>
           </div>
         )}
@@ -415,11 +421,13 @@ export default function SupplierDetailPage() {
       />
 
       <SupplierRelationshipEditor
+        ref={relationshipEditorRef}
         supplierId={supplierId}
         supplierName={supplier.name}
         productFamilies={productFamilies}
         currentPeriod={latestInboundPeriod ?? defaultPeriod()}
         existingAssignments={data.productSupplierAssignments ?? []}
+        editable={editing}
         onSaved={() => setDecisionVersion((value) => value + 1)}
       />
 
