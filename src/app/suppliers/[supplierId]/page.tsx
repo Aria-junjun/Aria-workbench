@@ -152,7 +152,7 @@ export default function SupplierDetailPage() {
 
   const productFamilies = Array.from(new Map((data.skuMasters ?? []).map((sku) => {
     const key = deriveProductFamilyKey(sku.productName);
-    return [key, { key, label: sku.productName }] as const;
+    return [key, { key, label: key }] as const;
   })).values()).sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
 
   // 评估数据
