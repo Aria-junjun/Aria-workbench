@@ -106,17 +106,17 @@ export function parseSupplierInboundRows(
 ): SupplierInboundImportResult {
   const headerRowIndex = rawRows.findIndex((row) => {
     const headers = row.map(text);
-    return findHeaderIndex(headers, ["产品名称", "商品名称", "货品名称", "货品"]) !== undefined
-      && findHeaderIndex(headers, ["产品规格", "规格", "型号", "颜色及规格"]) !== undefined
+    return findHeaderIndex(headers, ["产品名称", "商品名称", "货品名称", "货品", "存货名称", "存货"]) !== undefined
+      && findHeaderIndex(headers, ["产品规格", "规格", "型号", "颜色及规格", "规格型号"]) !== undefined
       && findHeaderIndex(headers, ["送货数量", "入库数量", "数量", "送货数"]) !== undefined;
   });
-  if (headerRowIndex < 0) throw new Error("表头不匹配：缺少产品名称、产品规格或送货数量");
+  if (headerRowIndex < 0) throw new Error("表头不匹配：缺少产品名称/存货名称、产品规格/规格型号或数量");
 
   const headers = rawRows[headerRowIndex].map(text);
-  const productIndex = findHeaderIndex(headers, ["产品名称", "商品名称", "货品名称", "货品"]);
-  const specIndex = findHeaderIndex(headers, ["产品规格", "规格", "型号", "颜色及规格"]);
+  const productIndex = findHeaderIndex(headers, ["产品名称", "商品名称", "货品名称", "货品", "存货名称", "存货"]);
+  const specIndex = findHeaderIndex(headers, ["产品规格", "规格", "型号", "颜色及规格", "规格型号"]);
   const quantityIndex = findHeaderIndex(headers, ["送货数量", "入库数量", "数量", "送货数"]);
-  const dateIndex = findHeaderIndex(headers, ["送货日期", "日期", "入库日期", "交货日期"]);
+  const dateIndex = findHeaderIndex(headers, ["送货日期", "日期", "入库日期", "交货日期", "单据日期"]);
   const unitIndex = findHeaderIndex(headers, ["单位", "计量单位"]);
   const priceIndex = findHeaderIndex(headers, ["单价", "采购价", "供货价"]);
   const amountIndex = findHeaderIndex(headers, ["金额", "合计金额", "货款", "总金额"]);

@@ -35,6 +35,26 @@ describe("supplier inbound workbook import", () => {
     expect(result.errors).toEqual([{ rowNumber: 2, code: "INVALID_QUANTITY", message: "送货数量不是有效数字" }]);
   });
 
+  it("recognizes common supplier settlement headers", () => {
+    const result = parseSupplierInboundRows([
+      ["简一7月未结账单"],
+      ["单据日期", "销售订单号(表头)", "存货名称", "规格型号", "单位", "装箱数", "件数", "数量", "单 价", "金额"],
+      ["2026-07-18", "SO-1", "撕拉线静电油烟贴（透明款）", "30*80*5", "张", 100, 2, 200, "2.180", "436.00"],
+    ], { fileName: "简一7月未结账单(4).xlsx", sheetName: "销货单", importedAt: "2026-08-26T00:00:00.000Z" });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      deliveryDate: "2026-07-18",
+      supplierProductName: "撕拉线静电油烟贴（透明款）",
+      supplierSpec: "30*80*5",
+      receivedQuantity: 200,
+      unit: "张",
+      unitPrice: 2.18,
+      amount: 436,
+    });
+  });
+
   it("merges only the same supplier product and specification", () => {
     const rows = [
       { rowNumber: 2, supplierProductName: "白板贴", supplierSpec: "60*2", receivedQuantity: 100, amount: 200, sourceFileName: "a.xlsx", sourceSheetName: "Sheet1", importedAt: "now" },
