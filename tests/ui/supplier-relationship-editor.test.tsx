@@ -12,5 +12,8 @@ describe("supplier relationship editor", () => {
     expect(source).toContain("生效月份");
     expect(source).toContain("变更原因");
     expect(source).toContain("关系依据");
+    expect(source).toContain("批量保存供应关系");
+    expect(source).toContain("selectedFamilyKeys");
+    expect(source).toContain("selectedFamilyKeys.map");
   });
 });

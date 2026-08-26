@@ -28,7 +28,7 @@ export function SupplierRelationshipEditor({
   existingAssignments,
   onSaved,
 }: SupplierRelationshipEditorProps) {
-  const [familyKey, setFamilyKey] = useState(productFamilies[0]?.key ?? "");
+  const [selectedFamilyKeys, setSelectedFamilyKeys] = useState<string[]>(productFamilies[0]?.key ? [productFamilies[0].key] : []);
   const [role, setRole] = useState<"primary" | "backup">("primary");
   const [effectiveFrom, setEffectiveFrom] = useState(currentPeriod);
   const [reason, setReason] = useState("");
@@ -36,25 +36,29 @@ export function SupplierRelationshipEditor({
   const [savedMessage, setSavedMessage] = useState("");
 
   const currentFamilyAssignments = useMemo(
-    () => existingAssignments.filter((item) => item.productFamilyKey === familyKey && item.status === "active"),
-    [existingAssignments, familyKey],
+    () => existingAssignments.filter((item) => selectedFamilyKeys.includes(item.productFamilyKey) && item.status === "active"),
+    [existingAssignments, selectedFamilyKeys],
   );
 
   function save() {
-    if (!familyKey || !effectiveFrom || !reason.trim() || !evidence.trim()) return;
-    saveProductSupplierAssignments([{
-      productFamilyKey: familyKey,
-      supplierId,
-      supplierName,
-      role,
-      effectiveFrom,
-      status: "active",
-      source: "manual",
-      reason: reason.trim(),
-      evidence: evidence.trim(),
-    }]);
-    setSavedMessage("已保存供应关系，并保留了变更历史。");
+    if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) return;
+    saveProductSupplierAssignments(selectedFamilyKeys.map((productFamilyKey) => ({
+        productFamilyKey,
+        supplierId,
+        supplierName,
+        role,
+        effectiveFrom,
+        status: "active" as const,
+        source: "manual" as const,
+        reason: reason.trim(),
+        evidence: evidence.trim(),
+      })));
+    setSavedMessage(`已保存 ${selectedFamilyKeys.length} 个产品族的供应关系，并保留了变更历史。`);
     onSaved?.();
+  }
+
+  function toggleFamily(familyKey: string) {
+    setSelectedFamilyKeys((current) => current.includes(familyKey) ? current.filter((key) => key !== familyKey) : [...current, familyKey]);
   }
 
   return (
@@ -62,19 +66,24 @@ export function SupplierRelationshipEditor({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-ink">维护供应关系</h2>
-          <p className="mt-1 text-sm text-muted">产品族默认覆盖全部有效 SKU，个别 SKU 可在产品主表设置例外。</p>
+          <p className="mt-1 text-sm text-muted">一次选择多个产品族，统一建立主供或备供关系；产品族默认覆盖全部有效 SKU，个别 SKU 可在产品主表设置例外。</p>
         </div>
         <span className="rounded-full bg-brand-soft px-3 py-1 text-xs text-brand">当前供应商：{supplierName}</span>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <label className="text-sm text-ink">
-          <span className="mb-1 block text-muted">关系范围</span>
-          <select className="w-full rounded-xl border border-border bg-white px-3 py-2" value={familyKey} onChange={(event) => setFamilyKey(event.target.value)}>
-            <option value="">请选择产品族</option>
-            {productFamilies.map((family) => <option key={family.key} value={family.key}>{family.label}</option>)}
-          </select>
-        </label>
+        <div className="text-sm text-ink">
+          <span className="mb-1 block text-muted">关系范围（可多选）</span>
+          <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-border bg-white p-3">
+            {productFamilies.length ? productFamilies.map((family) => (
+              <label key={family.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="checkbox" checked={selectedFamilyKeys.includes(family.key)} onChange={() => toggleFamily(family.key)} />
+                <span>{family.label}</span>
+              </label>
+            )) : <span className="text-muted">暂无可维护的产品族</span>}
+          </div>
+          <span className="mt-1 block text-xs text-muted">已选择 {selectedFamilyKeys.length} 个产品族</span>
+        </div>
 
         <label className="text-sm text-ink">
           <span className="mb-1 block text-muted">关系类型</span>
@@ -90,7 +99,7 @@ export function SupplierRelationshipEditor({
         </label>
 
         <div className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted">
-          当前产品族关系：{currentFamilyAssignments.length ? currentFamilyAssignments.map((item) => `${item.role === "primary" ? "主供" : "备供"} ${item.supplierName ?? "未命名"}`).join("、") : "尚未建立"}
+          已选产品族关系：{currentFamilyAssignments.length ? currentFamilyAssignments.map((item) => `${item.role === "primary" ? "主供" : "备供"} ${item.supplierName ?? "未命名"}`).join("、") : "尚未建立"}
         </div>
 
         <label className="text-sm text-ink md:col-span-2">
@@ -105,8 +114,8 @@ export function SupplierRelationshipEditor({
       </div>
 
       <div className="mt-4 flex items-center gap-3">
-        <button type="button" className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!familyKey || !reason.trim() || !evidence.trim()} onClick={save}>保存供应关系</button>
-        {savedMessage ? <span className="text-sm text-success">{savedMessage}</span> : <span className="text-xs text-muted">货盘匹配不会自动改变这里的主供关系。</span>}
+        <button type="button" className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!selectedFamilyKeys.length || !reason.trim() || !evidence.trim()} onClick={save}>批量保存供应关系</button>
+        {savedMessage ? <span className="text-sm text-success">{savedMessage}</span> : <span className="text-xs text-muted">此按钮只保存供应关系；上方供应商档案需通过“编辑”单独保存。货盘匹配不会自动改变主供关系。</span>}
       </div>
     </section>
   );
