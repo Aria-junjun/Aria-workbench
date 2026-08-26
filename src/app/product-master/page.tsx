@@ -12,7 +12,6 @@ import {
   type LocalSkuOperatingSnapshot,
 } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
-import { buildSupplyPlan } from "@/features/workbench/supply-decision";
 import {
   aggregateSkuMetrics,
   aggregateSkuSnapshots,
@@ -371,7 +370,7 @@ export default function ProductMasterPage() {
                     <td className="px-3 py-3 font-medium text-slate-800">{row.productName}</td>
                     <td className="px-3 py-3">
                       {row.supplierId ? (
-                        <Link className="text-action hover:underline" href={`/suppliers/${row.supplierId}`}>{row.supplierName}</Link>
+                         <Link className="text-action hover:underline" href={`/suppliers/${row.supplierId}#supplier-relationship`}>{row.supplierName}</Link>
                       ) : row.supplierName}
                     </td>
                     <td className="px-3 py-3 text-slate-600">{row.coveredSkuCount}/{row.totalSkuCount}</td>
@@ -380,7 +379,7 @@ export default function ProductMasterPage() {
                     <td className="px-3 py-3">
                       <Link
                         className={`font-medium hover:underline ${row.decision === "maintain_primary" ? "text-emerald-700" : "text-amber-700"}`}
-                        href={row.decision === "confirm_supplier" ? "/sku-master/import" : row.supplierId ? `/suppliers/${row.supplierId}` : "/suppliers"}
+                         href={row.decision === "confirm_supplier" ? "/sku-master/import" : row.supplierId ? `/suppliers/${row.supplierId}#supplier-relationship` : "/suppliers"}
                         title={row.reason}
                       >
                         {row.actionLabel}
@@ -555,26 +554,6 @@ export default function ProductMasterPage() {
                 const hasInboundPeriodData = (data.monthlyInboundSnapshots ?? []).some(
                   (snapshot) => productSkus.some((sku) => sku.id === snapshot.skuMasterId) && snapshot.period === selectedPeriod,
                 );
-                const plan = buildSupplyPlan(
-                  {
-                    products: [
-                      {
-                        id: product?.id ?? group.familyKey,
-                        name: group.productName,
-                        productFamilyKey: group.familyKey,
-                      },
-                    ],
-                    skuMasters: productSkus,
-                    suppliers: data.suppliers.map((item) => ({
-                      id: item.id,
-                      name: item.name,
-                    })),
-                    offers: data.offers,
-                    links: data.skuOfferLinks ?? [],
-                    decisions: data.supplierOfferDecisions ?? [],
-                  },
-                  product?.id ?? group.familyKey,
-                );
                 const relationshipSummaries = productSkus.map((sku) => classifySkuRelationship({
                   skuMasterId: sku.id,
                   skuCode: sku.internalSkuCode,
@@ -585,14 +564,10 @@ export default function ProductMasterPage() {
                   productSupplierAssignments: data.productSupplierAssignments ?? [],
                   inboundFacts: periodInboundSnapshots,
                 }));
-                const assignedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "assigned").length;
-                const evidencedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "evidenced").length;
-                const unconfirmedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "supplier_unconfirmed" || summary.supplyStatus === "unconfirmed").length;
                 const skuExceptionCount = relationshipSummaries.filter((summary) => summary.supplierRelationshipSource === "sku_assignment").length;
-                const familyAssignedRelationships = relationshipSummaries.filter((summary) => summary.supplyStatus === "assigned");
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
                 const attention = getProductFamilyAttention({
-                  pendingSkuCount: plan.pendingSkuCount,
+                  pendingSkuCount: 0,
                   returnRate: metricSummary.returnRate,
                   currentSales: metricSummary.monthlySales,
                   previousSales: comparison.previous.monthlySales,
@@ -635,17 +610,7 @@ export default function ProductMasterPage() {
                       </td>
                       <td className="px-4 py-3 align-top font-medium">{productSkus.length}</td>
                       <td className="px-4 py-3 align-top text-xs">
-                        <div>主供 {plan.primarySuppliers.length} · 备供{" "}
-                        {plan.backupSuppliers.length}
-                        </div>
-                        <div className="mt-1 text-[11px] text-slate-600">实际供应关系：已确认 {assignedCount} · 有入仓证据 {evidencedCount} · 待确认 {unconfirmedCount}</div>
-                        <div className="mt-1 text-[11px] text-slate-500">SKU例外：{skuExceptionCount} · 产品族默认关系优先覆盖</div>
-                        <ProductFamilySupplierAction relationships={familyAssignedRelationships} />
-                        <MissingSupplyLink
-                          productId={product?.id}
-                          familyKey={group.familyKey}
-                          count={plan.pendingSkuCount}
-                        />
+                        <ProductFamilySupplierAction relationships={relationshipSummaries} exceptionCount={skuExceptionCount} />
                         <div className="mt-1 text-[11px] text-slate-500">
                           实际供货：{inboundSupplierSummary.suppliers.length === 0
                             ? "待采集"
@@ -787,58 +752,52 @@ function DecisionCount({ label, value, tone }: { label: string; value: number; t
   return <span className={`rounded-full px-2.5 py-1 ${colors[tone]}`}>{label} {value}</span>;
 }
 
-function MissingSupplyLink({
-  productId,
-  familyKey,
-  count,
-}: {
-  productId?: string;
-  familyKey: string;
-  count: number;
-}) {
-  if (!count) return null;
-  const label = `待处理 SKU ${count}`;
-  return productId ? (
-    <Link
-      className="mt-1 block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900"
-      href={`/products/${productId}?familyKey=${encodeURIComponent(familyKey)}`}
-      title="进入产品详情，查看具体 SKU 的供应方案缺项"
-    >
-      {label}
-    </Link>
-  ) : (
-    <div className="mt-1 text-amber-700">{label}</div>
+function ProductFamilySupplierAction({ relationships, exceptionCount }: { relationships: SkuRelationshipSummary[]; exceptionCount: number }) {
+  const assignedRelationships = relationships.filter((summary) => summary.supplyStatus === "assigned" && summary.supplierName);
+  const familyPrimaryRelationships = assignedRelationships.filter(
+    (summary) => summary.supplierRelationshipSource === "family_assignment" && summary.role === "primary",
   );
-}
-
-function ProductFamilySupplierAction({ relationships }: { relationships: SkuRelationshipSummary[] }) {
   const suppliers = Array.from(new Map(
-    relationships
-      .filter((summary) => summary.supplierName)
+    (familyPrimaryRelationships.length ? familyPrimaryRelationships : assignedRelationships)
       .map((summary) => [summary.supplierId ?? summary.supplierName!, summary]),
   ).values());
+  const evidencedSupplier = relationships.find(
+    (summary) => summary.supplyStatus === "evidenced" && summary.supplierName,
+  );
 
   if (suppliers.length === 0) {
+    if (evidencedSupplier?.supplierId) {
+      return (
+        <div className="space-y-1 text-[11px]">
+          <div className="text-slate-700">实际供应商：<Link className="text-action hover:underline" href={`/suppliers/${evidencedSupplier.supplierId}#supplier-relationship`}>{evidencedSupplier.supplierName}</Link></div>
+          <Link className="block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href={`/suppliers/${evidencedSupplier.supplierId}#supplier-relationship`}>确认当前供应商</Link>
+          {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}：仅在例外时核对</div> : null}
+        </div>
+      );
+    }
     return (
-      <Link className="mt-1 block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href="/suppliers">
-        维护供应关系
-      </Link>
+      <div className="space-y-1 text-[11px]">
+        <div className="text-amber-700">当前供应商：待确认</div>
+        <Link className="block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href="/suppliers">确认实际供应商</Link>
+        {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}：仅在例外时核对</div> : null}
+      </div>
     );
   }
 
   return (
-    <div className="mt-1 text-[11px] text-slate-700">
-      当前主供：{suppliers.map((summary, index) => (
+    <div className="space-y-1 text-[11px] text-slate-700">
+      <div>当前供应商：{suppliers.map((summary, index) => (
         <Fragment key={`${summary.supplierId ?? summary.supplierName}-${index}`}>
           {index > 0 ? "、" : null}
           {summary.supplierId ? (
-            <Link className="text-action hover:underline" href={`/suppliers/${summary.supplierId}`}>
+            <Link className="text-action hover:underline" href={`/suppliers/${summary.supplierId}#supplier-relationship`}>
               {summary.supplierName}
             </Link>
           ) : summary.supplierName}
         </Fragment>
       ))}
-      <span className="ml-1 text-slate-400">（{suppliers[0].supplierRelationshipSource === "family_assignment" ? `生效于 ${suppliers[0].effectiveFrom ?? "未记录"}` : "来自 SKU 关系"}）</span>
+      <span className="ml-1 text-slate-400">（持续有效{suppliers[0].effectiveFrom ? `，${suppliers[0].effectiveFrom} 起` : ""}）</span></div>
+      {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}：仅在例外时核对</div> : null}
     </div>
   );
 }

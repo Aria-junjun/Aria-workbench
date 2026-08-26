@@ -80,7 +80,7 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
   }
 
   return (
-    <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+    <section id="supplier-relationship" className="rounded-2xl border border-border bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-ink">维护供应关系</h2>
