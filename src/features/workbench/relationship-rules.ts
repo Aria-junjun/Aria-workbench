@@ -1,8 +1,9 @@
-import type { LocalSkuOfferLink, LocalSkuSupplierAssignment } from "./local-store";
+import type { LocalProductSupplierAssignment, LocalSkuOfferLink, LocalSkuSupplierAssignment } from "./local-store";
 import { findSupplierAssignmentAtPeriod } from "./sku-composition";
 
 export type SkuMatchStatus = "matched" | "unmatched";
 export type SkuSupplyStatus = "assigned" | "evidenced" | "supplier_unconfirmed" | "unconfirmed";
+export type SupplierRelationshipSource = "sku_assignment" | "family_assignment" | "inbound_evidence" | "offer_match" | "unconfirmed";
 
 export type InboundFactForRelationship = {
   skuMasterId: string;
@@ -18,6 +19,9 @@ export type SkuRelationshipSummary = {
   confirmedOfferCount: number;
   supplierId?: string;
   supplierName?: string;
+  role?: "primary" | "backup";
+  supplierRelationshipSource: SupplierRelationshipSource;
+  effectiveFrom?: string;
   reason: string;
 };
 
@@ -39,9 +43,11 @@ export function formatSkuRelationshipStatus(summary: Pick<SkuRelationshipSummary
 export type ClassifySkuRelationshipInput = {
   skuMasterId: string;
   skuCode: string;
+  productFamilyKey?: string;
   period: string;
   offerLinks: LocalSkuOfferLink[];
   assignments: LocalSkuSupplierAssignment[];
+  productSupplierAssignments?: LocalProductSupplierAssignment[];
   inboundFacts: InboundFactForRelationship[];
 };
 
@@ -57,22 +63,45 @@ export function getActiveSupplierAssignment(
   return findSupplierAssignmentAtPeriod(assignments, skuCode, period);
 }
 
+export function getActiveProductSupplierAssignment(
+  assignments: LocalProductSupplierAssignment[],
+  productFamilyKey: string | undefined,
+  period: string,
+): LocalProductSupplierAssignment | undefined {
+  if (!productFamilyKey) return undefined;
+  return assignments
+    .filter((assignment) => assignment.productFamilyKey === productFamilyKey)
+    .filter((assignment) => assignment.effectiveFrom <= period)
+    .filter((assignment) => !assignment.effectiveTo || assignment.effectiveTo >= period)
+    .filter((assignment) => assignment.status === "active")
+    .sort((a, b) => {
+      if (a.role !== b.role) return a.role === "primary" ? -1 : 1;
+      return b.effectiveFrom.localeCompare(a.effectiveFrom);
+    })[0];
+}
+
 export function classifySkuRelationship(input: ClassifySkuRelationshipInput): SkuRelationshipSummary {
   const confirmedOfferLinks = getConfirmedOfferLinks(input.offerLinks, input.skuMasterId);
-  const assignment = getActiveSupplierAssignment(input.assignments, input.skuCode, input.period);
+  const skuAssignment = getActiveSupplierAssignment(input.assignments, input.skuCode, input.period);
+  const familyAssignment = getActiveProductSupplierAssignment(input.productSupplierAssignments ?? [], input.productFamilyKey, input.period);
+  const assignment = skuAssignment ?? familyAssignment;
   const inbound = input.inboundFacts.find((fact) => fact.skuMasterId === input.skuMasterId && fact.period === input.period);
   const inboundSupplierName = inbound?.supplierName?.trim();
 
   if (assignment) {
+    const source: SupplierRelationshipSource = skuAssignment ? "sku_assignment" : "family_assignment";
     return {
       matchStatus: confirmedOfferLinks.length ? "matched" : "unmatched",
       supplyStatus: "assigned",
       confirmedOfferCount: confirmedOfferLinks.length,
       ...(assignment.supplierId ? { supplierId: assignment.supplierId } : {}),
       ...(assignment.supplierName ? { supplierName: assignment.supplierName } : {}),
+      role: assignment.role ?? "primary",
+      supplierRelationshipSource: source,
+      effectiveFrom: assignment.effectiveFrom,
       reason: confirmedOfferLinks.length
-        ? "已确认货盘匹配，并存在该月份有效的实际供应关系。"
-        : "存在该月份有效的实际供应关系，但尚未确认货盘规格匹配。",
+        ? `已确认货盘匹配，并存在该月份有效的${source === "sku_assignment" ? "SKU例外" : "产品族默认"}供应关系。`
+        : `存在该月份有效的${source === "sku_assignment" ? "SKU例外" : "产品族默认"}供应关系，但尚未确认货盘规格匹配。`,
     };
   }
 
@@ -83,6 +112,7 @@ export function classifySkuRelationship(input: ClassifySkuRelationshipInput): Sk
       confirmedOfferCount: confirmedOfferLinks.length,
       ...(inbound.supplierId ? { supplierId: inbound.supplierId } : {}),
       ...(inboundSupplierName ? { supplierName: inboundSupplierName } : {}),
+      supplierRelationshipSource: "inbound_evidence",
       reason: inboundSupplierName
         ? "有该月份实际入仓证据，但尚未建立有效期内的供应关系记录。"
         : "有该月份实际入仓证据，但供应商尚未确认。",
@@ -93,6 +123,7 @@ export function classifySkuRelationship(input: ClassifySkuRelationshipInput): Sk
     matchStatus: confirmedOfferLinks.length ? "matched" : "unmatched",
     supplyStatus: "unconfirmed",
     confirmedOfferCount: confirmedOfferLinks.length,
+    supplierRelationshipSource: confirmedOfferLinks.length ? "offer_match" : "unconfirmed",
     reason: confirmedOfferLinks.length
       ? "货盘规格已匹配，但没有实际供应关系或入仓证据。"
       : "尚未确认货盘规格匹配，也没有实际供应关系或入仓证据。",

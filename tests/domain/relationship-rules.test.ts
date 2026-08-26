@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
+import type { LocalProductSupplierAssignment } from "@/features/workbench/local-store";
 import { classifySkuRelationship, formatSkuRelationshipStatus } from "@/features/workbench/relationship-rules";
+
+const familyPrimary = (supplierName: string): LocalProductSupplierAssignment => ({
+  id: `family-${supplierName}`,
+  productFamilyKey: "白板贴",
+  supplierId: supplierName === "供应商A" ? "supplier-a" : "supplier-b",
+  supplierName,
+  role: "primary",
+  effectiveFrom: "2026-01",
+  status: "active",
+  source: "manual",
+});
 
 describe("SKU relationship rules", () => {
   it("treats a confirmed offer link as a match but does not infer a primary supplier", () => {
@@ -53,5 +65,54 @@ describe("SKU relationship rules", () => {
       matchStatus: "matched",
       supplyStatus: "unconfirmed",
     })).toEqual({ matchLabel: "货盘已匹配", supplyLabel: "实际供应待确认" });
+  });
+
+  it("uses the product-family primary supplier for every SKU by default", () => {
+    const result = classifySkuRelationship({
+      skuMasterId: "sku-a",
+      skuCode: "Y-01",
+      productFamilyKey: "白板贴",
+      period: "2026-07",
+      offerLinks: [],
+      assignments: [],
+      productSupplierAssignments: [familyPrimary("供应商A")],
+      inboundFacts: [],
+    });
+
+    expect(result.supplyStatus).toBe("assigned");
+    expect(result.supplierName).toBe("供应商A");
+    expect(result.supplierRelationshipSource).toBe("family_assignment");
+  });
+
+  it("lets a SKU exception override the family default", () => {
+    const result = classifySkuRelationship({
+      skuMasterId: "sku-a",
+      skuCode: "Y-02",
+      productFamilyKey: "白板贴",
+      period: "2026-07",
+      offerLinks: [],
+      assignments: [{ id: "sku-exception", skuCode: "Y-02", supplierName: "供应商B", effectiveFrom: "2026-07", status: "active", source: "manual" }],
+      productSupplierAssignments: [familyPrimary("供应商A")],
+      inboundFacts: [],
+    });
+
+    expect(result.supplierName).toBe("供应商B");
+    expect(result.supplierRelationshipSource).toBe("sku_assignment");
+  });
+
+  it("does not turn a matched offer into a primary supplier", () => {
+    const result = classifySkuRelationship({
+      skuMasterId: "sku-a",
+      skuCode: "Y-01",
+      productFamilyKey: "白板贴",
+      period: "2026-07",
+      offerLinks: [{ id: "link-1", skuMasterId: "sku-a", offerId: "offer-a", status: "confirmed", confirmedAt: "2026-07-01" }],
+      assignments: [],
+      productSupplierAssignments: [],
+      inboundFacts: [],
+    });
+
+    expect(result.supplyStatus).toBe("unconfirmed");
+    expect(result.supplierRelationshipSource).toBe("offer_match");
   });
 });
