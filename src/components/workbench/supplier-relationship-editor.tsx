@@ -39,6 +39,7 @@ export function SupplierRelationshipEditor({
     () => existingAssignments.filter((item) => selectedFamilyKeys.includes(item.productFamilyKey) && item.status === "active"),
     [existingAssignments, selectedFamilyKeys],
   );
+  const canSave = selectedFamilyKeys.length > 0 && Boolean(effectiveFrom) && Boolean(reason.trim()) && Boolean(evidence.trim());
 
   function save() {
     if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) return;
@@ -68,7 +69,18 @@ export function SupplierRelationshipEditor({
           <h2 className="text-base font-semibold text-ink">维护供应关系</h2>
           <p className="mt-1 text-sm text-muted">一次选择多个产品族，统一建立主供或备供关系；产品族默认覆盖全部有效 SKU，个别 SKU 可在产品主表设置例外。</p>
         </div>
-        <span className="rounded-full bg-brand-soft px-3 py-1 text-xs text-brand">当前供应商：{supplierName}</span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-brand-soft px-3 py-1 text-xs text-brand">当前供应商：{supplierName}</span>
+          <button
+            type="button"
+            aria-label="关系保存入口"
+            className="rounded-xl bg-brand px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canSave}
+            onClick={save}
+          >
+            批量保存
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -114,7 +126,7 @@ export function SupplierRelationshipEditor({
       </div>
 
       <div className="mt-4 flex items-center gap-3">
-        <button type="button" className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!selectedFamilyKeys.length || !reason.trim() || !evidence.trim()} onClick={save}>批量保存供应关系</button>
+        <button type="button" className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!canSave} onClick={save}>批量保存供应关系</button>
         {savedMessage ? <span className="text-sm text-success">{savedMessage}</span> : <span className="text-xs text-muted">此按钮只保存供应关系；上方供应商档案需通过“编辑”单独保存。货盘匹配不会自动改变主供关系。</span>}
       </div>
     </section>
