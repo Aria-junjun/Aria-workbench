@@ -446,6 +446,88 @@ export function groupSkuMastersByProduct(rows: ProductMasterSkuInput[]): Product
   return [...groups.values()];
 }
 
+type ProductMasterOperatingSortSnapshot = {
+  skuMasterId: string;
+  period: string;
+  shippedQuantity?: number;
+  monthlySales?: number;
+};
+
+type ProductMasterInboundSortSnapshot = {
+  skuMasterId: string;
+  period: string;
+  receivedQuantity?: number;
+};
+
+function compareProductMasterMetrics(
+  left: { shippedQuantity: number; receivedQuantity: number; hasData: boolean; name: string },
+  right: { shippedQuantity: number; receivedQuantity: number; hasData: boolean; name: string },
+) {
+  return Number(right.hasData) - Number(left.hasData)
+    || right.shippedQuantity - left.shippedQuantity
+    || right.receivedQuantity - left.receivedQuantity
+    || left.name.localeCompare(right.name, "zh-CN");
+}
+
+function metricForSku(
+  skuMasterId: string,
+  operatingSnapshots: ProductMasterOperatingSortSnapshot[],
+  inboundSnapshots: ProductMasterInboundSortSnapshot[],
+  period: string,
+) {
+  const operating = operatingSnapshots.filter((snapshot) => snapshot.skuMasterId === skuMasterId && snapshot.period === period);
+  const inbound = inboundSnapshots.filter((snapshot) => snapshot.skuMasterId === skuMasterId && snapshot.period === period);
+  const shippedQuantity = operating.reduce((total, snapshot) => total + (snapshot.shippedQuantity ?? snapshot.monthlySales ?? 0), 0);
+  const receivedQuantity = inbound.reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
+  return {
+    shippedQuantity,
+    receivedQuantity,
+    hasData: operating.some((snapshot) => snapshot.shippedQuantity !== undefined || snapshot.monthlySales !== undefined)
+      || inbound.some((snapshot) => snapshot.receivedQuantity !== undefined),
+  };
+}
+
+export function sortProductMasterGroupsByOperatingData(
+  groups: ProductMasterGroup[],
+  operatingSnapshots: ProductMasterOperatingSortSnapshot[],
+  inboundSnapshots: ProductMasterInboundSortSnapshot[],
+  period: string,
+): ProductMasterGroup[] {
+  return groups
+    .map((group, index) => ({
+      group,
+      index,
+      metrics: group.skuIds.reduce((total, skuMasterId) => {
+        const metrics = metricForSku(skuMasterId, operatingSnapshots, inboundSnapshots, period);
+        return {
+          shippedQuantity: total.shippedQuantity + metrics.shippedQuantity,
+          receivedQuantity: total.receivedQuantity + metrics.receivedQuantity,
+          hasData: total.hasData || metrics.hasData,
+        };
+      }, { shippedQuantity: 0, receivedQuantity: 0, hasData: false }),
+    }))
+    .sort((left, right) => compareProductMasterMetrics(
+      { ...left.metrics, name: left.group.productName },
+      { ...right.metrics, name: right.group.productName },
+    ) || left.index - right.index)
+    .map(({ group }) => group);
+}
+
+export function sortProductMasterSkusByOperatingData<T extends ProductMasterSkuInput>(
+  skus: T[],
+  operatingSnapshots: ProductMasterOperatingSortSnapshot[],
+  inboundSnapshots: ProductMasterInboundSortSnapshot[],
+  period: string,
+): T[] {
+  return skus
+    .map((sku, index) => ({ sku, index, metrics: metricForSku(sku.id, operatingSnapshots, inboundSnapshots, period) }))
+    .sort((left, right) => compareProductMasterMetrics(
+      { ...left.metrics, name: left.sku.internalSkuCode },
+      { ...right.metrics, name: right.sku.internalSkuCode },
+    ) || left.index - right.index)
+    .map(({ sku }) => sku);
+}
+
 export function promoteProductToInbound<T extends PromotableProduct>(product: T): T {
   return {
     ...product,

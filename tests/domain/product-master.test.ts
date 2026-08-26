@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateSkuMetrics, aggregateSkuSnapshots, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound } from "@/features/workbench/product-master";
+import { aggregateSkuMetrics, aggregateSkuSnapshots, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound, sortProductMasterGroupsByOperatingData, sortProductMasterSkusByOperatingData } from "@/features/workbench/product-master";
 
 describe("inbound product master", () => {
   it("groups imported SKUs by product name without duplicating rows", () => {
@@ -64,5 +64,37 @@ describe("inbound product master", () => {
     expect(comparison.current.source).toBe("pending");
     expect(comparison.current.monthlySales).toBeUndefined();
     expect(comparison.delta.monthlySales).toBeUndefined();
+  });
+
+  it("sorts product families by available data and shipped quantity", () => {
+    const groups = groupSkuMastersByProduct([
+      { id: "sku-a", internalSkuCode: "A", productName: "无数据产品", specification: "1" },
+      { id: "sku-b", internalSkuCode: "B", productName: "低销量产品", specification: "1" },
+      { id: "sku-c", internalSkuCode: "C", productName: "高销量产品", specification: "1" },
+    ]);
+
+    const sorted = sortProductMasterGroupsByOperatingData(groups, [
+      { skuMasterId: "sku-b", period: "2026-07", shippedQuantity: 20 },
+      { skuMasterId: "sku-c", period: "2026-07", shippedQuantity: 80 },
+    ], [], "2026-07");
+
+    expect(sorted.map((group) => group.productName)).toEqual(["高销量产品", "低销量产品", "无数据产品"]);
+  });
+
+  it("sorts expanded SKUs by shipped quantity and then inbound quantity", () => {
+    const skus = [
+      { id: "sku-a", internalSkuCode: "A", productName: "白板贴", specification: "1" },
+      { id: "sku-b", internalSkuCode: "B", productName: "白板贴", specification: "2" },
+      { id: "sku-c", internalSkuCode: "C", productName: "白板贴", specification: "3" },
+    ];
+
+    const sorted = sortProductMasterSkusByOperatingData(skus, [
+      { skuMasterId: "sku-a", period: "2026-07", shippedQuantity: 10 },
+      { skuMasterId: "sku-b", period: "2026-07", shippedQuantity: 30 },
+    ], [
+      { skuMasterId: "sku-c", period: "2026-07", receivedQuantity: 50 },
+    ], "2026-07");
+
+    expect(sorted.map((sku) => sku.internalSkuCode)).toEqual(["B", "A", "C"]);
   });
 });

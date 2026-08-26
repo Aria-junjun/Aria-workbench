@@ -20,6 +20,8 @@ import {
   buildProductSupplierDecisionRows,
   groupSkuMastersByProduct,
   deriveProductFamilyKey,
+  sortProductMasterGroupsByOperatingData,
+  sortProductMasterSkusByOperatingData,
   type SkuMetricInput,
 } from "@/features/workbench/product-master";
 import {
@@ -53,6 +55,7 @@ export default function ProductMasterPage() {
   >({});
   const currentPeriod = new Date().toISOString().slice(0, 7);
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
+  const [productPage, setProductPage] = useState(1);
   const [draftMetrics, setDraftMetrics] = useState<
     Record<string, SkuMetricInput>
   >({});
@@ -79,6 +82,20 @@ export default function ProductMasterPage() {
         (product.productFamilyKey === group.familyKey ||
           deriveProductFamilyKey(product.name) === group.familyKey),
     ),
+  );
+  const pendingGroups = productGroups.filter((group) => !inboundGroups.some((item) => item.familyKey === group.familyKey));
+  const sortedInboundGroups = sortProductMasterGroupsByOperatingData(
+    inboundGroups,
+    snapshots,
+    data.monthlyInboundSnapshots ?? [],
+    selectedPeriod,
+  );
+  const productPageSize = 20;
+  const productPageCount = Math.max(1, Math.ceil(sortedInboundGroups.length / productPageSize));
+  const safeProductPage = Math.min(productPage, productPageCount);
+  const visibleInboundGroups = sortedInboundGroups.slice(
+    (safeProductPage - 1) * productPageSize,
+    safeProductPage * productPageSize,
   );
   const periodInboundSnapshots = (data.monthlyInboundSnapshots ?? []).filter(
     (snapshot) => snapshot.period === selectedPeriod,
@@ -260,6 +277,7 @@ export default function ProductMasterPage() {
               onChange={(event) => {
                 setSelectedPeriod(event.target.value);
                 setDraftMetrics({});
+                setProductPage(1);
               }}
               type="month"
               value={selectedPeriod}
@@ -317,6 +335,45 @@ export default function ProductMasterPage() {
           value={skus.filter((sku) => !sku.productId).length}
         />
       </div>
+      {pendingGroups.length > 0 ? (
+        <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-medium text-amber-900">待生成入仓产品族（{pendingGroups.length}）</h2>
+              <p className="mt-1 text-xs text-amber-800">
+                SKU 已导入，但还没有建立产品族。确认生成后，才会进入主表并关联经营数据。
+              </p>
+            </div>
+            <button
+              className="h-9 rounded-md bg-action px-3 text-sm font-medium text-white"
+              onClick={generateProducts}
+              type="button"
+            >
+              确认生成入仓产品
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-amber-50 text-amber-900">
+                <tr>
+                  <th className="px-3 py-2">产品族</th>
+                  <th className="px-3 py-2">SKU数</th>
+                  <th className="px-3 py-2">内部编码示例</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-100">
+                {pendingGroups.map((group) => (
+                  <tr key={group.familyKey}>
+                    <td className="px-3 py-2 font-medium text-slate-800">{group.productName}</td>
+                    <td className="px-3 py-2 text-slate-600">{group.skuIds.length}</td>
+                    <td className="px-3 py-2 text-slate-600">{group.internalSkuCodes.slice(0, 3).join("、")}{group.internalSkuCodes.length > 3 ? "…" : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       <section className="rounded-xl border border-line bg-paper-warm/40 p-4 text-sm">
         <h2 className="font-medium text-slate-800">数据来源与汇总口径</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
@@ -490,10 +547,10 @@ export default function ProductMasterPage() {
       ) : null}
       {inboundGroups.length === 0 ? (
         <EmptyState
-          title="还没有入仓产品主表"
+          title={pendingGroups.length > 0 ? "还没有已确认的入仓产品主表" : "还没有入仓产品主表"}
           description={
             skus.length
-              ? "点击右上角按钮，系统会按产品族归并 SKU，并保留原产品机会资料。"
+              ? "上方已列出待生成产品族；确认后，系统会按产品族归并 SKU，并保留原产品机会资料。"
               : "请先导入并确认内部 SKU 表。"
           }
           actionHref="/sku-master/import"
@@ -518,7 +575,7 @@ export default function ProductMasterPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {inboundGroups.map((group) => {
+              {visibleInboundGroups.map((group) => {
                 const product = data.products.find(
                   (item) =>
                     item.recordKind === "existing" &&
@@ -526,8 +583,11 @@ export default function ProductMasterPage() {
                     (item.productFamilyKey === group.familyKey ||
                       deriveProductFamilyKey(item.name) === group.familyKey),
                 );
-                const productSkus = skus.filter((sku) =>
-                  group.skuIds.includes(sku.id),
+                const productSkus = sortProductMasterSkusByOperatingData(
+                  skus.filter((sku) => group.skuIds.includes(sku.id)),
+                  snapshots,
+                  data.monthlyInboundSnapshots ?? [],
+                  selectedPeriod,
                 );
                 const currentRows = productSkus.map((sku) => draftFor(sku));
                 const previousRows = productSkus.map((sku) => {
@@ -719,6 +779,30 @@ export default function ProductMasterPage() {
               })}
             </tbody>
           </table>
+          {productPageCount > 1 ? (
+            <div className="flex items-center justify-between border-t border-line px-4 py-3 text-xs text-slate-500">
+              <span>按当前周期经营数据排序 · 共 {sortedInboundGroups.length} 个产品族</span>
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded border border-line px-2 py-1 disabled:opacity-40"
+                  disabled={safeProductPage <= 1}
+                  onClick={() => setProductPage((current) => Math.max(1, current - 1))}
+                  type="button"
+                >
+                  上一页
+                </button>
+                <span>{safeProductPage} / {productPageCount}</span>
+                <button
+                  className="rounded border border-line px-2 py-1 disabled:opacity-40"
+                  disabled={safeProductPage >= productPageCount}
+                  onClick={() => setProductPage((current) => Math.min(productPageCount, current + 1))}
+                  type="button"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
