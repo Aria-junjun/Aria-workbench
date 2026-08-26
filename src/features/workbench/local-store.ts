@@ -363,6 +363,20 @@ export type LocalSkuSupplierAssignment = {
   note?: string;
 };
 
+export type LocalProductSupplierAssignment = {
+  id: string;
+  productFamilyKey: string;
+  supplierId?: string;
+  supplierName?: string;
+  role: "primary" | "backup";
+  effectiveFrom: string;
+  effectiveTo?: string;
+  status: "active" | "ended";
+  source: "manual" | "imported" | "evidence";
+  reason?: string;
+  evidence?: string;
+};
+
 export type LocalSkuImportBatch = {
   id: string;
   fileName: string;
@@ -431,6 +445,7 @@ export type LocalWorkbenchData = {
   monthlyInboundSnapshots?: LocalMonthlyInboundSnapshot[];
   skuCompositions?: LocalSkuComposition[];
   skuSupplierAssignments?: LocalSkuSupplierAssignment[];
+  productSupplierAssignments?: LocalProductSupplierAssignment[];
   skuImportBatches?: LocalSkuImportBatch[];
   skuOfferLinks?: LocalSkuOfferLink[];
   supplierOfferDecisions?: LocalSupplierOfferDecision[];
@@ -1969,6 +1984,11 @@ function assertMonthlyPeriod(period: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("月度数据周期必须是 YYYY-MM");
 }
 
+function previousMonthlyPeriod(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
 /** 保存实际入仓事实，只替换同一 SKU、同一月份，不影响销售快照或其他月份。 */
 export function saveMonthlyInboundSnapshots(entries: Array<Omit<LocalMonthlyInboundSnapshot, "id"> & { id?: string }>) {
   entries.forEach((entry) => assertMonthlyPeriod(entry.period));
@@ -2018,6 +2038,58 @@ export function saveSkuSupplierAssignments(entries: Array<Omit<LocalSkuSupplierA
     return assignment;
   });
   saveLocalWorkbenchData({ ...current, skuSupplierAssignments: assignments });
+  return saved;
+}
+
+export function saveProductSupplierAssignments(entries: Array<Omit<LocalProductSupplierAssignment, "id"> & { id?: string }>) {
+  entries.forEach((entry) => {
+    assertMonthlyPeriod(entry.effectiveFrom);
+    if (entry.effectiveTo) assertMonthlyPeriod(entry.effectiveTo);
+    if (!entry.productFamilyKey.trim()) throw new Error("产品族不能为空");
+  });
+  const current = loadLocalWorkbenchData();
+  const assignments = [...(current.productSupplierAssignments ?? [])];
+  const saved: LocalProductSupplierAssignment[] = [];
+
+  for (const entry of entries) {
+    const samePeriod = assignments.find((item) =>
+      item.productFamilyKey === entry.productFamilyKey &&
+      item.role === entry.role &&
+      item.effectiveFrom === entry.effectiveFrom &&
+      item.status === "active",
+    );
+    if (samePeriod) {
+      const replacement: LocalProductSupplierAssignment = { ...entry, id: entry.id ?? samePeriod.id };
+      const index = assignments.findIndex((item) => item.id === samePeriod.id);
+      assignments[index] = replacement;
+      saved.push(replacement);
+      continue;
+    }
+
+    const previous = assignments.find((item) =>
+      item.productFamilyKey === entry.productFamilyKey &&
+      item.role === entry.role &&
+      item.status === "active" &&
+      item.effectiveFrom < entry.effectiveFrom,
+    );
+    if (previous) {
+      const index = assignments.findIndex((item) => item.id === previous.id);
+      assignments[index] = {
+        ...previous,
+        status: "ended",
+        effectiveTo: previousMonthlyPeriod(entry.effectiveFrom),
+      };
+    }
+
+    const assignment: LocalProductSupplierAssignment = {
+      ...entry,
+      id: entry.id ?? `product-supplier-${entry.productFamilyKey}-${entry.role}-${entry.effectiveFrom}`,
+    };
+    assignments.unshift(assignment);
+    saved.push(assignment);
+  }
+
+  saveLocalWorkbenchData({ ...current, productSupplierAssignments: assignments });
   return saved;
 }
 
@@ -2261,6 +2333,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     monthlyInboundSnapshots: Array.isArray(data.monthlyInboundSnapshots) ? data.monthlyInboundSnapshots : [],
     skuCompositions: Array.isArray(data.skuCompositions) ? data.skuCompositions : [],
     skuSupplierAssignments: Array.isArray(data.skuSupplierAssignments) ? data.skuSupplierAssignments : [],
+    productSupplierAssignments: Array.isArray(data.productSupplierAssignments) ? data.productSupplierAssignments : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],
