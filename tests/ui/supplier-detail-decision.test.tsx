@@ -17,5 +17,8 @@ describe("supplier detail decision loop UI contract", () => {
     expect(source).toContain("relationshipEditorRef");
     expect(source).toContain("editable={editing}");
     expect(source).toContain(">保存</button>");
+    expect(source).toContain("relationshipSaveResult");
+    expect(source).toContain("供应关系保存失败");
+    expect(source).toContain("setEditing(true)");
   });
 });

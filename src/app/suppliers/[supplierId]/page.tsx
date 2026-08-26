@@ -84,6 +84,7 @@ export default function SupplierDetailPage() {
   const [draft, setDraft] = useState<LocalSupplier | undefined>(supplier);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [decisionVersion, setDecisionVersion] = useState(0);
+  const [saveError, setSaveError] = useState("");
   const relationshipEditorRef = useRef<SupplierRelationshipEditorHandle>(null);
 
   // 聊天快速评估 state
@@ -176,13 +177,20 @@ export default function SupplierDetailPage() {
 
   function save() {
     if (!draft) return;
+    const relationshipSaveResult = relationshipEditorRef.current?.save();
+    if (relationshipSaveResult && !relationshipSaveResult.saved) {
+      setSaveError(`供应关系保存失败：${relationshipSaveResult.message ?? "请检查关系字段"}`);
+      setEditing(true);
+      return;
+    }
     updateLocalItem("suppliers", draft.id, draft);
-    relationshipEditorRef.current?.save();
+    setSaveError("");
     setEditing(false);
   }
 
   function cancelEditing() {
     setEditing(false);
+    setSaveError("");
     setDraft(supplier);
     relationshipEditorRef.current?.reset();
   }
@@ -269,6 +277,7 @@ export default function SupplierDetailPage() {
           聊天快速评估
         </button>
       </div>
+      {saveError ? <p className="rounded-lg border border-danger/30 bg-danger-soft/20 px-3 py-2 text-sm text-danger">{saveError}</p> : null}
 
       {/* 供应商名片 - 去卡片化 */}
       <section className="pb-5 border-b border-line">

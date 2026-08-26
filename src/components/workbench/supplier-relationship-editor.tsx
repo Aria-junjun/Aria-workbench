@@ -12,7 +12,7 @@ export type SupplierRelationshipEditorFamily = {
 };
 
 export type SupplierRelationshipEditorHandle = {
-  save: () => boolean;
+  save: () => { saved: boolean; message?: string };
   reset: () => void;
 };
 
@@ -47,7 +47,11 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
     [existingAssignments, selectedFamilyKeys],
   );
   function save() {
-    if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) return false;
+    if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) {
+      const message = "请填写变更原因和关系依据后再保存。";
+      setSavedMessage(message);
+      return { saved: false, message };
+    }
     saveProductSupplierAssignments(selectedFamilyKeys.map((productFamilyKey) => ({
         productFamilyKey,
         supplierId,
@@ -61,7 +65,7 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
       })));
     setSavedMessage(`已保存 ${selectedFamilyKeys.length} 个产品族的供应关系，并保留了变更历史。`);
     onSaved?.();
-    return true;
+    return { saved: true };
   }
 
   function reset() {
