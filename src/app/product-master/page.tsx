@@ -38,6 +38,7 @@ import {
   type ConfirmedInboundRow,
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
+import { SkuSupplierExceptionEditor } from "@/components/workbench/sku-supplier-exception-editor";
 import { getProductFamilyAttention } from "@/features/workbench/product-master-presentation";
 import {
   classifySkuRelationship,
@@ -718,6 +719,12 @@ export default function ProductMasterPage() {
                             <div>{skuSupplierSummary.suppliers.length ? skuSupplierSummary.suppliers.map((item) => item.supplierName).join("、") : "待采集"}</div>
                             <div className="mt-1 text-[11px] text-slate-600">{skuRelationshipLabel.supplyLabel}</div>
                             <div className="mt-1 text-[11px] text-slate-400" title={skuRelationship.reason}>供应关系依据：{skuRelationship.reason}</div>
+                            <SkuSupplierExceptionEditor
+                              skuCode={sku.internalSkuCode}
+                              suppliers={data.suppliers}
+                              currentPeriod={selectedPeriod}
+                              onSaved={() => setMessage(`${sku.internalSkuCode} 的 SKU 例外关系已保存`)}
+                            />
                           </td>
                           <td className="px-4 py-2 text-slate-400">—</td>
                           <td className="px-4 py-2">
