@@ -41,12 +41,14 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
   const [reason, setReason] = useState("");
   const [evidence, setEvidence] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
+  const [relationshipDirty, setRelationshipDirty] = useState(false);
 
   const currentFamilyAssignments = useMemo(
     () => existingAssignments.filter((item) => selectedFamilyKeys.includes(item.productFamilyKey) && item.status === "active"),
     [existingAssignments, selectedFamilyKeys],
   );
   function save() {
+    if (!relationshipDirty) return { saved: true };
     if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) {
       const message = "请填写变更原因和关系依据后再保存。";
       setSavedMessage(message);
@@ -75,11 +77,13 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
     setReason("");
     setEvidence("");
     setSavedMessage("");
+    setRelationshipDirty(false);
   }
 
   useImperativeHandle(ref, () => ({ save, reset }));
 
   function toggleFamily(familyKey: string) {
+    setRelationshipDirty(true);
     setSelectedFamilyKeys((current) => current.includes(familyKey) ? current.filter((key) => key !== familyKey) : [...current, familyKey]);
   }
 
@@ -115,7 +119,7 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
 
         <label className="text-sm text-ink">
           <span className="mb-1 block text-muted">关系类型</span>
-          <select disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={role} onChange={(event) => setRole(event.target.value as "primary" | "backup")}>
+          <select disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={role} onChange={(event) => { setRelationshipDirty(true); setRole(event.target.value as "primary" | "backup"); }}>
             <option value="primary">设为主供</option>
             <option value="backup">设为备供</option>
           </select>
@@ -123,7 +127,7 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
 
         <label className="text-sm text-ink">
           <span className="mb-1 block text-muted">生效月份</span>
-          <input disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" type="month" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
+          <input disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" type="month" value={effectiveFrom} onChange={(event) => { setRelationshipDirty(true); setEffectiveFrom(event.target.value); }} />
         </label>
 
         <div className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted">
@@ -132,12 +136,12 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
 
         <label className="text-sm text-ink md:col-span-2">
           <span className="mb-1 block text-muted">变更原因</span>
-          <input disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：确认该供应商作为当前主供" />
+          <input disabled={!editable} className="w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={reason} onChange={(event) => { setRelationshipDirty(true); setReason(event.target.value); }} placeholder="例如：确认该供应商作为当前主供" />
         </label>
 
         <label className="text-sm text-ink md:col-span-2">
           <span className="mb-1 block text-muted">关系依据</span>
-          <textarea disabled={!editable} className="min-h-20 w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="例如：2026-07 实际入仓记录、确认聊天记录或货盘报价" />
+          <textarea disabled={!editable} className="min-h-20 w-full rounded-xl border border-border bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-70" value={evidence} onChange={(event) => { setRelationshipDirty(true); setEvidence(event.target.value); }} placeholder="例如：2026-07 实际入仓记录、确认聊天记录或货盘报价" />
         </label>
       </div>
 

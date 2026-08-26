@@ -24,5 +24,7 @@ describe("supplier relationship editor", () => {
     expect(source).toContain("selectedFamilyKeys.map");
     expect(source).toContain("请填写变更原因和关系依据");
     expect(source).toContain("saved: false");
+    expect(source).toContain("relationshipDirty");
+    expect(source).toContain("if (!relationshipDirty)");
   });
 });
