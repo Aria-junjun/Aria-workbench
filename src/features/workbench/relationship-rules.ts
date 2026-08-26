@@ -96,7 +96,7 @@ export function classifySkuRelationship(input: ClassifySkuRelationshipInput): Sk
       confirmedOfferCount: confirmedOfferLinks.length,
       ...(assignment.supplierId ? { supplierId: assignment.supplierId } : {}),
       ...(assignment.supplierName ? { supplierName: assignment.supplierName } : {}),
-      role: assignment.role ?? "primary",
+      role: familyAssignment ? familyAssignment.role : "primary",
       supplierRelationshipSource: source,
       effectiveFrom: assignment.effectiveFrom,
       reason: confirmedOfferLinks.length

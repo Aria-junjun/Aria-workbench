@@ -1,0 +1,113 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  saveProductSupplierAssignments,
+  type LocalProductSupplierAssignment,
+} from "@/features/workbench/local-store";
+
+export type SupplierRelationshipEditorFamily = {
+  key: string;
+  label: string;
+};
+
+type SupplierRelationshipEditorProps = {
+  supplierId: string;
+  supplierName: string;
+  productFamilies: SupplierRelationshipEditorFamily[];
+  currentPeriod: string;
+  existingAssignments: LocalProductSupplierAssignment[];
+  onSaved?: () => void;
+};
+
+export function SupplierRelationshipEditor({
+  supplierId,
+  supplierName,
+  productFamilies,
+  currentPeriod,
+  existingAssignments,
+  onSaved,
+}: SupplierRelationshipEditorProps) {
+  const [familyKey, setFamilyKey] = useState(productFamilies[0]?.key ?? "");
+  const [role, setRole] = useState<"primary" | "backup">("primary");
+  const [effectiveFrom, setEffectiveFrom] = useState(currentPeriod);
+  const [reason, setReason] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
+
+  const currentFamilyAssignments = useMemo(
+    () => existingAssignments.filter((item) => item.productFamilyKey === familyKey && item.status === "active"),
+    [existingAssignments, familyKey],
+  );
+
+  function save() {
+    if (!familyKey || !effectiveFrom || !reason.trim() || !evidence.trim()) return;
+    saveProductSupplierAssignments([{
+      productFamilyKey: familyKey,
+      supplierId,
+      supplierName,
+      role,
+      effectiveFrom,
+      status: "active",
+      source: "manual",
+      reason: reason.trim(),
+      evidence: evidence.trim(),
+    }]);
+    setSavedMessage("已保存供应关系，并保留了变更历史。");
+    onSaved?.();
+  }
+
+  return (
+    <section className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">维护供应关系</h2>
+          <p className="mt-1 text-sm text-muted">产品族默认覆盖全部有效 SKU，个别 SKU 可在产品主表设置例外。</p>
+        </div>
+        <span className="rounded-full bg-brand-soft px-3 py-1 text-xs text-brand">当前供应商：{supplierName}</span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="text-sm text-ink">
+          <span className="mb-1 block text-muted">关系范围</span>
+          <select className="w-full rounded-xl border border-border bg-white px-3 py-2" value={familyKey} onChange={(event) => setFamilyKey(event.target.value)}>
+            <option value="">请选择产品族</option>
+            {productFamilies.map((family) => <option key={family.key} value={family.key}>{family.label}</option>)}
+          </select>
+        </label>
+
+        <label className="text-sm text-ink">
+          <span className="mb-1 block text-muted">关系类型</span>
+          <select className="w-full rounded-xl border border-border bg-white px-3 py-2" value={role} onChange={(event) => setRole(event.target.value as "primary" | "backup")}>
+            <option value="primary">设为主供</option>
+            <option value="backup">设为备供</option>
+          </select>
+        </label>
+
+        <label className="text-sm text-ink">
+          <span className="mb-1 block text-muted">生效月份</span>
+          <input className="w-full rounded-xl border border-border bg-white px-3 py-2" type="month" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
+        </label>
+
+        <div className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted">
+          当前产品族关系：{currentFamilyAssignments.length ? currentFamilyAssignments.map((item) => `${item.role === "primary" ? "主供" : "备供"} ${item.supplierName ?? "未命名"}`).join("、") : "尚未建立"}
+        </div>
+
+        <label className="text-sm text-ink md:col-span-2">
+          <span className="mb-1 block text-muted">变更原因</span>
+          <input className="w-full rounded-xl border border-border bg-white px-3 py-2" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：确认该供应商作为当前主供" />
+        </label>
+
+        <label className="text-sm text-ink md:col-span-2">
+          <span className="mb-1 block text-muted">关系依据</span>
+          <textarea className="min-h-20 w-full rounded-xl border border-border bg-white px-3 py-2" value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="例如：2026-07 实际入仓记录、确认聊天记录或货盘报价" />
+        </label>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <button type="button" className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!familyKey || !reason.trim() || !evidence.trim()} onClick={save}>保存供应关系</button>
+        {savedMessage ? <span className="text-sm text-success">{savedMessage}</span> : <span className="text-xs text-muted">货盘匹配不会自动改变这里的主供关系。</span>}
+      </div>
+    </section>
+  );
+}

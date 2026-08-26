@@ -39,7 +39,9 @@ import {
   type SupplierBusinessModel,
 } from "@/features/workbench/supplier-evaluation";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
+import { deriveProductFamilyKey } from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
+import { SupplierRelationshipEditor } from "@/components/workbench/supplier-relationship-editor";
 import {
   AlertCircle,
   AlertTriangle,
@@ -147,6 +149,11 @@ export default function SupplierDetailPage() {
       product: data.products.find((p) => p.id === o.productId),
     }))
     .filter((x): x is { offer: LocalOffer; product: LocalProductKnowledge } => !!x.product);
+
+  const productFamilies = Array.from(new Map((data.skuMasters ?? []).map((sku) => {
+    const key = deriveProductFamilyKey(sku.productName);
+    return [key, { key, label: sku.productName }] as const;
+  })).values()).sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
 
   // 评估数据
   const evaluations = supplier.evaluations ?? [];
@@ -405,6 +412,15 @@ export default function SupplierDetailPage() {
         returnRate={productReturnRate}
         onRecordDecision={recordDecision}
         onCompleteDecision={completeDecision}
+      />
+
+      <SupplierRelationshipEditor
+        supplierId={supplierId}
+        supplierName={supplier.name}
+        productFamilies={productFamilies}
+        currentPeriod={latestInboundPeriod ?? defaultPeriod()}
+        existingAssignments={data.productSupplierAssignments ?? []}
+        onSaved={() => setDecisionVersion((value) => value + 1)}
       />
 
       {/* Tab 导航 - 扁平下划线式 */}
