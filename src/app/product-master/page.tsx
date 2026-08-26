@@ -43,6 +43,7 @@ import { getProductFamilyAttention } from "@/features/workbench/product-master-p
 import {
   classifySkuRelationship,
   formatSkuRelationshipStatus,
+  type SkuRelationshipSummary,
 } from "@/features/workbench/relationship-rules";
 
 export default function ProductMasterPage() {
@@ -588,6 +589,7 @@ export default function ProductMasterPage() {
                 const evidencedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "evidenced").length;
                 const unconfirmedCount = relationshipSummaries.filter((summary) => summary.supplyStatus === "supplier_unconfirmed" || summary.supplyStatus === "unconfirmed").length;
                 const skuExceptionCount = relationshipSummaries.filter((summary) => summary.supplierRelationshipSource === "sku_assignment").length;
+                const familyAssignedRelationships = relationshipSummaries.filter((summary) => summary.supplyStatus === "assigned");
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
                 const attention = getProductFamilyAttention({
                   pendingSkuCount: plan.pendingSkuCount,
@@ -638,6 +640,7 @@ export default function ProductMasterPage() {
                         </div>
                         <div className="mt-1 text-[11px] text-slate-600">实际供应关系：已确认 {assignedCount} · 有入仓证据 {evidencedCount} · 待确认 {unconfirmedCount}</div>
                         <div className="mt-1 text-[11px] text-slate-500">SKU例外：{skuExceptionCount} · 产品族默认关系优先覆盖</div>
+                        <ProductFamilySupplierAction relationships={familyAssignedRelationships} />
                         <MissingSupplyLink
                           productId={product?.id}
                           familyKey={group.familyKey}
@@ -805,6 +808,38 @@ function MissingSupplyLink({
     </Link>
   ) : (
     <div className="mt-1 text-amber-700">{label}</div>
+  );
+}
+
+function ProductFamilySupplierAction({ relationships }: { relationships: SkuRelationshipSummary[] }) {
+  const suppliers = Array.from(new Map(
+    relationships
+      .filter((summary) => summary.supplierName)
+      .map((summary) => [summary.supplierId ?? summary.supplierName!, summary]),
+  ).values());
+
+  if (suppliers.length === 0) {
+    return (
+      <Link className="mt-1 block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href="/suppliers">
+        维护供应关系
+      </Link>
+    );
+  }
+
+  return (
+    <div className="mt-1 text-[11px] text-slate-700">
+      当前主供：{suppliers.map((summary, index) => (
+        <Fragment key={`${summary.supplierId ?? summary.supplierName}-${index}`}>
+          {index > 0 ? "、" : null}
+          {summary.supplierId ? (
+            <Link className="text-action hover:underline" href={`/suppliers/${summary.supplierId}`}>
+              {summary.supplierName}
+            </Link>
+          ) : summary.supplierName}
+        </Fragment>
+      ))}
+      <span className="ml-1 text-slate-400">（{suppliers[0].supplierRelationshipSource === "family_assignment" ? `生效于 ${suppliers[0].effectiveFrom ?? "未记录"}` : "来自 SKU 关系"}）</span>
+    </div>
   );
 }
 

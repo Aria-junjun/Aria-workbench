@@ -12,6 +12,9 @@ describe("product master relationship status UI contract", () => {
     expect(source).toContain("productSupplierAssignments");
     expect(source).toContain("SKU例外");
     expect(source).toContain("待确认");
+    expect(source).toContain("当前主供");
+    expect(source).toContain("维护供应关系");
+    expect(source).toContain("supplierRelationshipSource");
   });
 
   it("keeps offer matching separate from supplier selection", () => {
