@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import {
   saveProductSupplierAssignments,
   type LocalProductSupplierAssignment,
@@ -35,7 +35,19 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
   editable = true,
   onSaved,
 }: SupplierRelationshipEditorProps, ref) {
-  const [selectedFamilyKeys, setSelectedFamilyKeys] = useState<string[]>(productFamilies[0]?.key ? [productFamilies[0].key] : []);
+  const defaultFamilyKeys = useMemo(() => {
+    const assignedKeys = productFamilies
+      .filter((family) => existingAssignments.some((assignment) =>
+        assignment.productFamilyKey === family.key &&
+        assignment.supplierId === supplierId &&
+        assignment.status === "active" &&
+        assignment.effectiveFrom <= currentPeriod &&
+        (!assignment.effectiveTo || assignment.effectiveTo >= currentPeriod),
+      ))
+      .map((family) => family.key);
+    return assignedKeys.length ? assignedKeys : (productFamilies[0]?.key ? [productFamilies[0].key] : []);
+  }, [currentPeriod, existingAssignments, productFamilies, supplierId]);
+  const [selectedFamilyKeys, setSelectedFamilyKeys] = useState<string[]>(defaultFamilyKeys);
   const [role, setRole] = useState<"primary" | "backup">("primary");
   const [effectiveFrom, setEffectiveFrom] = useState(currentPeriod);
   const [reason, setReason] = useState("");
@@ -44,9 +56,19 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
   const [relationshipDirty, setRelationshipDirty] = useState(false);
 
   const currentFamilyAssignments = useMemo(
-    () => existingAssignments.filter((item) => selectedFamilyKeys.includes(item.productFamilyKey) && item.status === "active"),
-    [existingAssignments, selectedFamilyKeys],
+    () => existingAssignments.filter((item) =>
+      selectedFamilyKeys.includes(item.productFamilyKey) &&
+      item.supplierId === supplierId &&
+      item.status === "active" &&
+      item.effectiveFrom <= currentPeriod &&
+      (!item.effectiveTo || item.effectiveTo >= currentPeriod),
+    ),
+    [currentPeriod, existingAssignments, selectedFamilyKeys, supplierId],
   );
+
+  useEffect(() => {
+    if (!relationshipDirty) setSelectedFamilyKeys(defaultFamilyKeys);
+  }, [defaultFamilyKeys, relationshipDirty]);
   function save() {
     if (!relationshipDirty) return { saved: true };
     if (!selectedFamilyKeys.length || !effectiveFrom || !reason.trim() || !evidence.trim()) {
@@ -71,7 +93,7 @@ export const SupplierRelationshipEditor = forwardRef<SupplierRelationshipEditorH
   }
 
   function reset() {
-    setSelectedFamilyKeys(productFamilies[0]?.key ? [productFamilies[0].key] : []);
+    setSelectedFamilyKeys(defaultFamilyKeys);
     setRole("primary");
     setEffectiveFrom(currentPeriod);
     setReason("");

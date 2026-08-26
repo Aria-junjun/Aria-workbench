@@ -135,6 +135,9 @@ export default function SuppliersPage() {
     decisionSnapshots,
     "selected",
     decisionOperatingSnapshots,
+    5,
+    decisionAnchor,
+    data.productSupplierAssignments ?? [],
   );
   const focusedDecisionRows = decisionFilter === "all"
     ? supplierDecisionRows

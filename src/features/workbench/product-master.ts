@@ -208,6 +208,17 @@ export function buildSupplierDecisionOverviewRows(
   period: string,
   operatingSnapshots: OperatingDecisionSnapshot[] = [],
   qualityReviewRate = 5,
+  assignmentPeriod = period,
+  productSupplierAssignments: Array<{
+    productFamilyKey: string;
+    supplierId?: string;
+    supplierName?: string;
+    role: "primary" | "backup";
+    effectiveFrom: string;
+    effectiveTo?: string;
+    status: "active" | "ended";
+    source?: string;
+  }> = [],
 ): SupplierDecisionOverviewRow[] {
   const rows = new Map<string, {
     supplierId?: string;
@@ -218,12 +229,22 @@ export function buildSupplierDecisionOverviewRows(
     totalSkuCount: number;
     receivedQuantity: number;
     splitProduct: boolean;
+    hasAssignment: boolean;
   }>();
 
   for (const group of groups) {
     const skuIds = new Set(group.skus.map((sku) => sku.id));
     const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
-    const supplierKeys = new Set(inbound.map((snapshot) => snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${snapshot.supplierName?.trim() || "供应商待确认"}`));
+    const assignments = productSupplierAssignments.filter((assignment) =>
+      assignment.productFamilyKey === group.familyKey &&
+      assignment.status === "active" &&
+      assignment.effectiveFrom <= assignmentPeriod &&
+      (!assignment.effectiveTo || assignment.effectiveTo >= assignmentPeriod),
+    );
+    const supplierKeys = new Set([
+      ...inbound.map((snapshot) => snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${snapshot.supplierName?.trim() || "供应商待确认"}`),
+      ...assignments.map((assignment) => assignment.supplierId ? `id:${assignment.supplierId}` : `name:${assignment.supplierName?.trim() || "供应商待确认"}`),
+    ]);
     for (const snapshot of inbound) {
       const supplierName = snapshot.supplierName?.trim() || "供应商待确认";
       const key = snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${supplierName}`;
@@ -236,6 +257,7 @@ export function buildSupplierDecisionOverviewRows(
         totalSkuCount: 0,
         receivedQuantity: 0,
         splitProduct: false,
+        hasAssignment: false,
       };
       current.productNames.add(group.productName);
       if (!current.productKeys.has(group.familyKey)) {
@@ -244,6 +266,29 @@ export function buildSupplierDecisionOverviewRows(
       }
       current.skuIds.add(snapshot.skuMasterId);
       current.receivedQuantity += snapshot.receivedQuantity ?? 0;
+      current.splitProduct = current.splitProduct || supplierKeys.size > 1;
+      rows.set(key, current);
+    }
+    for (const assignment of assignments) {
+      const supplierName = assignment.supplierName?.trim() || "供应商待确认";
+      const key = assignment.supplierId ? `id:${assignment.supplierId}` : `name:${supplierName}`;
+      const current = rows.get(key) ?? {
+        supplierId: assignment.supplierId,
+        supplierName,
+        productNames: new Set<string>(),
+        productKeys: new Set<string>(),
+        skuIds: new Set<string>(),
+        totalSkuCount: 0,
+        receivedQuantity: 0,
+        splitProduct: false,
+        hasAssignment: false,
+      };
+      current.productNames.add(group.productName);
+      if (!current.productKeys.has(group.familyKey)) {
+        current.productKeys.add(group.familyKey);
+        current.totalSkuCount += group.skus.length;
+      }
+      current.hasAssignment = true;
       current.splitProduct = current.splitProduct || supplierKeys.size > 1;
       rows.set(key, current);
     }
@@ -281,6 +326,12 @@ export function buildSupplierDecisionOverviewRows(
             ? "review_quality"
             : "maintain_primary";
       const qualityEvidence = returnRate !== undefined ? ` · 退货率 ${returnRate}%（产品信号）` : "";
+      const evidence = row.hasAssignment
+        ? `已维护供应关系：${[...row.productNames].join("、")} · `
+        : "";
+      const inboundEvidence = row.skuIds.size > 0
+        ? `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}`
+        : "当前周期暂无实际入仓证据";
       return {
         ...(row.supplierId ? { supplierId: row.supplierId } : {}),
         supplierName: row.supplierName,
@@ -298,7 +349,7 @@ export function buildSupplierDecisionOverviewRows(
             : qualitySignal
               ? "复核产品/供应商质量"
               : "保持主供",
-        evidence: `实际入仓：${[...row.productNames].join("、")} · ${row.skuIds.size} 个 SKU · ${row.receivedQuantity || 0}${qualityEvidence}`,
+        evidence: `${evidence}${inboundEvidence}${qualityEvidence}`,
       };
     })
     .sort((left, right) => right.receivedQuantity - left.receivedQuantity || left.supplierName.localeCompare(right.supplierName));

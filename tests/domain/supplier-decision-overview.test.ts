@@ -81,4 +81,34 @@ describe("supplier decision overview", () => {
     });
     expect(rows[0].evidence).toContain("退货率 6%");
   });
+
+  it("includes a saved product-family relationship in the overview alongside inbound evidence", () => {
+    const rows = buildSupplierDecisionOverviewRows(
+      [{
+        familyKey: "白板贴",
+        productName: "白板贴",
+        skus: [{ id: "sku-a", internalSkuCode: "Y-01", productName: "白板贴60*2", specification: "60*2" }],
+      }],
+      [{ skuMasterId: "sku-a", period: "2026-07", receivedQuantity: 100, supplierId: "supplier-a", supplierName: "实际供货商" }],
+      "2026-07",
+      [],
+      5,
+      "2026-07",
+      [{
+        productFamilyKey: "白板贴",
+        supplierId: "supplier-b",
+        supplierName: "已维护主供",
+        role: "primary",
+        effectiveFrom: "2026-07",
+        status: "active",
+        source: "manual",
+        reason: "确认当前主供",
+        evidence: "实际入仓记录",
+      }],
+    );
+
+    expect(rows.map((row) => row.supplierName)).toEqual(["实际供货商", "已维护主供"]);
+    expect(rows[1]).toMatchObject({ productNames: ["白板贴"], receivedQuantity: 0, decision: "review_split" });
+    expect(rows[1].evidence).toContain("已维护供应关系");
+  });
 });
