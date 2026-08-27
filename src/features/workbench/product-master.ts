@@ -266,6 +266,8 @@ export function buildSupplierDecisionOverviewRows(
     effectiveTo?: string;
     status: "active" | "ended";
     source?: string;
+    reason?: string;
+    evidence?: string;
   }> = [],
 ): SupplierDecisionOverviewRow[] {
   const rows = new Map<string, {
