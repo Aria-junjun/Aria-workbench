@@ -459,7 +459,7 @@ export default function ProductMasterPage() {
         </p>
       ) : null}
       {inboundImportError ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{inboundImportError}</p> : null}
-      {inboundPreview && inboundFileMeta ? <SupplierInboundImportPreview result={inboundPreview} period={selectedPeriod} fileName={inboundFileMeta.fileName} sheetName={inboundFileMeta.sheetName} skuMasters={skus} suppliers={data.suppliers} onCancel={() => { setInboundPreview(null); setInboundFileMeta(null); }} onConfirm={saveInboundImport} /> : null}
+      {inboundPreview && inboundFileMeta ? <SupplierInboundImportPreview result={inboundPreview} period={selectedPeriod} fileName={inboundFileMeta.fileName} sheetName={inboundFileMeta.sheetName} skuMasters={skus} suppliers={data.suppliers} existingAssignments={data.productSupplierAssignments ?? []} onCancel={() => { setInboundPreview(null); setInboundFileMeta(null); }} onConfirm={saveInboundImport} /> : null}
       {salesPreview && salesFileMeta ? (
         <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">

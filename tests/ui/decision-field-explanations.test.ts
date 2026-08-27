@@ -40,7 +40,7 @@ describe("decision field explanations contract", () => {
     expect(productSource).toContain("数据质量检查");
     expect(productSource).toContain("summarizeImportQuality");
     expect(inboundSource).toContain("数据质量检查");
-    expect(inboundSource).toContain("未匹配");
+    expect(inboundSource).toContain("未关联");
   });
 
   it("documents the decision rule next to supplier actions", () => {
