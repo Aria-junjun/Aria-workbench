@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { getProductFamilyAttention } from "@/features/workbench/product-master-presentation";
+import { getProductFamilyAttention, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 
 describe("product family attention presentation", () => {
   it("prioritizes supplier coverage and return rate warnings", () => {
@@ -20,6 +20,11 @@ describe("product family attention presentation", () => {
   it("falls back to missing data or no anomaly", () => {
     expect(getProductFamilyAttention({ pendingSkuCount: 0, hasCurrentData: false })).toEqual(["经营数据待补"]);
     expect(getProductFamilyAttention({ pendingSkuCount: 0, returnRate: 1.2, currentSales: 30, previousSales: 20, hasCurrentData: true })).toEqual(["当前无明显异常"]);
+  });
+
+  it("recognizes sales bundles without treating them as a missing inbound SKU", () => {
+    expect(isCompositeSalesSku("无胶白板贴小纸管+8支彩色白板笔")).toBe(true);
+    expect(isCompositeSalesSku("白板贴 90CM*2M")).toBe(false);
   });
 
   it("keeps the product table header on one visual line with aligned column rules", () => {

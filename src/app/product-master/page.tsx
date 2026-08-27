@@ -43,7 +43,7 @@ import {
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 import { SkuSupplierExceptionEditor } from "@/components/workbench/sku-supplier-exception-editor";
-import { getProductFamilyAttention } from "@/features/workbench/product-master-presentation";
+import { getProductFamilyAttention, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 import {
   classifySkuRelationship,
   formatSkuRelationshipStatus,
@@ -732,6 +732,7 @@ export default function ProductMasterPage() {
                       const previous = snapshotFor(sku.id, previousPeriod);
                       const skuInboundSummary = buildProductInboundSummary([sku], data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                       const skuHasInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === selectedPeriod);
+                      const skuIsComposite = isCompositeSalesSku(sku.productName);
                       const skuSupplierSummary = buildProductInboundSupplierSummary([sku], data.monthlyInboundSnapshots ?? [], selectedPeriod);
                       const skuRelationship = classifySkuRelationship({
                         skuMasterId: sku.id,
@@ -780,7 +781,7 @@ export default function ProductMasterPage() {
                             <CompactMetricInput ariaLabel={`${sku.internalSkuCode} 实发数量`} value={draft.monthlySales} onChange={(value) => updateDraft(sku.id, "monthlySales", value)} />
                           </td>
                           <td className={`px-4 py-2 font-medium ${skuDelta != null && skuDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{skuDelta == null ? "—" : `${skuDelta >= 0 ? "+" : ""}${skuDelta}`}</td>
-                          <td className="px-4 py-2 text-slate-700">{skuHasInbound ? skuInboundSummary.receivedQuantity : "待采集"}</td>
+                          <td className={`px-4 py-2 ${skuHasInbound ? "text-slate-700" : skuIsComposite ? "text-slate-500" : "text-slate-700"}`}>{skuHasInbound ? skuInboundSummary.receivedQuantity : skuIsComposite ? "销售组合装，暂不纳入入仓对比" : "待采集"}</td>
                           <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} 退货率`} suffix="%" value={draft.returnRate} onChange={(value) => updateDraft(sku.id, "returnRate", value)} /></td>
                           <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} ERP成本`} value={draft.erpCostPrice} onChange={(value) => updateDraft(sku.id, "erpCostPrice", value)} /></td>
                           <td className="px-4 py-2"><span className={skuAttention[0] === "当前无明显异常" ? "text-slate-400" : "text-amber-700"}>{skuAttention[0]}</span></td>

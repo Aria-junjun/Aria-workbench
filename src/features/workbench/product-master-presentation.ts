@@ -6,6 +6,10 @@ export type ProductFamilyAttentionInput = {
   hasCurrentData: boolean;
 };
 
+export function isCompositeSalesSku(productName: string): boolean {
+  return /\+|＋|组合装|套装|礼盒|件套/.test(productName);
+}
+
 export function getProductFamilyAttention(input: ProductFamilyAttentionInput): string[] {
   const messages: string[] = [];
   if (input.pendingSkuCount > 0) messages.push("供应覆盖待补");
