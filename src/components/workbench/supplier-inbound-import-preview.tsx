@@ -88,6 +88,12 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
   const [matches, setMatches] = useState<Record<number, string | undefined>>(initialMatches);
   useEffect(() => setMatches(initialMatches), [initialMatches]);
   const matchedCount = result.rows.filter((row) => matches[row.rowNumber]).length;
+  const futureRelationshipCount = existingAssignments.filter((assignment) => {
+    const supplierMatches = supplierId
+      ? assignment.supplierId === supplierId
+      : normalize(assignment.supplierName ?? "") === normalize(supplierFromFile ?? "");
+    return supplierMatches && assignment.status === "active" && assignment.effectiveFrom > period;
+  }).length;
   const quality = summarizeImportQuality({
     sourceLabel: "入仓表",
     totalRows: result.summary.rawRowCount ?? result.rows.length,
@@ -133,6 +139,9 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
         <div className="font-medium">数据质量检查：{quality.headline}</div>
         <div className="mt-1">{quality.details.join(" · ")}。只有已匹配行会写入本次实际入仓。</div>
       </div>
+      {!matchedCount && futureRelationshipCount > 0 ? <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+        已找到该供应商的供应关系，但关系生效月份晚于本次导入月份（{period}）。系统不会把未来关系倒灌到历史数据；请确认保存月份，或将关系生效月份修正为真实生效月份。
+      </div> : null}
       {!supplierFromFile ? (
         <label className="block text-xs text-slate-600">
           本批对账供应商

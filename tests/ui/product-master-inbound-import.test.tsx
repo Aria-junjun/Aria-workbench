@@ -18,4 +18,9 @@ describe("product master monthly inbound import contract", () => {
     expect(preview).toContain("请选择供应商");
     expect(preview).toContain("!supplierFromFile && !supplierId");
   });
+
+  it("explains when a saved relationship starts after the import period", () => {
+    expect(preview).toContain("关系生效月份晚于本次导入月份");
+    expect(preview).toContain("不会把未来关系倒灌到历史数据");
+  });
 });
