@@ -99,6 +99,16 @@ describe("local-store operations", () => {
     ]);
   });
 
+  it("does not erase an existing monthly ERP cost when an import omits cost", () => {
+    saveLocalWorkbenchData(sampleData());
+    saveSkuOperatingSnapshot("sku-1", "2026-07", { monthlySales: 100, erpCostPrice: 7.8 }, "imported");
+    saveSkuOperatingSnapshot("sku-1", "2026-07", { monthlySales: 120 }, "imported");
+
+    expect(loadLocalWorkbenchData().skuOperatingSnapshots).toEqual([
+      expect.objectContaining({ skuMasterId: "sku-1", period: "2026-07", monthlySales: 120, erpCostPrice: 7.8 })
+    ]);
+  });
+
   it("keeps inbound facts by month and replaces only the same SKU/month", () => {
     saveLocalWorkbenchData(sampleData());
     saveMonthlyInboundSnapshots([

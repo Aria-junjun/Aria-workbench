@@ -494,6 +494,7 @@ export default function ProductMasterPage() {
           {salesQuality ? <div className={`rounded-lg px-3 py-2 text-xs leading-5 ${salesQuality.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
             <div className="font-medium">数据质量检查：{salesQuality.headline}</div>
             <div className="mt-1">{salesQuality.details.join(" · ")}。只有已匹配内部 SKU 的行会写入本次经营数据。</div>
+            <div className="mt-1">ERP成本字段：{salesPreview.costField ? `${salesPreview.costField}${salesPreview.costField === "成本价" ? "（单位成本）" : "（按本期实发数量换算单位成本）"}` : "未提供，本次不写入成本"}。</div>
           </div> : null}
           {salesPreview.errors.length ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">

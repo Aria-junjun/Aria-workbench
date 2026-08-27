@@ -39,6 +39,15 @@ describe("Jushuitan sales import", () => {
     expect(result.rows[0]).toMatchObject({ monthlySales: 100, netSalesQuantity: 96, returnRate: 4 });
   });
 
+  it("derives unit ERP cost from a total cost column when unit cost is not provided", () => {
+    const result = parseJushuitanSalesRows([
+      ["商品编码", "实发数量", "实发成本", "实退数量"],
+      ["Y-01", "100", "780", "4"]
+    ], { fileName: "销售表.xlsx", sheetName: "Sheet1", importedAt: "2026-08-22T00:00:00.000Z" });
+
+    expect(result.rows[0]).toMatchObject({ monthlySales: 100, erpCostPrice: 7.8 });
+  });
+
   it("ignores a blank-code total row", () => {
     const result = parseJushuitanSalesRows([
       ["商品编码", "商品简称", "净销量"],

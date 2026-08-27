@@ -2013,7 +2013,19 @@ export function saveSkuOperatingSnapshots(entries: Array<{ skuMasterId: string; 
   const nextSnapshots = [...snapshots];
   const saved = entries.map(({ skuMasterId, period, metrics, source = "manual" }) => {
     const existing = nextSnapshots.find((item) => item.skuMasterId === skuMasterId && item.period === period);
-    const snapshot: LocalSkuOperatingSnapshot = { id: existing?.id ?? `sku-snapshot-${skuMasterId}-${period}`, skuMasterId, period, ...metrics, source, createdAt: existing?.createdAt ?? now, updatedAt: now };
+    const definedMetrics = Object.fromEntries(
+      Object.entries(metrics).filter(([, value]) => value !== undefined),
+    ) as LocalSkuOperatingSnapshotMetrics;
+    const snapshot: LocalSkuOperatingSnapshot = {
+      ...existing,
+      id: existing?.id ?? `sku-snapshot-${skuMasterId}-${period}`,
+      skuMasterId,
+      period,
+      ...definedMetrics,
+      source,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
     const index = nextSnapshots.findIndex((item) => item.id === snapshot.id);
     if (index >= 0) nextSnapshots[index] = snapshot;
     else nextSnapshots.unshift(snapshot);

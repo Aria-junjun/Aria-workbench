@@ -25,6 +25,7 @@ export type JushuitanSalesImportIssue = {
 export type JushuitanSalesImportResult = {
   rows: JushuitanSalesImportRow[];
   errors: JushuitanSalesImportIssue[];
+  costField?: "成本价" | "实发成本" | "销售成本" | "净销售成本";
 };
 
 export function formatJushuitanImportError(cause: unknown): string {
@@ -68,6 +69,7 @@ export function parseJushuitanSalesRows(
   const rows: JushuitanSalesImportRow[] = [];
   const errors: JushuitanSalesImportIssue[] = [];
   const seenCodes = new Set<string>();
+  const costField = (["成本价", "实发成本", "销售成本", "净销售成本"] as const).find((name) => indexes.has(name));
 
   rawRows.slice(1).forEach((rawRow, index) => {
     const rowNumber = index + 2;
@@ -87,6 +89,11 @@ export function parseJushuitanSalesRows(
     const returnRate = shippedQuantity && returnQuantity !== undefined
       ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2))
       : undefined;
+    const directCost = numberValue(firstValue(rawRow, indexes, ["成本价"]));
+    const totalCost = numberValue(firstValue(rawRow, indexes, ["实发成本", "销售成本", "净销售成本"]));
+    const erpCostPrice = directCost ?? (totalCost !== undefined && monthlySales && monthlySales > 0
+      ? Number((totalCost / monthlySales).toFixed(3))
+      : undefined);
 
     rows.push({
       rowNumber,
@@ -96,7 +103,7 @@ export function parseJushuitanSalesRows(
       monthlySales,
       netSalesQuantity,
       salesAmount,
-      erpCostPrice: numberValue(firstValue(rawRow, indexes, ["成本价"])),
+      erpCostPrice,
       shippedQuantity,
       returnQuantity,
       returnRate,
@@ -107,5 +114,5 @@ export function parseJushuitanSalesRows(
     });
   });
 
-  return { rows, errors };
+  return { rows, errors, ...(costField ? { costField } : {}) };
 }
