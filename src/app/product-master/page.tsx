@@ -547,19 +547,31 @@ export default function ProductMasterPage() {
         />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
-          <table className="min-w-[1160px] w-full text-left text-sm">
+          <table className="min-w-[1160px] w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[220px]" />
+              <col className="w-[72px]" />
+              <col className="w-[220px]" />
+              <col className="w-[100px]" />
+              <col className="w-[92px]" />
+              <col className="w-[80px]" />
+              <col className="w-[92px]" />
+              <col className="w-[82px]" />
+              <col className="w-[82px]" />
+              <col className="w-[160px]" />
+            </colgroup>
             <thead className="bg-paper-warm text-xs text-slate-500">
-              <tr>
-                <th className="w-[220px] px-4 py-3">产品 / SKU</th>
-                <th className="px-4 py-3">SKU数</th>
-                <th className="px-4 py-3">供应方案 <HelpHint label="供应关系" description="已确认的主供或备供关系默认持续有效，只有发生明确变更时才需要维护。" /></th>
-                <th className="px-4 py-3">经营状态</th>
-                <th className="px-4 py-3">本月实发</th>
-                <th className="px-4 py-3">较上月</th>
-                <th className="px-4 py-3">实际入仓 <HelpHint label="实际入仓" description="来自当前统计月份的入仓记录，用于判断供货表现，不代表库存余额。" /></th>
-                <th className="px-4 py-3">退货率 <HelpHint label="退货率" description="实退数量 ÷ 实发数量；当前仅作为质量复核信号。" /></th>
-                <th className="px-4 py-3">ERP成本</th>
-                <th className="px-4 py-3">关注提示 <HelpHint label="关注提示" description="仅提示已有数据支持的异常或待处理关系，不根据缺失库存数据推断风险。" /></th>
+              <tr className="whitespace-nowrap">
+                <th className="px-4 py-3 text-left">产品 / SKU</th>
+                <th className="px-4 py-3 text-center">SKU数</th>
+                <th className="px-4 py-3 text-left">供应方案 <HelpHint label="供应关系" description="已确认的主供或备供关系默认持续有效，只有发生明确变更时才需要维护。" /></th>
+                <th className="px-4 py-3 text-center">经营状态</th>
+                <th className="px-4 py-3 text-center">本月实发</th>
+                <th className="px-4 py-3 text-center">较上月</th>
+                <th className="px-4 py-3 text-center">实际入仓 <HelpHint label="实际入仓" description="来自当前统计月份的入仓记录，用于判断供货表现，不代表库存余额。" /></th>
+                <th className="px-4 py-3 text-center">退货率 <HelpHint label="退货率" description="实退数量 ÷ 实发数量；当前仅作为质量复核信号。" /></th>
+                <th className="px-4 py-3 text-center">ERP成本</th>
+                <th className="px-4 py-3 text-left">关注提示 <HelpHint label="关注提示" description="仅提示已有数据支持的异常或待处理关系，不根据缺失库存数据推断风险。" /></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -660,8 +672,8 @@ export default function ProductMasterPage() {
                           {product?.category || "待补类目"}
                         </div>
                       </td>
-                      <td className="px-4 py-3 align-top font-medium">{productSkus.length}</td>
-                      <td className="px-4 py-3 align-top text-xs">
+                      <td className="px-4 py-3 text-center align-top font-medium">{productSkus.length}</td>
+                      <td className="px-4 py-3 align-top text-left text-xs">
                         <ProductFamilySupplierAction relationships={relationshipSummaries} exceptionCount={skuExceptionCount} />
                         <div className="mt-1 text-[11px] text-slate-500">
                           {supplierDisplay.label}：{supplierDisplay.names.join("、")}
@@ -670,7 +682,7 @@ export default function ProductMasterPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 align-top">
+                      <td className="px-4 py-3 text-center align-top">
                         {product?.portfolioStatus === "active"
                           ? "继续经营"
                           : product?.portfolioStatus === "optimize"
@@ -679,14 +691,14 @@ export default function ProductMasterPage() {
                               ? "淘汰"
                               : "观察"}
                       </td>
-                      <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.monthlySales ?? "待采集"}</td>
-                      <td className={`px-4 py-3 align-top text-xs font-medium ${comparison.delta.monthlySales != null && comparison.delta.monthlySales < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                      <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{metricSummary.monthlySales ?? "待采集"}</td>
+                      <td className={`px-4 py-3 text-center align-top text-xs font-medium ${comparison.delta.monthlySales != null && comparison.delta.monthlySales < 0 ? "text-red-600" : "text-emerald-700"}`}>
                         {comparison.delta.monthlySales == null ? "—" : `${comparison.delta.monthlySales >= 0 ? "+" : ""}${comparison.delta.monthlySales}`}
                       </td>
-                      <td className="px-4 py-3 align-top text-xs text-slate-700">{hasInboundPeriodData ? inboundSummary.receivedQuantity : "待采集"}</td>
-                      <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.returnRate != null ? `${metricSummary.returnRate}%` : "待采集"}</td>
-                      <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.erpCostPrice != null ? metricSummary.erpCostPrice : "待采集"}</td>
-                      <td className="px-4 py-3 align-top text-xs">
+                      <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{hasInboundPeriodData ? inboundSummary.receivedQuantity : "待采集"}</td>
+                      <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{metricSummary.returnRate != null ? `${metricSummary.returnRate}%` : "待采集"}</td>
+                      <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{metricSummary.erpCostPrice != null ? metricSummary.erpCostPrice : "待采集"}</td>
+                      <td className="px-4 py-3 align-top text-left text-xs">
                         <div className={attention[0] === "当前无明显异常" ? "text-slate-500" : "font-medium text-amber-700"}>{attention[0]}</div>
                         {attention[1] ? <div className="mt-1 text-slate-500">{attention[1]}</div> : null}
                       </td>
