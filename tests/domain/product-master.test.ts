@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateSkuMetrics, aggregateSkuSnapshots, buildProductSupplierDisplay, deriveProductFamilyKey, groupSkuMastersByProduct, promoteProductToInbound, sortProductMasterGroupsByOperatingData, sortProductMasterSkusByOperatingData } from "@/features/workbench/product-master";
+import { aggregateSkuMetrics, aggregateSkuSnapshots, buildProductSupplierDisplay, deriveProductFamilyKey, groupSkuMastersByOperatingProduct, groupSkuMastersByProduct, promoteProductToInbound, sortProductMasterGroupsByOperatingData, sortProductMasterSkusByOperatingData } from "@/features/workbench/product-master";
 
 describe("inbound product master", () => {
   it("groups imported SKUs by product name without duplicating rows", () => {
@@ -30,6 +30,16 @@ describe("inbound product master", () => {
     expect(groups).toEqual([
       expect.objectContaining({ familyKey: "无胶白板贴小纸管", productName: "无胶白板贴小纸管", skuIds: ["sku-1", "sku-2"] }),
     ]);
+  });
+
+  it("merges a base purchasing SKU and suffixed sales variants into one operating product", () => {
+    const groups = groupSkuMastersByOperatingProduct([
+      { id: "base", internalSkuCode: "Y-05BBT", productName: "白板贴", specification: "90*2" },
+      { id: "gift", internalSkuCode: "Y-05BBT-8", productName: "白板贴+8支笔", specification: "90*2" },
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ operatingProductCode: "Y-05BBT", productName: "白板贴", skuIds: ["base", "gift"] });
   });
 
   it("promotes an opportunity without deleting its research fields", () => {

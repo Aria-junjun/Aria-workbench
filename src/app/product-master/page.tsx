@@ -20,7 +20,7 @@ import {
   buildProductInboundSummary,
   buildProductInboundSupplierSummary,
   buildProductSupplierDecisionRows,
-  groupSkuMastersByProduct,
+  groupSkuMastersByOperatingProduct,
   deriveProductFamilyKey,
   sortProductMasterGroupsByOperatingData,
   sortProductMasterSkusByOperatingData,
@@ -43,7 +43,7 @@ import {
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 import { SkuSupplierExceptionEditor } from "@/components/workbench/sku-supplier-exception-editor";
-import { deriveOperatingProductCode, getProductFamilyAttention, getSkuOperatingRole, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
+import { getProductFamilyAttention, getSkuOperatingRole, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 import {
   classifySkuRelationship,
   formatSkuRelationshipStatus,
@@ -76,7 +76,7 @@ export default function ProductMasterPage() {
     (sku) => sku.status !== "archived",
   );
   const snapshots = data.skuOperatingSnapshots ?? [];
-  const productGroups = groupSkuMastersByProduct(skus);
+  const productGroups = groupSkuMastersByOperatingProduct(skus);
   const inboundGroups = productGroups.filter((group) =>
     data.products.some(
       (product) =>
@@ -606,7 +606,7 @@ export default function ProductMasterPage() {
                   data.monthlyInboundSnapshots ?? [],
                   selectedPeriod,
                 );
-                const operatingProductCode = deriveOperatingProductCode(productSkus);
+                const operatingProductCode = group.operatingProductCode;
                 const currentRows = productSkus.map((sku) => draftFor(sku));
                 const previousRows = productSkus.map((sku) => {
                   const snapshot = snapshotFor(sku.id, previousPeriod);
