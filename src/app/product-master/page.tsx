@@ -31,6 +31,7 @@ import {
   parseJushuitanSalesRows,
   type JushuitanSalesImportResult,
 } from "@/features/workbench/jushuitan-sales-import";
+import { summarizeImportQuality } from "@/features/workbench/import-data-quality";
 import {
   formatSupplierInboundImportError,
   parseSupplierInboundRows,
@@ -115,6 +116,18 @@ export default function ProductMasterPage() {
     selectedPeriod,
   );
   const previousPeriod = getPreviousPeriod(selectedPeriod);
+  const salesQuality = salesPreview
+    ? summarizeImportQuality({
+        sourceLabel: "销售表",
+        totalRows: salesPreview.rows.length + salesPreview.errors.length,
+        validRows: salesPreview.rows.length,
+        matchedRows: salesPreview.rows.filter((row) => skus.some((sku) => sku.internalSkuCode === row.internalSkuCode)).length,
+        issueRows: salesPreview.errors.length,
+        duplicateRows: salesPreview.errors.filter((item) => item.message.includes("重复")).length,
+        mergedRows: 0,
+        period: selectedPeriod,
+      })
+    : null;
 
   function snapshotFor(
     skuId: string,
@@ -478,6 +491,10 @@ export default function ProductMasterPage() {
               条
             </div>
           </div>
+          {salesQuality ? <div className={`rounded-lg px-3 py-2 text-xs leading-5 ${salesQuality.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+            <div className="font-medium">数据质量检查：{salesQuality.headline}</div>
+            <div className="mt-1">{salesQuality.details.join(" · ")}。只有已匹配内部 SKU 的行会写入本次经营数据。</div>
+          </div> : null}
           {salesPreview.errors.length ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {salesPreview.errors

@@ -32,4 +32,23 @@ describe("decision field explanations contract", () => {
     expect(source).toContain('label="退货率信号"');
     expect(source).not.toContain("交付、服务等无来源数据不补分");
   });
+
+  it("shows import quality before writing operating data", () => {
+    const productSource = read("src/app/product-master/page.tsx");
+    const inboundSource = read("src/components/workbench/supplier-inbound-import-preview.tsx");
+
+    expect(productSource).toContain("数据质量检查");
+    expect(productSource).toContain("summarizeImportQuality");
+    expect(inboundSource).toContain("数据质量检查");
+    expect(inboundSource).toContain("未匹配");
+  });
+
+  it("documents the decision rule next to supplier actions", () => {
+    const source = read("src/app/suppliers/page.tsx");
+
+    expect(source).toContain("决策规则");
+    expect(source).toContain("保持主供");
+    expect(source).toContain("复核质量信号");
+    expect(source).toContain("SKU覆盖仅作参考");
+  });
 });

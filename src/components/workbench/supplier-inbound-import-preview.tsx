@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { LocalSkuMaster, LocalSupplier } from "@/features/workbench/local-store";
 import type { SupplierInboundImportResult } from "@/features/workbench/supplier-inbound-import";
+import { summarizeImportQuality } from "@/features/workbench/import-data-quality";
 
 export type ConfirmedInboundRow = {
   skuMasterId: string;
@@ -45,6 +46,16 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
   });
   const supplierFromFile = result.rows.find((row) => row.supplierName)?.supplierName;
   const matchedCount = result.rows.filter((row) => matches[row.rowNumber]).length;
+  const quality = summarizeImportQuality({
+    sourceLabel: "入仓表",
+    totalRows: result.summary.rawRowCount ?? result.rows.length,
+    validRows: result.rows.length,
+    matchedRows: matchedCount,
+    issueRows: result.errors.length,
+    duplicateRows: 0,
+    mergedRows: Math.max(0, (result.summary.rawRowCount ?? result.rows.length) - result.rows.length),
+    period,
+  });
 
   function confirm() {
     const supplier = suppliers.find((item) => item.id === supplierId);
@@ -75,6 +86,10 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
       </div>
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
         本次只保存表格明确证明的实际入仓数量。没有供应商名称时，请先为整张表选择供应商；未匹配 SKU 的行不会写入。
+      </div>
+      <div className={`rounded-lg px-3 py-2 text-xs leading-5 ${quality.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+        <div className="font-medium">数据质量检查：{quality.headline}</div>
+        <div className="mt-1">{quality.details.join(" · ")}。只有已匹配行会写入本次实际入仓。</div>
       </div>
       {!supplierFromFile ? (
         <label className="block text-xs text-slate-600">

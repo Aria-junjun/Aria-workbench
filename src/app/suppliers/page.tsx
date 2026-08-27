@@ -267,6 +267,12 @@ export default function SuppliersPage() {
               <DecisionPill active={decisionFilter === "review_quality"} label="复核质量信号" value={supplierDecisionRows.filter((row) => row.decision === "review_quality").length} tone="warning" onClick={() => setDecisionFilter("review_quality")} />
             </div> : null}
           </div>
+          <div className="rounded-lg bg-paper-warm px-3 py-2 text-xs leading-5 text-muted">
+            <span className="font-medium text-ink">决策规则：</span>
+            保持主供 = 已有实际入仓且未触发其他信号；复核分拆 = 同一产品族存在多个供应商；
+            待确认供应商 = 有入仓记录但缺少供应商归属；复核质量信号 = 产品退货率达到 5%。
+            SKU覆盖仅作参考，库存、交付、成本和服务没有来源数据时不参与判断。
+          </div>
           {supplierDecisionRows.length === 0 ? (
             <div className="rounded-lg border border-warning/30 bg-warning-soft/20 px-4 py-4 text-sm">
               <div className="font-medium text-ink">当前周期暂未生成供应商决策</div>
