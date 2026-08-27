@@ -43,7 +43,7 @@ import {
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 import { SkuSupplierExceptionEditor } from "@/components/workbench/sku-supplier-exception-editor";
-import { getProductFamilyAttention, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
+import { deriveOperatingProductCode, getProductFamilyAttention, getSkuOperatingRole, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 import {
   classifySkuRelationship,
   formatSkuRelationshipStatus,
@@ -606,6 +606,7 @@ export default function ProductMasterPage() {
                   data.monthlyInboundSnapshots ?? [],
                   selectedPeriod,
                 );
+                const operatingProductCode = deriveOperatingProductCode(productSkus);
                 const currentRows = productSkus.map((sku) => draftFor(sku));
                 const previousRows = productSkus.map((sku) => {
                   const snapshot = snapshotFor(sku.id, previousPeriod);
@@ -677,11 +678,11 @@ export default function ProductMasterPage() {
                               className="font-medium text-action hover:underline"
                               href={`/products/${product.id}`}
                             >
-                              {group.productName}
+                              {group.productName} <span className="font-normal text-slate-500">· {operatingProductCode || "经营编码待补"}</span>
                             </Link>
                           ) : (
                             <span className="font-medium text-slate-700">
-                              {group.productName}
+                              {group.productName} <span className="font-normal text-slate-500">· {operatingProductCode || "经营编码待补"}</span>
                             </span>
                           )}
                         </div>
@@ -733,6 +734,7 @@ export default function ProductMasterPage() {
                       const skuInboundSummary = buildProductInboundSummary([sku], data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                       const skuHasInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === selectedPeriod);
                       const skuIsComposite = isCompositeSalesSku(sku.productName);
+                      const skuOperatingRole = getSkuOperatingRole(sku.internalSkuCode, operatingProductCode);
                       const skuSupplierSummary = buildProductInboundSupplierSummary([sku], data.monthlyInboundSnapshots ?? [], selectedPeriod);
                       const skuRelationship = classifySkuRelationship({
                         skuMasterId: sku.id,
@@ -762,6 +764,7 @@ export default function ProductMasterPage() {
                           <td className="px-4 py-2 pl-10">
                             <div className="font-medium text-slate-800">{sku.internalSkuCode}</div>
                             <div className="mt-0.5 text-slate-500">{sku.specification || "规格待补"}</div>
+                            <div className="mt-0.5 text-[11px] text-slate-400">{skuOperatingRole}</div>
                           </td>
                           <td className="px-4 py-2 text-slate-400">—</td>
                           <td className="px-4 py-2 text-slate-500">

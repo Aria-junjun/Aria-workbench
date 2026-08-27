@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { getProductFamilyAttention, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
+import { deriveOperatingProductCode, getProductFamilyAttention, getSkuOperatingRole, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 
 describe("product family attention presentation", () => {
   it("prioritizes supplier coverage and return rate warnings", () => {
@@ -25,6 +25,16 @@ describe("product family attention presentation", () => {
   it("recognizes sales bundles without treating them as a missing inbound SKU", () => {
     expect(isCompositeSalesSku("无胶白板贴小纸管+8支彩色白板笔")).toBe(true);
     expect(isCompositeSalesSku("白板贴 90CM*2M")).toBe(false);
+  });
+
+  it("uses the existing base code as the operating product code without creating another level", () => {
+    const skus = [
+      { internalSkuCode: "Y-05BBT", productName: "白板贴", specification: "90*2" },
+      { internalSkuCode: "Y-05BBT-8", productName: "白板贴+8支笔", specification: "90*2" },
+    ];
+    expect(deriveOperatingProductCode(skus)).toBe("Y-05BBT");
+    expect(getSkuOperatingRole("Y-05BBT", "Y-05BBT")).toBe("采购/供货 SKU");
+    expect(getSkuOperatingRole("Y-05BBT-8", "Y-05BBT")).toBe("销售变体");
   });
 
   it("keeps the product table header on one visual line with aligned column rules", () => {
