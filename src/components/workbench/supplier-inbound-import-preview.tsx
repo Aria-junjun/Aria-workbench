@@ -79,12 +79,14 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
     return suppliers.find((supplier) => supplier.name === embeddedName)?.id ?? "";
   });
   const supplierFromFile = result.rows.find((row) => row.supplierName)?.supplierName;
+  const skuSignature = skuMasters.map((sku) => `${sku.id}:${sku.productName}:${sku.specification}:${sku.productFamilyKey ?? ""}`).join("|");
+  const assignmentSignature = existingAssignments.map((assignment) => `${assignment.id}:${assignment.productFamilyKey}:${assignment.supplierId ?? ""}:${assignment.supplierName ?? ""}:${assignment.effectiveFrom}:${assignment.effectiveTo ?? ""}:${assignment.status}`).join("|");
   const initialMatches = useMemo(() => Object.fromEntries(result.rows.map((row) => [row.rowNumber, suggestInboundSku(row, skuMasters, {
     supplierId,
     supplierName: supplierFromFile,
     period,
     assignments: existingAssignments,
-  })])), [result.rows, skuMasters, supplierId, supplierFromFile, period, existingAssignments]);
+  })])), [result.rows, skuSignature, supplierId, supplierFromFile, period, assignmentSignature]);
   const [matches, setMatches] = useState<Record<number, string | undefined>>(initialMatches);
   useEffect(() => setMatches(initialMatches), [initialMatches]);
   const matchedCount = result.rows.filter((row) => matches[row.rowNumber]).length;

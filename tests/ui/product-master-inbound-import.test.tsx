@@ -23,4 +23,9 @@ describe("product master monthly inbound import contract", () => {
     expect(preview).toContain("关系生效月份晚于本次导入月份");
     expect(preview).toContain("不会把未来关系倒灌到历史数据");
   });
+
+  it("does not reset manual row selections on an unrelated rerender", () => {
+    expect(preview).toContain("skuSignature");
+    expect(preview).toContain("assignmentSignature");
+  });
 });
