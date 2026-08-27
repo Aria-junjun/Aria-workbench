@@ -412,9 +412,22 @@ export default function SuppliersPage() {
           <HelpHint label="退货率信号" description="退货率只作为质量复核信号，多供应商场景下不直接归因给单一供应商。" />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="min-w-[1200px] w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[230px]" />
+              <col className="w-[180px]" />
+              <col className="w-[80px]" />
+              <col className="w-[160px]" />
+              <col className="w-[70px]" />
+              <col className="w-[70px]" />
+              <col className="w-[70px]" />
+              <col className="w-[70px]" />
+              <col className="w-[70px]" />
+              <col className="w-[110px]" />
+              <col className="w-[90px]" />
+            </colgroup>
             <thead>
-              <tr className="border-b border-line text-xs text-muted">
+              <tr className="border-b border-line text-xs text-muted whitespace-nowrap">
                 <th className="py-3 pr-4 text-left font-medium">供应商</th>
                 <th className="py-3 px-4 text-left font-medium">品类</th>
                 <th className="py-3 px-4 text-center font-medium">评分参考</th>

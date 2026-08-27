@@ -32,6 +32,16 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain('row.decision !== "maintain_primary"');
   });
 
+  it("keeps supplier score headers on one line with fixed aligned columns", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/suppliers/page.tsx"), "utf8");
+
+    expect(source).toContain("table-fixed");
+    expect(source).toContain("<colgroup>");
+    expect(source).toContain("whitespace-nowrap");
+    expect(source).toContain("text-center font-medium");
+    expect(source).toContain("label=\"供应商等级\"");
+  });
+
   it("explains why the decision overview is empty instead of hiding the section", () => {
     const source = fs.readFileSync(path.join(root, "src/app/suppliers/page.tsx"), "utf8");
 
