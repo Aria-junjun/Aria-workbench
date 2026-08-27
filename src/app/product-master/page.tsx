@@ -557,7 +557,6 @@ export default function ProductMasterPage() {
                 <th className="px-4 py-3">本月实发</th>
                 <th className="px-4 py-3">较上月</th>
                 <th className="px-4 py-3">实际入仓 <HelpHint label="实际入仓" description="来自当前统计月份的入仓记录，用于判断供货表现，不代表库存余额。" /></th>
-                <th className="px-4 py-3">库存 / 可售</th>
                 <th className="px-4 py-3">退货率 <HelpHint label="退货率" description="实退数量 ÷ 实发数量；当前仅作为质量复核信号。" /></th>
                 <th className="px-4 py-3">ERP成本</th>
                 <th className="px-4 py-3">关注提示 <HelpHint label="关注提示" description="仅提示已有数据支持的异常或待处理关系，不根据缺失库存数据推断风险。" /></th>
@@ -685,11 +684,6 @@ export default function ProductMasterPage() {
                         {comparison.delta.monthlySales == null ? "—" : `${comparison.delta.monthlySales >= 0 ? "+" : ""}${comparison.delta.monthlySales}`}
                       </td>
                       <td className="px-4 py-3 align-top text-xs text-slate-700">{hasInboundPeriodData ? inboundSummary.receivedQuantity : "待采集"}</td>
-                      <td className="px-4 py-3 align-top text-xs text-slate-500">
-                        {inboundSummary.actualStock != null ? inboundSummary.actualStock : "待采集"}
-                        <span className="text-slate-400"> / </span>
-                        {inboundSummary.availableStock != null ? inboundSummary.availableStock : "待采集"}
-                      </td>
                       <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.returnRate != null ? `${metricSummary.returnRate}%` : "待采集"}</td>
                       <td className="px-4 py-3 align-top text-xs text-slate-700">{metricSummary.erpCostPrice != null ? metricSummary.erpCostPrice : "待采集"}</td>
                       <td className="px-4 py-3 align-top text-xs">
@@ -699,7 +693,7 @@ export default function ProductMasterPage() {
                     </tr>
                     {expanded ? (
                       <tr className="bg-paper-warm/30 text-xs">
-                        <td className="px-4 py-2 text-slate-500" colSpan={11}>
+                        <td className="px-4 py-2 text-slate-500" colSpan={10}>
                           统计月份：{selectedPeriod}；主销售量按实发数量，历史数据保留为月度快照。
                         </td>
                       </tr>
@@ -758,7 +752,6 @@ export default function ProductMasterPage() {
                           </td>
                           <td className={`px-4 py-2 font-medium ${skuDelta != null && skuDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{skuDelta == null ? "—" : `${skuDelta >= 0 ? "+" : ""}${skuDelta}`}</td>
                           <td className="px-4 py-2 text-slate-700">{skuHasInbound ? skuInboundSummary.receivedQuantity : "待采集"}</td>
-                          <td className="px-4 py-2 text-slate-500">{skuInboundSummary.actualStock ?? "待采集"} / {skuInboundSummary.availableStock ?? "待采集"}</td>
                           <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} 退货率`} suffix="%" value={draft.returnRate} onChange={(value) => updateDraft(sku.id, "returnRate", value)} /></td>
                           <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} ERP成本`} value={draft.erpCostPrice} onChange={(value) => updateDraft(sku.id, "erpCostPrice", value)} /></td>
                           <td className="px-4 py-2"><span className={skuAttention[0] === "当前无明显异常" ? "text-slate-400" : "text-amber-700"}>{skuAttention[0]}</span></td>
@@ -767,7 +760,7 @@ export default function ProductMasterPage() {
                     }) : null}
                     {expanded ? (
                       <tr className="bg-paper-warm/20">
-                        <td className="px-4 py-2" colSpan={11}>
+                        <td className="px-4 py-2" colSpan={10}>
                           <SkuCompositionPanel salesSkuCodes={productSkus.map((sku) => sku.internalSkuCode)} compositions={data.skuCompositions ?? []} />
                         </td>
                       </tr>

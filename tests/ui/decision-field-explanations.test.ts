@@ -21,6 +21,7 @@ describe("decision field explanations contract", () => {
     expect(source).toContain('label="实际入仓"');
     expect(source).not.toContain("<SourceNote");
     expect(source).not.toContain("使用右上角统计月份导入并保存；只写入能匹配内部编码的 SKU。");
+    expect(source).not.toContain("库存 / 可售");
   });
 
   it("keeps supplier evidence visible with compact explanations", () => {
