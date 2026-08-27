@@ -717,6 +717,12 @@ function SegmentPanel(props: SegmentPanelProps) {
                           ) : null}
                         </div>
 
+                        {task.sourceEvidence ? (
+                          <div className="mt-2 rounded-lg border border-line-soft bg-paper-warm/40 p-2 text-xs text-muted">
+                            触发证据：{task.sourceEvidence}
+                          </div>
+                        ) : null}
+
                         {/* Product stage progress card */}
                         {segmentKey === "product" && stage && stageMeta && stageColor && !task.status.startsWith("done") && (
                           <div className="mt-2 rounded-lg border border-line-soft bg-paper-warm/40 p-2.5">

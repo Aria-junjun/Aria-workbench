@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { HelpHint } from "@/components/workbench/help-hint";
 import {
   findDuplicateSuppliers,
+  createSupplierDecisionTask,
   mergeSuppliers,
   sortPinnedFirst,
   togglePinned,
@@ -16,6 +17,7 @@ import {
   buildSupplierDecisionOverviewRows,
   deriveProductFamilyKey,
   groupSkuMastersByProduct,
+  type SupplierDecisionOverviewRow,
 } from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import {
@@ -43,6 +45,7 @@ export default function SuppliersPage() {
   const [hydrated, setHydrated] = useState(false);
   const [supplierPage, setSupplierPage] = useState(1);
   const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("all");
+  const [decisionTaskMessage, setDecisionTaskMessage] = useState("");
 
   useEffect(() => {
     setHydrated(true);
@@ -174,6 +177,21 @@ export default function SuppliersPage() {
     setDuplicatePairs(findDuplicateSuppliers());
   }
 
+  function createReviewTask(row: SupplierDecisionOverviewRow) {
+    if (row.decision === "maintain_primary") return;
+    const result = createSupplierDecisionTask({
+      supplierId: row.supplierId,
+      supplierName: row.supplierName,
+      productName: row.productNames.join("、"),
+      action: row.decision,
+      period: decisionAnchor,
+      reason: row.actionLabel,
+      evidence: row.evidence,
+    });
+    setDecisionTaskMessage(result.created ? "已生成复核待办，触发证据已保存。" : "该供应商复核待办已存在，无需重复创建。");
+    setVersion((current) => current + 1);
+  }
+
   if (!hydrated) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -239,6 +257,7 @@ export default function SuppliersPage() {
             <div>
               <h2 className="text-sm font-semibold">供应商决策总览 · {periodLabel(period, decisionAnchor)}</h2>
               <p className="mt-1 text-xs text-muted">只显示有实际入仓证据的供应商；评分仅作参考，不作为单独结论。</p>
+              {decisionTaskMessage ? <p className="mt-2 text-xs text-success">{decisionTaskMessage}</p> : null}
             </div>
             {supplierDecisionRows.length > 0 ? <div className="flex flex-wrap gap-2 text-xs">
               <DecisionPill active={decisionFilter === "all"} label="全部动作" value={supplierDecisionRows.length} tone="neutral" onClick={() => setDecisionFilter("all")} />
@@ -292,9 +311,16 @@ export default function SuppliersPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-muted">{row.evidence}</td>
                     <td className="py-3 pl-4">
-                      <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据；供应关系需要明确维护">
-                        {row.decision === "confirm_supplier" ? "维护供应关系" : row.actionLabel}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link className={row.decision === "maintain_primary" ? "text-success hover:underline" : "text-warning hover:underline"} href={row.supplierId ? `/suppliers/${row.supplierId}` : "/sku-master/import"} title="评分不是此动作的唯一依据；供应关系需要明确维护">
+                          {row.decision === "confirm_supplier" ? "维护供应关系" : row.actionLabel}
+                        </Link>
+                        {row.decision !== "maintain_primary" ? (
+                          <button className="rounded border border-line px-2 py-1 text-xs text-action hover:border-action" onClick={() => createReviewTask(row)} type="button">
+                            生成复核待办
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}

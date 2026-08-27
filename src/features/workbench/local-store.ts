@@ -169,6 +169,8 @@ export type LocalTask = {
   productId?: string;
   productName?: string;
   productStage?: string;
+  /** 生成复核待办时保留的触发证据；不等同于用户填写的复盘备注。 */
+  sourceEvidence?: string;
   title: string;
   dueText?: string;
   /** 标准截止日期，格式为 YYYY-MM-DD；旧待办继续使用 dueText。 */
@@ -984,6 +986,50 @@ export function createTaskFromKnowledgeAction(toolId: string, action: string) {
   };
   saveLocalWorkbenchData({ ...current, tasks: [task, ...current.tasks] });
   return task;
+}
+
+export function createSupplierDecisionTask(input: {
+  supplierId?: string;
+  supplierName: string;
+  productName?: string;
+  action: Exclude<SupplierDecisionAction, "maintain_primary">;
+  period: string;
+  reason: string;
+  evidence: string;
+  dueDate?: string;
+}): { task: LocalTask; created: boolean } {
+  const current = loadLocalWorkbenchData();
+  const actionLabel = input.action === "review_quality"
+    ? "复核质量信号"
+    : input.action === "review_split"
+      ? "调整主/备供"
+      : "维护供应关系";
+  const title = `供应商决策复核：${input.supplierName}${input.productName ? ` · ${input.productName}` : ""} · ${actionLabel}`;
+  const existing = current.tasks.find((task) =>
+    task.status === "open" &&
+    task.type === "supplier_decision_review" &&
+    task.title === title,
+  );
+  if (existing) return { task: existing, created: false };
+
+  const defaultDue = new Date();
+  defaultDue.setDate(defaultDue.getDate() + 7);
+  const task: LocalTask = {
+    id: randomId(),
+    title,
+    dueDate: input.dueDate ?? defaultDue.toISOString().slice(0, 10),
+    priority: input.action === "review_quality" ? "high" : "medium",
+    type: "supplier_decision_review",
+    status: "open",
+    createdAt: new Date().toISOString(),
+    supplierId: input.supplierId,
+    supplierName: input.supplierName,
+    productName: input.productName,
+    sourceEvidence: `${input.period}：${input.reason}；证据：${input.evidence}`,
+    pinned: false,
+  };
+  saveLocalWorkbenchData({ ...current, tasks: [task, ...current.tasks] });
+  return { task, created: true };
 }
 
 /**

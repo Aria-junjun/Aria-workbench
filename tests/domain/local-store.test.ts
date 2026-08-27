@@ -26,6 +26,7 @@ import {
   saveSupplierOfferDecision,
   saveSupplierDecisionRecord,
   completeSupplierDecisionRecord,
+  createSupplierDecisionTask,
   updateLocalItem,
   type LocalWorkbenchData,
   type LocalSupplier
@@ -1033,6 +1034,43 @@ function productKnowledge(overrides: Partial<ProductKnowledgeV2> = {}): ProductK
 }
 
 describe("supplier evaluation storage", () => {
+  it("creates one evidence-linked supplier review task and deduplicates open repeats", () => {
+    saveLocalWorkbenchData(sampleData());
+
+    const first = createSupplierDecisionTask({
+      supplierId: "supplier-1",
+      supplierName: "测试供应商",
+      productName: "商品A",
+      action: "review_quality",
+      period: "2026-08",
+      reason: "退货率达到复核阈值",
+      evidence: "实退数量 ÷ 实发数量 = 5%",
+      dueDate: "2026-09-01",
+    });
+    const second = createSupplierDecisionTask({
+      supplierId: "supplier-1",
+      supplierName: "测试供应商",
+      productName: "商品A",
+      action: "review_quality",
+      period: "2026-08",
+      reason: "退货率达到复核阈值",
+      evidence: "实退数量 ÷ 实发数量 = 5%",
+      dueDate: "2026-09-01",
+    });
+
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(loadLocalWorkbenchData().tasks).toHaveLength(1);
+    expect(loadLocalWorkbenchData().tasks[0]).toMatchObject({
+      supplierId: "supplier-1",
+      productName: "商品A",
+      type: "supplier_decision_review",
+      dueDate: "2026-09-01",
+      title: expect.stringContaining("复核质量信号"),
+    });
+    expect(loadLocalWorkbenchData().tasks[0].sourceEvidence).toContain("实退数量");
+  });
+
   it("saveSupplierEvaluation appends evaluation and syncs cached total/grade", () => {
     saveLocalWorkbenchData({
       ...sampleData(),
