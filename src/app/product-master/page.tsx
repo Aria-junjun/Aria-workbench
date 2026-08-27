@@ -5,6 +5,7 @@ import { Fragment, useState } from "react";
 import * as XLSX from "xlsx";
 import { unzipSync } from "fflate";
 import { EmptyState } from "@/components/empty-state";
+import { HelpHint } from "@/components/workbench/help-hint";
 import {
   createInboundProductsFromSkuMasters,
   saveMonthlyInboundSnapshots,
@@ -375,24 +376,11 @@ export default function ProductMasterPage() {
           </div>
         </section>
       ) : null}
-      <section className="rounded-xl border border-line bg-paper-warm/40 p-4 text-sm">
-        <h2 className="font-medium text-slate-800">数据来源与汇总口径</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <SourceNote
-            title="产品表现数据"
-            detail="聚水潭月度表导入实发数量、实退数量、退货率和 ERP 成本基准；净销量仅作辅助参考，不做财务利润核算。"
-          />
-          <SourceNote
-            title="供应方案"
-            detail="供应商报价、MOQ、交期和规格匹配留在货盘报价页，用于供应商决策。"
-          />
-          <SourceNote
-            title="产品族汇总"
-            detail="同一产品族的 SKU 自动汇总销量和退货表现，成本只显示 ERP 成本基准，不展示成本变化。"
-          />
-        </div>
-        <div className="mt-4 border-t border-line pt-4 text-xs text-slate-500">
-          使用右上角统计月份导入并保存；只写入能匹配内部编码的 SKU。
+      <section className="rounded-lg border border-line bg-paper-warm/40 px-4 py-3 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="font-medium text-slate-700">数据口径</span>
+          <span>实发、实退和 ERP 成本来自月度经营表；实际入仓来自入仓表；库存与可售暂不纳入判断。</span>
+          <HelpHint label="数据口径" description="页面只使用已导入并成功匹配的经营数据，不用入仓数量推算库存或可售。" />
         </div>
       </section>
       {decisionRows.length > 0 ? (
@@ -417,9 +405,9 @@ export default function ProductMasterPage() {
                   <th className="px-3 py-2">产品</th>
                   <th className="px-3 py-2">实际供应商</th>
                   <th className="px-3 py-2">SKU覆盖</th>
-                  <th className="px-3 py-2">本月入仓</th>
-                  <th className="px-3 py-2">退货率信号</th>
-                  <th className="px-3 py-2">建议动作</th>
+                  <th className="px-3 py-2">本月入仓 <HelpHint label="本月入仓" description="来自当前统计月份的实际入仓记录，用于判断真实供货，不代表库存余额。" /></th>
+                  <th className="px-3 py-2">退货率信号 <HelpHint label="退货率信号" description="退货率只作为产品质量复核信号，多供应商场景下不直接归因给单一供应商。" /></th>
+                  <th className="px-3 py-2">建议动作 <HelpHint label="建议动作" description="动作由供应关系、实际入仓和质量信号共同决定，不由 SKU 覆盖单独决定。" /></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -564,15 +552,15 @@ export default function ProductMasterPage() {
               <tr>
                 <th className="w-[220px] px-4 py-3">产品 / SKU</th>
                 <th className="px-4 py-3">SKU数</th>
-                <th className="px-4 py-3">供应方案</th>
+                <th className="px-4 py-3">供应方案 <HelpHint label="供应关系" description="已确认的主供或备供关系默认持续有效，只有发生明确变更时才需要维护。" /></th>
                 <th className="px-4 py-3">经营状态</th>
                 <th className="px-4 py-3">本月实发</th>
                 <th className="px-4 py-3">较上月</th>
-                <th className="px-4 py-3">实际入仓</th>
+                <th className="px-4 py-3">实际入仓 <HelpHint label="实际入仓" description="来自当前统计月份的入仓记录，用于判断供货表现，不代表库存余额。" /></th>
                 <th className="px-4 py-3">库存 / 可售</th>
-                <th className="px-4 py-3">退货率</th>
+                <th className="px-4 py-3">退货率 <HelpHint label="退货率" description="实退数量 ÷ 实发数量；当前仅作为质量复核信号。" /></th>
                 <th className="px-4 py-3">ERP成本</th>
-                <th className="px-4 py-3">关注提示</th>
+                <th className="px-4 py-3">关注提示 <HelpHint label="关注提示" description="仅提示已有数据支持的异常或待处理关系，不根据缺失库存数据推断风险。" /></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -824,15 +812,6 @@ function Stat({ label, value }: { label: string; value: number }) {
     <div className="rounded-xl border border-line bg-white p-4">
       <div className="text-xs text-slate-500">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
-    </div>
-  );
-}
-
-function SourceNote({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="rounded-lg border border-line bg-white px-3 py-2">
-      <div className="font-medium text-slate-700">{title}</div>
-      <div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div>
     </div>
   );
 }

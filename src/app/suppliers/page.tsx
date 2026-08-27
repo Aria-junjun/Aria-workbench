@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
+import { HelpHint } from "@/components/workbench/help-hint";
 import {
   findDuplicateSuppliers,
   mergeSuppliers,
@@ -311,7 +312,7 @@ export default function SuppliersPage() {
       {/* 评分总览与明细 */}
       <section className="space-y-4 rounded-xl border border-line bg-white p-5 shadow-sm">
         <div>
-          <h2 className="text-sm font-semibold">供应商评分总览 · {periodLabel(period, decisionAnchor)}</h2>
+          <h2 className="text-sm font-semibold">供应商评分总览 · {periodLabel(period, decisionAnchor)} <HelpHint label="评分总览" description="评分只汇总当前周期已有的评估和自动证据，缺少来源的数据不补分，也不单独决定供应商动作。" /></h2>
           <p className="mt-1 text-xs text-muted">仅统计当前周期有评估记录的供应商；无对应记录时不跨周期补值。</p>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -379,8 +380,10 @@ export default function SuppliersPage() {
 
        {/* 供应商评分明细 */}
        <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
-          <div className="mb-2 text-xs text-muted">
-           聚水潭自动证据 · 退货率 = 实退数量 ÷ 实发数量 · 自动质量参考 = 100 - 退货率；交付、服务等无来源数据不补分
+        <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted">
+          <span className="font-medium text-ink">数据口径</span>
+          <span>聚水潭自动质量参考使用实退数量 ÷ 实发数量；交付、成本和服务没有来源数据时不补分。</span>
+          <HelpHint label="退货率信号" description="退货率只作为质量复核信号，多供应商场景下不直接归因给单一供应商。" />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -389,8 +392,8 @@ export default function SuppliersPage() {
                 <th className="py-3 pr-4 text-left font-medium">供应商</th>
                 <th className="py-3 px-4 text-left font-medium">品类</th>
                 <th className="py-3 px-4 text-center font-medium">评分参考</th>
-                <th className="py-3 px-4 text-center font-medium">聚水潭自动证据</th>
-                <th className="py-3 px-4 text-center font-medium">等级</th>
+                <th className="py-3 px-4 text-center font-medium">聚水潭自动证据 <HelpHint label="聚水潭自动证据" description="仅展示已导入并匹配到供应商的聚水潭退货数据，不把缺失数据当作零风险。" /></th>
+                <th className="py-3 px-4 text-center font-medium">等级 <HelpHint label="供应商等级" description="等级是当前周期评分的汇总结果，必须结合实际入仓证据和决策动作查看。" /></th>
                 <th className="py-3 px-4 text-center font-medium">交付<div className="text-[9px] text-muted-light">{Math.round(dw.delivery * 100)}%</div></th>
                 <th className="py-3 px-4 text-center font-medium">成本<div className="text-[9px] text-muted-light">{Math.round(dw.cost * 100)}%</div></th>
                 <th className="py-3 px-4 text-center font-medium">质量<div className="text-[9px] text-muted-light">{Math.round(dw.quality * 100)}%</div></th>
