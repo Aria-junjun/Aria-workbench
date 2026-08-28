@@ -27,6 +27,9 @@ describe("product master relationship status UI contract", () => {
     expect(source).toContain("产品族经营对比");
     expect(source).toContain("SKU 明细对比");
     expect(source).toContain("按退货率排序");
+    expect(source).toContain("实发占比");
+    expect(source).toContain("入仓环比");
+    expect(source).toContain("实发环比");
     expect(source).not.toContain("主供 {plan.primarySuppliers.length} · 备供");
     expect(source).not.toContain("实际供应关系：已确认 {assignedCount}");
   });

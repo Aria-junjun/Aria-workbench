@@ -159,6 +159,10 @@ export default function ProductMasterPage() {
       (product.productFamilyKey === group.familyKey || deriveProductFamilyKey(product.name) === group.familyKey),
     ),
   );
+  const totalFamilySales = productFamilyComparisonGroups.reduce((total, family) => {
+    const familySkus = skus.filter((sku) => family.skuIds.includes(sku.id));
+    return total + (aggregateSkuMetrics(familySkus.map((sku) => draftFor(sku))).monthlySales ?? 0);
+  }, 0);
   const salesQuality = salesPreview
     ? summarizeImportQuality({
         sourceLabel: "销售表",
@@ -456,15 +460,16 @@ export default function ProductMasterPage() {
           </div>
           {actionableDecisionRows.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-line">
-            <table className="min-w-full text-left text-xs">
+            <table className="min-w-[1040px] w-full table-fixed text-left text-xs">
+              <colgroup><col className="w-[18%]" /><col className="w-[14%]" /><col className="w-[26%]" /><col className="w-[11%]" /><col className="w-[11%]" /><col className="w-[20%]" /></colgroup>
               <thead className="bg-paper-warm text-slate-500">
-                <tr>
+                <tr className="whitespace-nowrap align-middle">
                   <th className="px-3 py-2">产品</th>
-                  <th className="px-3 py-2">实际供应商</th>
+                  <th className="whitespace-nowrap px-3 py-2">实际供应商</th>
                   <th className="px-3 py-2">异常 SKU 明细</th>
-                  <th className="px-3 py-2">本月入仓 <HelpHint label="本月入仓" description="来自当前统计月份的实际入仓记录，用于判断真实供货，不代表库存余额。" /></th>
-                  <th className="px-3 py-2">退货率信号 <HelpHint label="退货率信号" description="退货率只作为产品质量复核信号，多供应商场景下不直接归因给单一供应商。" /></th>
-                  <th className="px-3 py-2">建议动作 <HelpHint label="建议动作" description="动作由供应关系、实际入仓和质量信号共同决定，不由 SKU 覆盖单独决定。" /></th>
+                  <th className="whitespace-nowrap px-3 py-2">本月入仓 <HelpHint label="本月入仓" description="来自当前统计月份的实际入仓记录，用于判断真实供货，不代表库存余额。" /></th>
+                  <th className="whitespace-nowrap px-3 py-2">退货率信号 <HelpHint label="退货率信号" description="退货率只作为产品质量复核信号，多供应商场景下不直接归因给单一供应商。" /></th>
+                  <th className="whitespace-nowrap px-3 py-2">建议动作 <HelpHint label="建议动作" description="动作由供应关系、实际入仓和质量信号共同决定，不由 SKU 覆盖单独决定。" /></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -618,8 +623,8 @@ export default function ProductMasterPage() {
           </div>
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="min-w-full text-left text-xs">
-              <thead className="bg-paper-warm text-slate-500"><tr>
-                <th className="px-3 py-2">产品族</th><th className="px-3 py-2">经营产品</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">本月实发</th><th className="px-3 py-2">较上月</th><th className="px-3 py-2">实际入仓</th><th className="px-3 py-2">退货率</th><th className="px-3 py-2">关注提示</th>
+              <thead className="bg-paper-warm text-slate-500"><tr className="whitespace-nowrap">
+                <th className="px-3 py-2">产品族</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">本月实发</th><th className="px-3 py-2">实发占比</th><th className="px-3 py-2">实发环比</th><th className="px-3 py-2">实际入仓</th><th className="px-3 py-2">入仓环比</th><th className="px-3 py-2">退货率</th><th className="px-3 py-2">关注提示</th>
               </tr></thead>
               <tbody className="divide-y divide-line">
                 {productFamilyComparisonGroups.map((family) => {
@@ -630,15 +635,20 @@ export default function ProductMasterPage() {
                     selectedPeriod,
                   );
                   const familyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
+                  const previousFamilyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, previousPeriod);
+                  const hasFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === selectedPeriod && family.skuIds.includes(snapshot.skuMasterId));
+                  const hasPreviousFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === previousPeriod && family.skuIds.includes(snapshot.skuMasterId));
+                  const familyInboundDelta = hasFamilyInbound && hasPreviousFamilyInbound ? familyInbound.receivedQuantity - previousFamilyInbound.receivedQuantity : undefined;
+                  const familySales = comparison.current.monthlySales ?? 0;
                   const familyAttention = getProductFamilyAttention({ pendingSkuCount: 0, returnRate: comparison.current.returnRate, currentSales: comparison.current.monthlySales, previousSales: comparison.previous.monthlySales, hasCurrentData: comparison.current.source !== "pending" });
-                  const operatingCount = productGroups.filter((group) => (group.productFamilyKey ?? group.familyKey) === family.familyKey).length;
                   return <tr key={family.familyKey} className="align-top">
                     <td className="px-3 py-3 font-medium text-slate-800">{family.productName}</td>
-                    <td className="px-3 py-3 text-slate-600">{operatingCount}</td>
                     <td className="px-3 py-3 text-slate-600">{familySkus.length}</td>
                     <td className="px-3 py-3 text-slate-600">{comparison.current.monthlySales ?? "待采集"}</td>
+                    <td className="px-3 py-3 text-slate-600">{totalFamilySales > 0 ? `${((familySales / totalFamilySales) * 100).toFixed(1)}%` : "—"}</td>
                     <td className={`px-3 py-3 font-medium ${comparison.delta.monthlySales != null && comparison.delta.monthlySales < 0 ? "text-red-600" : "text-emerald-700"}`}>{comparison.delta.monthlySales == null ? "—" : `${comparison.delta.monthlySales >= 0 ? "+" : ""}${comparison.delta.monthlySales}`}</td>
-                    <td className="px-3 py-3 text-slate-600">{familyInbound.receivedQuantity || "—"}</td>
+                    <td className="px-3 py-3 text-slate-600">{hasFamilyInbound ? familyInbound.receivedQuantity : "待采集"}</td>
+                    <td className={`px-3 py-3 font-medium ${familyInboundDelta != null && familyInboundDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{familyInboundDelta == null ? "—" : `${familyInboundDelta >= 0 ? "+" : ""}${familyInboundDelta}`}</td>
                     <td className="px-3 py-3 text-slate-600">{comparison.current.returnRate != null ? `${comparison.current.returnRate}%` : "待采集"}</td>
                     <td className={`px-3 py-3 ${familyAttention[0] === "当前无明显异常" ? "text-slate-500" : "font-medium text-amber-700"}`}>{familyAttention[0]}</td>
                   </tr>;
@@ -689,6 +699,7 @@ export default function ProductMasterPage() {
               <col className="w-[92px]" />
               <col className="w-[82px]" />
               <col className="w-[82px]" />
+              <col className="w-[82px]" />
               <col className="w-[160px]" />
             </colgroup>
             <thead className="bg-paper-warm text-xs text-slate-500">
@@ -698,8 +709,9 @@ export default function ProductMasterPage() {
                 <th className="px-4 py-3 text-left">供应方案 <HelpHint label="供应关系" description="已确认的主供或备供关系默认持续有效，只有发生明确变更时才需要维护。" /></th>
                 <th className="px-4 py-3 text-center">经营状态</th>
                 <th className="px-4 py-3 text-center">本月实发</th>
-                <th className="px-4 py-3 text-center">较上月</th>
+                <th className="px-4 py-3 text-center">实发环比</th>
                 <th className="px-4 py-3 text-center">实际入仓 <HelpHint label="实际入仓" description="来自当前统计月份的入仓记录，用于判断供货表现，不代表库存余额。" /></th>
+                <th className="px-4 py-3 text-center">入仓环比</th>
                 <th className="px-4 py-3 text-center">退货率 <HelpHint label="退货率" description="实退数量 ÷ 实发数量；当前仅作为质量复核信号。" /></th>
                 <th className="px-4 py-3 text-center">ERP成本</th>
                 <th className="px-4 py-3 text-left">关注提示 <HelpHint label="关注提示" description="仅提示已有数据支持的异常或待处理关系，不根据缺失库存数据推断风险。" /></th>
@@ -746,6 +758,11 @@ export default function ProductMasterPage() {
                 const hasInboundPeriodData = (data.monthlyInboundSnapshots ?? []).some(
                   (snapshot) => productSkus.some((sku) => sku.id === snapshot.skuMasterId) && snapshot.period === selectedPeriod,
                 );
+                const previousInboundSummary = buildProductInboundSummary(productSkus, data.monthlyInboundSnapshots ?? [], snapshots, previousPeriod);
+                const hasPreviousInboundPeriodData = (data.monthlyInboundSnapshots ?? []).some(
+                  (snapshot) => productSkus.some((sku) => sku.id === snapshot.skuMasterId) && snapshot.period === previousPeriod,
+                );
+                const inboundDelta = hasInboundPeriodData && hasPreviousInboundPeriodData ? inboundSummary.receivedQuantity - previousInboundSummary.receivedQuantity : undefined;
                 const relationshipSummaries = productSkus.map((sku) => classifySkuRelationship({
                   skuMasterId: sku.id,
                   skuCode: sku.internalSkuCode,
@@ -828,6 +845,7 @@ export default function ProductMasterPage() {
                         {comparison.delta.monthlySales == null ? "—" : `${comparison.delta.monthlySales >= 0 ? "+" : ""}${comparison.delta.monthlySales}`}
                       </td>
                       <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{hasInboundPeriodData ? inboundSummary.receivedQuantity : "待采集"}</td>
+                      <td className={`px-4 py-3 text-center align-top text-xs font-medium ${inboundDelta != null && inboundDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{inboundDelta == null ? "—" : `${inboundDelta >= 0 ? "+" : ""}${inboundDelta}`}</td>
                       <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{metricSummary.returnRate != null ? `${metricSummary.returnRate}%` : "待采集"}</td>
                       <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{metricSummary.erpCostPrice != null ? metricSummary.erpCostPrice : "待采集"}</td>
                       <td className="px-4 py-3 align-top text-left text-xs">
@@ -837,7 +855,7 @@ export default function ProductMasterPage() {
                     </tr>
                     {expanded ? (
                       <tr className="bg-paper-warm/30 text-xs">
-                        <td className="px-4 py-2 text-slate-500" colSpan={10}>
+                        <td className="px-4 py-2 text-slate-500" colSpan={11}>
                           统计月份：{selectedPeriod}；主销售量按实发数量，历史数据保留为月度快照。
                         </td>
                       </tr>
@@ -847,6 +865,9 @@ export default function ProductMasterPage() {
                       const previous = snapshotFor(sku.id, previousPeriod);
                       const skuInboundSummary = buildProductInboundSummary([sku], data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                       const skuHasInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === selectedPeriod);
+                      const skuHasPreviousInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === previousPeriod);
+                      const skuPreviousInbound = (data.monthlyInboundSnapshots ?? []).filter((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === previousPeriod).reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
+                      const skuInboundDelta = skuHasInbound && skuHasPreviousInbound ? skuInboundSummary.receivedQuantity - skuPreviousInbound : undefined;
                       const skuIsComposite = isCompositeSalesSku(`${sku.productName} ${sku.specification}`);
                       const skuSupplierSummary = buildProductInboundSupplierSummary([sku], data.monthlyInboundSnapshots ?? [], selectedPeriod);
                       const skuRelationship = classifySkuRelationship({
@@ -898,6 +919,7 @@ export default function ProductMasterPage() {
                           </td>
                           <td className={`px-4 py-2 font-medium ${skuDelta != null && skuDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{skuDelta == null ? "—" : `${skuDelta >= 0 ? "+" : ""}${skuDelta}`}</td>
                           <td className={`px-4 py-2 ${skuHasInbound ? "text-slate-700" : skuIsComposite ? "text-slate-500" : "text-slate-700"}`}>{skuHasInbound ? skuInboundSummary.receivedQuantity : skuIsComposite ? "销售组合装，暂不纳入入仓对比" : "待采集"}</td>
+                          <td className={`px-4 py-2 font-medium ${skuInboundDelta != null && skuInboundDelta < 0 ? "text-red-600" : "text-emerald-700"}`}>{skuInboundDelta == null ? "—" : `${skuInboundDelta >= 0 ? "+" : ""}${skuInboundDelta}`}</td>
                           <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} 退货率`} suffix="%" value={draft.returnRate} onChange={(value) => updateDraft(sku.id, "returnRate", value)} /></td>
                           <td className="px-4 py-2"><CompactMetricInput ariaLabel={`${sku.internalSkuCode} ERP成本`} value={draft.erpCostPrice} onChange={(value) => updateDraft(sku.id, "erpCostPrice", value)} /></td>
                           <td className="px-4 py-2"><span className={skuAttention[0] === "当前无明显异常" ? "text-slate-400" : "text-amber-700"}>{skuAttention[0]}</span></td>
@@ -906,7 +928,7 @@ export default function ProductMasterPage() {
                     }) : null}
                     {expanded ? (
                       <tr className="bg-paper-warm/20">
-                        <td className="px-4 py-2" colSpan={10}>
+                        <td className="px-4 py-2" colSpan={11}>
                           <SkuCompositionPanel salesSkuCodes={productSkus.map((sku) => sku.internalSkuCode)} compositions={data.skuCompositions ?? []} />
                         </td>
                       </tr>
