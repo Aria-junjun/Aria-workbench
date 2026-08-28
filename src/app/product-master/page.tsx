@@ -20,7 +20,7 @@ import {
   buildProductInboundSummary,
   buildProductInboundSupplierSummary,
   buildProductSupplierDecisionRows,
-  groupSkuMastersByOperatingProduct,
+  groupSkuMastersByProduct,
   deriveProductFamilyKey,
   sortProductMasterGroupsByOperatingData,
   sortProductMasterSkusByOperatingData,
@@ -43,7 +43,7 @@ import {
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 import { SkuSupplierExceptionEditor } from "@/components/workbench/sku-supplier-exception-editor";
-import { getProductFamilyAttention, getSkuOperatingRole, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
+import { getProductFamilyAttention, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 import {
   classifySkuRelationship,
   formatSkuRelationshipStatus,
@@ -76,7 +76,7 @@ export default function ProductMasterPage() {
     (sku) => sku.status !== "archived",
   );
   const snapshots = data.skuOperatingSnapshots ?? [];
-  const productGroups = groupSkuMastersByOperatingProduct(skus);
+  const productGroups = groupSkuMastersByProduct(skus);
   const inboundGroups = productGroups.filter((group) =>
     data.products.some(
       (product) =>
@@ -115,6 +115,7 @@ export default function ProductMasterPage() {
     snapshots,
     selectedPeriod,
   );
+  const actionableDecisionRows = decisionRows.filter((row) => row.decision !== "maintain_primary");
   const previousPeriod = getPreviousPeriod(selectedPeriod);
   const salesQuality = salesPreview
     ? summarizeImportQuality({
@@ -275,7 +276,7 @@ export default function ProductMasterPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+            <div>
           <h1 className="text-2xl font-semibold text-slate-900">
             入仓产品主表
           </h1>
@@ -406,25 +407,26 @@ export default function ProductMasterPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
-              <DecisionCount label="保持主供" value={decisionRows.filter((row) => row.decision === "maintain_primary").length} tone="green" />
+              <DecisionCount label="正常供货" value={decisionRows.filter((row) => row.decision === "maintain_primary").length} tone="green" />
               <DecisionCount label="需要复核" value={decisionRows.filter((row) => row.decision === "review_split" || row.decision === "review_quality").length} tone="amber" />
               <DecisionCount label="待补供应商" value={decisionRows.filter((row) => row.decision === "confirm_supplier").length} tone="red" />
             </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-line">
+          {actionableDecisionRows.length > 0 ? (
+            <div className="overflow-x-auto rounded-lg border border-line">
             <table className="min-w-full text-left text-xs">
               <thead className="bg-paper-warm text-slate-500">
                 <tr>
                   <th className="px-3 py-2">产品</th>
                   <th className="px-3 py-2">实际供应商</th>
-                  <th className="px-3 py-2">SKU覆盖</th>
+                  <th className="px-3 py-2">异常 SKU 明细</th>
                   <th className="px-3 py-2">本月入仓 <HelpHint label="本月入仓" description="来自当前统计月份的实际入仓记录，用于判断真实供货，不代表库存余额。" /></th>
                   <th className="px-3 py-2">退货率信号 <HelpHint label="退货率信号" description="退货率只作为产品质量复核信号，多供应商场景下不直接归因给单一供应商。" /></th>
                   <th className="px-3 py-2">建议动作 <HelpHint label="建议动作" description="动作由供应关系、实际入仓和质量信号共同决定，不由 SKU 覆盖单独决定。" /></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {decisionRows.map((row) => (
+                {actionableDecisionRows.map((row) => (
                   <tr key={row.familyKey} className="align-top">
                     <td className="px-3 py-3 font-medium text-slate-800">{row.productName}</td>
                     <td className="px-3 py-3">
@@ -432,7 +434,18 @@ export default function ProductMasterPage() {
                          <Link className="text-action hover:underline" href={`/suppliers/${row.supplierId}#supplier-relationship`}>{row.supplierName}</Link>
                       ) : row.supplierName}
                     </td>
-                    <td className="px-3 py-3 text-slate-600">{row.coveredSkuCount}/{row.totalSkuCount}</td>
+                    <td className="px-3 py-3 text-slate-600">
+                      <div className="space-y-1">
+                        {row.skuDetails.filter((detail) => detail.returnRate !== undefined || detail.receivedQuantity > 0).map((detail) => (
+                          <div key={detail.internalSkuCode}>
+                            <span className="font-medium text-slate-700">{detail.internalSkuCode}</span>
+                            <span className="ml-1">{detail.specification || "规格待补"}</span>
+                            {detail.receivedQuantity > 0 ? <span className="ml-1">· 入仓 {detail.receivedQuantity}</span> : null}
+                            {detail.returnRate !== undefined ? <span className="ml-1">· 退货率 {detail.returnRate}%</span> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
                     <td className="px-3 py-3 text-slate-600">{row.receivedQuantity || "-"}</td>
                     <td className="px-3 py-3 text-slate-600">{row.returnRate !== undefined ? `${row.returnRate}%` : "未采集"}</td>
                     <td className="px-3 py-3">
@@ -449,7 +462,10 @@ export default function ProductMasterPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          ) : (
+            <p className="rounded-lg bg-emerald-50 px-3 py-3 text-xs text-emerald-800">当前产品族均为正常供货，没有需要复核或补充的产品 / 供应商。</p>
+          )}
           <p className="text-xs text-slate-500">当前月份：{selectedPeriod} · 退货率仅作为产品质量复核信号，不在多供应商场景下直接归因。</p>
         </section>
       ) : null}
@@ -608,7 +624,6 @@ export default function ProductMasterPage() {
                   data.monthlyInboundSnapshots ?? [],
                   selectedPeriod,
                 );
-                const operatingProductCode = group.operatingProductCode;
                 const currentRows = productSkus.map((sku) => draftFor(sku));
                 const previousRows = productSkus.map((sku) => {
                   const snapshot = snapshotFor(sku.id, previousPeriod);
@@ -680,11 +695,11 @@ export default function ProductMasterPage() {
                               className="font-medium text-action hover:underline"
                               href={`/products/${product.id}`}
                             >
-                              {group.productName} <span className="font-normal text-slate-500">· {operatingProductCode || "经营编码待补"}</span>
+                              {group.productName}
                             </Link>
                           ) : (
                             <span className="font-medium text-slate-700">
-                              {group.productName} <span className="font-normal text-slate-500">· {operatingProductCode || "经营编码待补"}</span>
+                              {group.productName}
                             </span>
                           )}
                         </div>
@@ -735,8 +750,7 @@ export default function ProductMasterPage() {
                       const previous = snapshotFor(sku.id, previousPeriod);
                       const skuInboundSummary = buildProductInboundSummary([sku], data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                       const skuHasInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.skuMasterId === sku.id && snapshot.period === selectedPeriod);
-                      const skuIsComposite = isCompositeSalesSku(sku.productName);
-                      const skuOperatingRole = getSkuOperatingRole(sku.internalSkuCode, operatingProductCode);
+                      const skuIsComposite = isCompositeSalesSku(`${sku.productName} ${sku.specification}`);
                       const skuSupplierSummary = buildProductInboundSupplierSummary([sku], data.monthlyInboundSnapshots ?? [], selectedPeriod);
                       const skuRelationship = classifySkuRelationship({
                         skuMasterId: sku.id,
@@ -766,7 +780,7 @@ export default function ProductMasterPage() {
                           <td className="px-4 py-2 pl-10">
                             <div className="font-medium text-slate-800">{sku.internalSkuCode}</div>
                             <div className="mt-0.5 text-slate-500">{sku.specification || "规格待补"}</div>
-                            <div className="mt-0.5 text-[11px] text-slate-400">{skuOperatingRole}</div>
+                            <div className="mt-0.5 text-[11px] text-slate-400">原始 SKU 明细</div>
                           </td>
                           <td className="px-4 py-2 text-slate-400">—</td>
                           <td className="px-4 py-2 text-slate-500">

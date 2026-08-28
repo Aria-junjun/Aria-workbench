@@ -158,6 +158,13 @@ export type ProductSupplierDecisionRow = {
   shippedQuantity?: number;
   returnQuantity?: number;
   returnRate?: number;
+  skuDetails: Array<{
+    internalSkuCode: string;
+    specification: string;
+    supplierNames: string[];
+    receivedQuantity: number;
+    returnRate?: number;
+  }>;
   decision: ProductSupplierDecision;
   actionLabel: string;
   reason: string;
@@ -212,6 +219,20 @@ export function buildProductSupplierDecisionRows(
     const returnQuantity = operating.reduce((total, snapshot) => total + (snapshot.returnQuantity ?? 0), 0);
     const hasReturnQuantity = operating.some((snapshot) => snapshot.returnQuantity !== undefined);
     const returnRate = hasReturnQuantity && shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
+    const skuDetails = group.skus.map((sku) => {
+      const skuInbound = inbound.filter((snapshot) => snapshot.skuMasterId === sku.id);
+      const skuOperating = operating.filter((snapshot) => snapshot.skuMasterId === sku.id);
+      const skuShipped = skuOperating.reduce((total, snapshot) => total + (snapshot.shippedQuantity ?? snapshot.monthlySales ?? 0), 0);
+      const skuReturned = skuOperating.reduce((total, snapshot) => total + (snapshot.returnQuantity ?? 0), 0);
+      const skuHasReturnQuantity = skuOperating.some((snapshot) => snapshot.returnQuantity !== undefined);
+      return {
+        internalSkuCode: sku.internalSkuCode,
+        specification: sku.specification,
+        supplierNames: [...new Set(skuInbound.map((snapshot) => snapshot.supplierName?.trim()).filter((name): name is string => Boolean(name)))],
+        receivedQuantity: skuInbound.reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0),
+        ...(skuHasReturnQuantity && skuShipped > 0 ? { returnRate: Number(((skuReturned / skuShipped) * 100).toFixed(2)) } : {}),
+      };
+    });
     const decision = decisionForSupplierRow({
       hasUnconfirmedSupplier: inbound.some((snapshot) => !snapshot.supplierName?.trim()),
       supplierCount: supplierNames.length,
@@ -232,6 +253,7 @@ export function buildProductSupplierDecisionRows(
       ...(operating.some((snapshot) => snapshot.shippedQuantity !== undefined || snapshot.monthlySales !== undefined) ? { shippedQuantity } : {}),
       ...(hasReturnQuantity ? { returnQuantity } : {}),
       ...(returnRate !== undefined ? { returnRate } : {}),
+      skuDetails,
       ...decision,
     };
   });
