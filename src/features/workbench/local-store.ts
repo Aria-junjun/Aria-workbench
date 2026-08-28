@@ -1,5 +1,5 @@
 import defaultData from "@/data/workbench-data.json";
-import type { DraftExtraction } from "./schemas";
+import { SupplierCapabilitySchema, type DraftExtraction } from "./schemas";
 import type { DecisionAnalysis, DecisionModelSection } from "./decision-analysis";
 import {
   DecisionCaseSchema,
@@ -379,6 +379,26 @@ export type LocalProductSupplierAssignment = {
   evidence?: string;
 };
 
+export type LocalSupplierCapability = {
+  id: string;
+  supplierId: string;
+  productFamilyKey?: string;
+  processNames: string[];
+  materialNames: string[];
+  equipmentNames: string[];
+  supportsSampling?: boolean;
+  supportsCustomization?: boolean;
+  moq?: string;
+  leadTime?: string;
+  sourceRecordIds: string[];
+  sourceType: "offer" | "communication" | "inbound" | "manual";
+  status: "candidate" | "verified" | "expired";
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type LocalSkuImportBatch = {
   id: string;
   fileName: string;
@@ -448,6 +468,7 @@ export type LocalWorkbenchData = {
   skuCompositions?: LocalSkuComposition[];
   skuSupplierAssignments?: LocalSkuSupplierAssignment[];
   productSupplierAssignments?: LocalProductSupplierAssignment[];
+  supplierCapabilities?: LocalSupplierCapability[];
   skuImportBatches?: LocalSkuImportBatch[];
   skuOfferLinks?: LocalSkuOfferLink[];
   supplierOfferDecisions?: LocalSupplierOfferDecision[];
@@ -2151,6 +2172,52 @@ export function saveProductSupplierAssignments(entries: Array<Omit<LocalProductS
   return saved;
 }
 
+export function saveSupplierCapabilities(entries: Array<Omit<LocalSupplierCapability, "id" | "createdAt" | "updatedAt"> & { id?: string }>) {
+  entries.forEach((entry) => {
+    if (entry.effectiveFrom) assertMonthlyPeriod(entry.effectiveFrom);
+    if (entry.effectiveTo) assertMonthlyPeriod(entry.effectiveTo);
+    SupplierCapabilitySchema.parse({
+      ...entry,
+      id: entry.id ?? "capability-validation",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+  const current = loadLocalWorkbenchData();
+  const capabilities = [...(current.supplierCapabilities ?? [])];
+  const now = new Date().toISOString();
+  const saved = entries.map((entry) => {
+    const existing = capabilities.find((item) =>
+      item.supplierId === entry.supplierId &&
+      item.productFamilyKey === entry.productFamilyKey &&
+      item.effectiveFrom === entry.effectiveFrom &&
+      item.status !== "expired",
+    );
+    const capability: LocalSupplierCapability = {
+      ...entry,
+      id: entry.id ?? existing?.id ?? randomId(),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const index = capabilities.findIndex((item) => item.id === capability.id);
+    if (index >= 0) capabilities[index] = capability;
+    else capabilities.unshift(capability);
+    return capability;
+  });
+  saveLocalWorkbenchData({ ...current, supplierCapabilities: capabilities });
+  return saved;
+}
+
+export function invalidateSupplierCapability(capabilityId: string) {
+  const current = loadLocalWorkbenchData();
+  const capabilities = (current.supplierCapabilities ?? []).map((item) =>
+    item.id === capabilityId
+      ? { ...item, status: "expired" as const, updatedAt: new Date().toISOString() }
+      : item,
+  );
+  saveLocalWorkbenchData({ ...current, supplierCapabilities: capabilities });
+}
+
 export function confirmSkuImportBatch(batchId: string) {
   const current = loadLocalWorkbenchData();
   saveLocalWorkbenchData({
@@ -2392,6 +2459,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     skuCompositions: Array.isArray(data.skuCompositions) ? data.skuCompositions : [],
     skuSupplierAssignments: Array.isArray(data.skuSupplierAssignments) ? data.skuSupplierAssignments : [],
     productSupplierAssignments: Array.isArray(data.productSupplierAssignments) ? data.productSupplierAssignments : [],
+    supplierCapabilities: Array.isArray(data.supplierCapabilities) ? data.supplierCapabilities.map((item) => SupplierCapabilitySchema.safeParse(item)).filter((result) => result.success).map((result) => result.data) : [],
     skuImportBatches: Array.isArray(data.skuImportBatches) ? data.skuImportBatches : [],
     skuOfferLinks: Array.isArray(data.skuOfferLinks) ? data.skuOfferLinks : [],
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],

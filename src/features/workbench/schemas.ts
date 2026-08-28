@@ -21,6 +21,28 @@ export const SupplierDraftSchema = z.object({
   notes: z.string().optional()
 });
 
+export const SupplierCapabilitySchema = z.object({
+  id: z.string().min(1),
+  supplierId: z.string().min(1),
+  productFamilyKey: z.string().min(1).optional(),
+  processNames: z.array(z.string()).default([]),
+  materialNames: z.array(z.string()).default([]),
+  equipmentNames: z.array(z.string()).default([]),
+  supportsSampling: z.boolean().optional(),
+  supportsCustomization: z.boolean().optional(),
+  moq: z.string().optional(),
+  leadTime: z.string().optional(),
+  sourceRecordIds: z.array(z.string()).default([]),
+  sourceType: z.enum(["offer", "communication", "inbound", "manual"]).default("manual"),
+  status: z.enum(["candidate", "verified", "expired"]).default("candidate"),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  effectiveTo: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export type SupplierCapability = z.infer<typeof SupplierCapabilitySchema>;
+
 export const CommunicationDraftSchema = z.object({
   summary: z.string().min(1),
   promises: z.array(z.string()).default([]),
