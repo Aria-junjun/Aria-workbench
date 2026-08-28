@@ -92,7 +92,7 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
   const activeCapabilities = capabilities.filter((item) => item.status !== "expired" && !invalidations.includes(item.id));
 
   return (
-    <section className="border-b border-line pb-5" data-testid="supplier-capabilities">
+    <section className="border-b border-line pb-5 scroll-mt-6" data-testid="supplier-capabilities" id="supplier-capabilities">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold">供应商能力</h2>

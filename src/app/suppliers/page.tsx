@@ -480,6 +480,9 @@ export default function SuppliersPage() {
                               : "入仓型"}
                         </span>
                       </div>
+                      <Link className="mt-1 inline-block text-xs text-action hover:underline" href={`/suppliers/${supplier.id}#supplier-capabilities`}>
+                        能力档案
+                      </Link>
                     </td>
                     <td className="py-3 px-4 text-slate-600">{join(supplier.categories) || "—"}</td>
                     <td className="py-3 px-4 text-center">

@@ -275,7 +275,19 @@ export default function SupplierDetailPage() {
             <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={cancelEditing} type="button">取消</button>
           </>
         ) : (
-          <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => setEditing(true)} type="button">编辑</button>
+          <>
+            <button
+              className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm"
+              onClick={() => {
+                setEditing(true);
+                window.setTimeout(() => document.getElementById("supplier-capabilities")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+              }}
+              type="button"
+            >
+              维护能力
+            </button>
+            <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => setEditing(true)} type="button">编辑</button>
+          </>
         )}
         <button
           className="inline-flex items-center gap-1.5 bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90 transition-colors"

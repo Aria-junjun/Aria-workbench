@@ -9,9 +9,18 @@ describe("supplier capability editor UI contract", () => {
 
     expect(page).toContain("SupplierCapabilityEditor");
     expect(page).toContain("supplierCapabilities");
+    expect(page).toContain("维护能力");
+    expect(page).toContain("supplier-capabilities");
     expect(editor).toContain("供应商能力");
     expect(editor).toContain("保存能力");
     expect(editor).toContain("saveSupplierCapabilities");
     expect(editor).toContain("标记失效");
+  });
+
+  it("exposes a capability entry from the supplier list", () => {
+    const page = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/page.tsx"), "utf8");
+
+    expect(page).toContain("能力档案");
+    expect(page).toContain("#supplier-capabilities");
   });
 });
