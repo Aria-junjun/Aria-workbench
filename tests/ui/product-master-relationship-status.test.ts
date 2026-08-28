@@ -20,8 +20,8 @@ describe("product master relationship status UI contract", () => {
     expect(source).toContain("#supplier-relationship");
     expect(source).toContain("确认当前供应商");
     expect(source).toContain("异常 SKU");
-    expect(source).toContain("groupSkuMastersByProduct");
-    expect(source).not.toContain("groupSkuMastersByOperatingProduct");
+    expect(source).toContain("groupSkuMastersByOperatingProduct");
+    expect(source).toContain("operatingProductCode");
     expect(source).toContain("actionableDecisionRows");
     expect(source).toContain("skuDetails");
     expect(source).not.toContain("主供 {plan.primarySuppliers.length} · 备供");

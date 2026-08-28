@@ -20,7 +20,7 @@ import {
   buildProductInboundSummary,
   buildProductInboundSupplierSummary,
   buildProductSupplierDecisionRows,
-  groupSkuMastersByProduct,
+  groupSkuMastersByOperatingProduct,
   deriveProductFamilyKey,
   sortProductMasterGroupsByOperatingData,
   sortProductMasterSkusByOperatingData,
@@ -76,7 +76,7 @@ export default function ProductMasterPage() {
     (sku) => sku.status !== "archived",
   );
   const snapshots = data.skuOperatingSnapshots ?? [];
-  const productGroups = groupSkuMastersByProduct(skus);
+  const productGroups = groupSkuMastersByOperatingProduct(skus);
   const inboundGroups = productGroups.filter((group) =>
     data.products.some(
       (product) =>
@@ -393,7 +393,7 @@ export default function ProductMasterPage() {
       <section className="rounded-lg border border-line bg-paper-warm/40 px-4 py-3 text-xs text-slate-500">
         <div className="flex flex-wrap items-center gap-1">
           <span className="font-medium text-slate-700">数据口径</span>
-          <span>实发、实退和 ERP 成本来自月度经营表；实际入仓来自入仓表；库存与可售暂不纳入判断。</span>
+          <span>实发、实退和 ERP 成本来自月度经营表；实际入仓来自入仓表；库存与可售暂不纳入判断。经营数据按主编码归并，例如 Y-10BBT 与 Y-10BBT-8 计入同一经营产品。</span>
           <HelpHint label="数据口径" description="页面只使用已导入并成功匹配的经营数据，不用入仓数量推算库存或可售。" />
         </div>
       </section>
@@ -695,11 +695,11 @@ export default function ProductMasterPage() {
                               className="font-medium text-action hover:underline"
                               href={`/products/${product.id}`}
                             >
-                              {group.productName}
+                              {group.productName} <span className="font-normal text-slate-500">· {group.operatingProductCode}</span>
                             </Link>
                           ) : (
                             <span className="font-medium text-slate-700">
-                              {group.productName}
+                              {group.productName} <span className="font-normal text-slate-500">· {group.operatingProductCode}</span>
                             </span>
                           )}
                         </div>

@@ -45,6 +45,16 @@ describe("inbound product master", () => {
     expect(groups[1]).toMatchObject({ operatingProductCode: "Y-10BBT", productFamilyKey: "白板贴", productName: "白板贴", skuIds: ["other-base", "other-gift"] });
   });
 
+  it("recognizes a matching -8 code as the same operating product when the source omits gift wording", () => {
+    const groups = groupSkuMastersByOperatingProduct([
+      { id: "base", internalSkuCode: "Y-10BBT", productName: "白板贴", specification: "90*2" },
+      { id: "variant", internalSkuCode: "Y-10BBT-8", productName: "白板贴", specification: "90*2" },
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].skuIds).toEqual(["base", "variant"]);
+  });
+
   it("promotes an opportunity without deleting its research fields", () => {
     const promoted = promoteProductToInbound({ name: "白板贴", recordKind: "opportunity", opportunities: ["市场需求"], lifecycleStage: "validate" });
     expect(promoted).toMatchObject({ name: "白板贴", recordKind: "existing", productMode: "inbound", portfolioStatus: "active", opportunities: ["市场需求"], lifecycleStage: "validate" });

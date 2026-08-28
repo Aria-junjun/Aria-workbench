@@ -573,12 +573,16 @@ export function groupSkuMastersByProduct(rows: ProductMasterSkuInput[]): Product
 
 export function groupSkuMastersByOperatingProduct(rows: ProductMasterSkuInput[]): ProductMasterGroup[] {
   const groups = new Map<string, ProductMasterGroup>();
+  const codes = new Set(rows.map((row) => row.internalSkuCode.trim()).filter(Boolean));
 
   for (const row of rows) {
     const code = row.internalSkuCode.trim();
     const productFamilyKey = deriveProductFamilyKey(row.productName, row.productFamilyKey);
     if (!code || !productFamilyKey) continue;
-    const isGiftVariant = /\+|＋|组合装|套装|礼盒|件套/.test(`${row.productName} ${row.specification}`) && /-8$/.test(code);
+    const isGiftVariant = /-8$/.test(code) && (
+      /\+|＋|组合装|套装|礼盒|件套/.test(`${row.productName} ${row.specification}`) ||
+      codes.has(code.replace(/-8$/, ""))
+    );
     const operatingProductCode = isGiftVariant ? code.replace(/-8$/, "") : code;
     const familyKey = `${productFamilyKey}::${operatingProductCode}`;
     const current = groups.get(familyKey) ?? {
