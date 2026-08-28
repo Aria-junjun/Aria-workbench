@@ -6,7 +6,7 @@ describe("product master relationship status UI contract", () => {
   it("shows actual supplier relationship status in family and SKU views", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/product-master/page.tsx"), "utf8");
 
-    expect(source).toContain("当前供应商");
+    expect(source).toContain("供应商");
     expect(source).toContain("formatSkuRelationshipStatus");
     expect(source).toContain("供应关系依据");
     expect(source).toContain("productSupplierAssignments");
@@ -18,7 +18,7 @@ describe("product master relationship status UI contract", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/product-master/page.tsx"), "utf8");
 
     expect(source).toContain("#supplier-relationship");
-    expect(source).toContain("确认当前供应商");
+    expect(source).toContain("确认关系");
     expect(source).toContain("异常 SKU");
     expect(source).toContain("groupSkuMastersByOperatingProduct");
     expect(source).toContain("operatingProductCode");
@@ -30,6 +30,9 @@ describe("product master relationship status UI contract", () => {
     expect(source).toContain("实发占比");
     expect(source).toContain("入仓环比");
     expect(source).toContain("实发环比");
+    expect(source).toContain("主供：");
+    expect(source).toContain("正常经营");
+    expect(source).not.toContain("overflow-y-auto");
     expect(source).not.toContain("主供 {plan.primarySuppliers.length} · 备供");
     expect(source).not.toContain("实际供应关系：已确认 {assignedCount}");
   });

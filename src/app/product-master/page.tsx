@@ -750,11 +750,6 @@ export default function ProductMasterPage() {
                   snapshots,
                   selectedPeriod,
                 );
-                const inboundSupplierSummary = buildProductInboundSupplierSummary(
-                  productSkus,
-                  data.monthlyInboundSnapshots ?? [],
-                  selectedPeriod,
-                );
                 const hasInboundPeriodData = (data.monthlyInboundSnapshots ?? []).some(
                   (snapshot) => productSkus.some((sku) => sku.id === snapshot.skuMasterId) && snapshot.period === selectedPeriod,
                 );
@@ -774,10 +769,6 @@ export default function ProductMasterPage() {
                   inboundFacts: periodInboundSnapshots,
                 }));
                 const skuExceptionCount = relationshipSummaries.filter((summary) => summary.supplierRelationshipSource === "sku_assignment").length;
-                const supplierDisplay = buildProductSupplierDisplay(
-                  relationshipSummaries,
-                  inboundSupplierSummary.suppliers,
-                );
                 const expanded = Boolean(expandedFamilies[group.familyKey]);
                 const attention = getProductFamilyAttention({
                   pendingSkuCount: 0,
@@ -786,6 +777,17 @@ export default function ProductMasterPage() {
                   previousSales: comparison.previous.monthlySales,
                   hasCurrentData: metricSummary.source !== "pending",
                 });
+                const operatingStatus = metricSummary.source === "pending"
+                  ? "待补数据"
+                  : attention[0] !== "当前无明显异常"
+                    ? "需要关注"
+                    : product?.portfolioStatus === "active"
+                      ? "正常经营"
+                      : product?.portfolioStatus === "optimize"
+                        ? "需要优化"
+                        : product?.portfolioStatus === "discontinued"
+                          ? "淘汰"
+                          : "观察";
                 return (
                   <Fragment key={group.familyKey}>
                     <tr className="bg-white hover:bg-paper-warm/50">
@@ -824,21 +826,9 @@ export default function ProductMasterPage() {
                       <td className="px-4 py-3 text-center align-top font-medium">{productSkus.length}</td>
                       <td className="px-4 py-3 align-top text-left text-xs">
                         <ProductFamilySupplierAction relationships={relationshipSummaries} exceptionCount={skuExceptionCount} />
-                        <div className="mt-1 text-[11px] text-slate-500">
-                          {supplierDisplay.label}：{supplierDisplay.names.join("、")}
-                          <div className={supplierDisplay.note.includes("异常") ? "mt-1 text-amber-700" : "mt-1 text-slate-400"}>
-                            {supplierDisplay.note}
-                          </div>
-                        </div>
                       </td>
                       <td className="px-4 py-3 text-center align-top">
-                        {product?.portfolioStatus === "active"
-                          ? "继续经营"
-                          : product?.portfolioStatus === "optimize"
-                            ? "需要优化"
-                            : product?.portfolioStatus === "discontinued"
-                              ? "淘汰"
-                              : "观察"}
+                        {operatingStatus}
                       </td>
                       <td className="px-4 py-3 text-center align-top text-xs text-slate-700">{metricSummary.monthlySales ?? "待采集"}</td>
                       <td className={`px-4 py-3 text-center align-top text-xs font-medium ${comparison.delta.monthlySales != null && comparison.delta.monthlySales < 0 ? "text-red-600" : "text-emerald-700"}`}>
@@ -1011,24 +1001,24 @@ function ProductFamilySupplierAction({ relationships, exceptionCount }: { relati
     if (evidencedSupplier?.supplierId) {
       return (
         <div className="space-y-1 text-[11px]">
-          <div className="text-slate-700">实际供应商：<Link className="text-action hover:underline" href={`/suppliers/${evidencedSupplier.supplierId}#supplier-relationship`}>{evidencedSupplier.supplierName}</Link></div>
-          <Link className="block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href={`/suppliers/${evidencedSupplier.supplierId}#supplier-relationship`}>确认当前供应商</Link>
-          {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}：仅在例外时核对</div> : null}
+          <div className="whitespace-nowrap text-slate-700">待确认：<Link className="text-action hover:underline" href={`/suppliers/${evidencedSupplier.supplierId}#supplier-relationship`}>{evidencedSupplier.supplierName}</Link></div>
+          <Link className="block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href={`/suppliers/${evidencedSupplier.supplierId}#supplier-relationship`}>确认关系</Link>
+          {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}，仅例外核对</div> : null}
         </div>
       );
     }
     return (
       <div className="space-y-1 text-[11px]">
-        <div className="text-amber-700">当前供应商：待确认</div>
-        <Link className="block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href="/suppliers">确认实际供应商</Link>
-        {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}：仅在例外时核对</div> : null}
+        <div className="whitespace-nowrap text-amber-700">待确认供应商</div>
+        <Link className="block text-amber-700 underline decoration-dotted underline-offset-2 hover:text-amber-900" href="/suppliers">维护关系</Link>
+        {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}，仅例外核对</div> : null}
       </div>
     );
   }
 
   return (
     <div className="space-y-1 text-[11px] text-slate-700">
-      <div>当前供应商：{suppliers.map((summary, index) => (
+      <div className="whitespace-nowrap"><span className="font-medium">{familyPrimaryRelationships.length ? "主供：" : "供应商："}</span>{suppliers.map((summary, index) => (
         <Fragment key={`${summary.supplierId ?? summary.supplierName}-${index}`}>
           {index > 0 ? "、" : null}
           {summary.supplierId ? (
@@ -1038,8 +1028,8 @@ function ProductFamilySupplierAction({ relationships, exceptionCount }: { relati
           ) : summary.supplierName}
         </Fragment>
       ))}
-      <span className="ml-1 text-slate-400">（持续有效{suppliers[0].effectiveFrom ? `，${suppliers[0].effectiveFrom} 起` : ""}）</span></div>
-      {exceptionCount > 0 ? <div className="text-slate-500">异常 SKU {exceptionCount}：仅在例外时核对</div> : null}
+      </div>
+      <div className="text-slate-500">{exceptionCount > 0 ? `异常 SKU ${exceptionCount}，仅例外核对` : "关系持续有效"}</div>
     </div>
   );
 }
