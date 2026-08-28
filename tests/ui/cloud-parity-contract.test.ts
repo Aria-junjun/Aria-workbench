@@ -46,4 +46,16 @@ describe("cloud parity contract", () => {
     expect(store).toContain("new AbortController()");
     expect(store).toContain("signal: controller.signal");
   });
+
+  it("keeps supplier capability data in the local/cloud storage contract", () => {
+    const store = fs.readFileSync(path.join(root, "src/features/workbench/local-store.ts"), "utf8");
+    const editor = fs.readFileSync(path.join(root, "src/components/workbench/supplier-capability-editor.tsx"), "utf8");
+
+    expect(store).toContain("supplierCapabilities?: LocalSupplierCapability[]");
+    expect(store).toContain("saveSupplierCapabilities");
+    expect(store).toContain("invalidateSupplierCapability");
+    expect(editor).toContain("sourceRecordIds");
+    expect(editor).toContain("effectiveFrom");
+    expect(editor).toContain("标记失效");
+  });
 });

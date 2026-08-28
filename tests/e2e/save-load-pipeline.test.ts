@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseProductResearchMarkdown } from "@/features/workbench/product-research-parser";
 import { normalizeProductKnowledge, ProductKnowledgeV2Schema } from "@/features/workbench/product-knowledge";
+import { SupplierCapabilitySchema } from "@/features/workbench/schemas";
 
 const sampleReport = `# 电脑防窥防蓝光防反光保护膜及防窥挂板 - 品类调研评估报告
 
@@ -71,6 +72,33 @@ const sampleReport = `# 电脑防窥防蓝光防反光保护膜及防窥挂板 -
 `;
 
 describe("save/load pipeline", () => {
+  it("preserves supplier capability evidence through schema normalization", () => {
+    const capability = SupplierCapabilitySchema.parse({
+      id: "capability-1",
+      supplierId: "supplier-1",
+      productFamilyKey: "白板贴",
+      processNames: ["分切"],
+      materialNames: ["PET"],
+      equipmentNames: ["复合机"],
+      supportsSampling: true,
+      supportsCustomization: false,
+      moq: "100",
+      leadTime: "7天",
+      sourceRecordIds: ["offer-1"],
+      sourceType: "offer",
+      status: "verified",
+      effectiveFrom: "2026-07",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    });
+
+    const roundTrip = SupplierCapabilitySchema.parse({ ...capability });
+
+    expect(roundTrip.productFamilyKey).toBe("白板贴");
+    expect(roundTrip.sourceRecordIds).toEqual(["offer-1"]);
+    expect(roundTrip.status).toBe("verified");
+  });
+
   it("preserves category research through double schema parse", () => {
     const parsed = parseProductResearchMarkdown(sampleReport, { fileName: "report.md" });
     const product = parsed.product;

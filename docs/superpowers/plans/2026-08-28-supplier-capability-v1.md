@@ -24,12 +24,12 @@
 - Modify: `src/features/workbench/local-store.ts`
 - Test: `tests/domain/supplier-capability.test.ts`
 
-- [ ] 先写供应商能力新增、失效、按供应商查询和按产品族查询的失败测试。
-- [ ] 运行 `npx vitest run tests/domain/supplier-capability.test.ts`，确认失败。
-- [ ] 新增 `SupplierCapability` 类型和校验 schema，字段包括 supplierId、productFamilyKey、processNames、materialNames、equipmentNames、supportsSampling、supportsCustomization、moq、leadTime、sourceRecordIds、status、effectiveFrom、effectiveTo。
-- [ ] 在 local store 增加保存、更新、失效和备份恢复逻辑，采用现有同步入口。
-- [ ] 重新运行该测试，确认通过。
-- [ ] 提交 `feat: add supplier capability storage`。
+- [x] 先写供应商能力新增、失效、按供应商查询和按产品族查询的失败测试。
+- [x] 运行 `npx vitest run tests/domain/supplier-capability.test.ts`，确认失败。
+- [x] 新增 `SupplierCapability` 类型和校验 schema，字段包括 supplierId、productFamilyKey、processNames、materialNames、equipmentNames、supportsSampling、supportsCustomization、moq、leadTime、sourceRecordIds、status、effectiveFrom、effectiveTo。
+- [x] 在 local store 增加保存、更新、失效和备份恢复逻辑，采用现有同步入口。
+- [x] 重新运行该测试，确认通过。
+- [x] 提交 `feat: add supplier capability storage`。
 
 ### Task 2: 能力匹配领域服务
 
@@ -37,11 +37,11 @@
 - Create: `src/features/workbench/supplier-capability.ts`
 - Test: `tests/domain/supplier-capability-matching.test.ts`
 
-- [ ] 先写精确匹配产品族、工艺、材料、设备的测试，以及缺少任一条件时标记为待验证的测试。
-- [ ] 运行测试确认失败。
-- [ ] 实现 `findSupplierCapabilityMatches(input)`，返回匹配供应商、匹配维度、证据完整度和 `verified | needs_review` 状态。
-- [ ] 明确禁止仅凭名称相似度返回 verified。
-- [ ] 运行测试确认通过并提交 `feat: match suppliers by capability`。
+- [x] 先写精确匹配产品族、工艺、材料、设备的测试，以及缺少任一条件时标记为待验证的测试。
+- [x] 运行测试确认失败。
+- [x] 实现 `findSupplierCapabilityMatches(input)`，返回匹配供应商、匹配维度、证据完整度和 `verified | needs_review` 状态。
+- [x] 明确禁止仅凭名称相似度返回 verified。
+- [x] 运行测试确认通过并提交 `feat: match suppliers by capability`。
 
 ### Task 3: 供应商详情能力区域
 
@@ -50,11 +50,11 @@
 - Create: `src/components/workbench/supplier-capability-editor.tsx`
 - Test: `tests/ui/supplier-capability-editor.test.tsx`
 
-- [ ] 先写详情页展示能力、编辑能力、标记失效和保存后刷新仍存在的 UI 测试。
-- [ ] 运行测试确认失败。
-- [ ] 增加“供应商能力”区域，使用统一的右上角编辑/保存约定；能力记录按产品族分组展示。
-- [ ] 增加来源和有效期显示；没有来源的人工记录显示“人工确认”。
-- [ ] 运行 UI 测试、类型检查并提交 `feat: add supplier capability editor`。
+- [x] 先写详情页展示能力、编辑能力、标记失效和保存后刷新仍存在的 UI 测试。
+- [x] 运行测试确认失败。
+- [x] 增加“供应商能力”区域，使用统一的右上角编辑/保存约定；能力记录按产品族分组展示。
+- [x] 增加来源和有效期显示；没有来源的人工记录显示“人工确认”。
+- [x] 运行 UI 测试、类型检查并提交 `feat: add supplier capability editor`。
 
 ### Task 4: 产品机会反查
 
@@ -63,11 +63,11 @@
 - Modify: `src/features/workbench/product-brief.ts`
 - Test: `tests/ui/product-opportunity-supplier-match.test.tsx`
 
-- [ ] 先写从产品机会的工艺、材料和设备查询供应商的失败测试。
-- [ ] 运行测试确认失败。
-- [ ] 增加匹配结果区域，区分已合作、备用、候选和待验证，不自动创建供应关系。
-- [ ] 提供“加入打样候选”动作并保留产品机会与供应商关联来源。
-- [ ] 运行测试确认通过并提交 `feat: link product opportunities to supplier capabilities`。
+- [x] 先写从产品机会的工艺、材料和设备查询供应商的失败测试。
+- [x] 运行测试确认失败。
+- [x] 增加匹配结果区域，区分已合作、备用、候选和待验证，不自动创建供应关系。
+- [x] 提供“加入打样候选”动作并保留产品机会与供应商关联来源。
+- [x] 运行测试确认通过并提交 `feat: link product opportunities to supplier capabilities`。
 
 ### Task 5: 回归与云端一致性
 
@@ -75,8 +75,7 @@
 - Modify: `tests/e2e/save-load-pipeline.test.ts`
 - Modify: `tests/ui/cloud-parity-contract.test.ts`
 
-- [ ] 增加本地保存、重新加载、备份恢复和云端同步契约测试。
-- [ ] 运行 `npm test -- --run`、`npx tsc --noEmit`、`git diff --check`。
-- [ ] 通过后再同步云端并记录部署结果。
-- [ ] 提交 `test: verify supplier capability closure`。
-
+- [x] 增加本地保存、重新加载、备份恢复和云端同步契约测试。
+- [x] 运行 `npm test -- --run`、`npx tsc --noEmit`、`git diff --check`。
+- [x] 通过后再同步云端并记录部署结果。
+- [x] 提交 `test: verify supplier capability closure`。

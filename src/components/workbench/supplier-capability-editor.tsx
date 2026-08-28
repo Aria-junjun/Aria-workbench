@@ -107,7 +107,7 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
             <div>
               <div className="font-medium text-ink">{capability.productFamilyKey || "未指定产品族"}</div>
               <div className="mt-1 text-xs text-muted">工艺：{joinList(capability.processNames)} · 原材料：{joinList(capability.materialNames)} · 设备：{joinList(capability.equipmentNames)}</div>
-              <div className="mt-1 text-xs text-muted">{capability.supportsSampling ? "支持打样" : "未确认打样"} · {capability.leadTime ? `交期 ${capability.leadTime}` : "交期未确认"} · {capability.sourceType === "manual" ? "人工确认" : "已有来源"}</div>
+               <div className="mt-1 text-xs text-muted">{capability.supportsSampling ? "支持打样" : "未确认打样"} · {capability.leadTime ? `交期 ${capability.leadTime}` : "交期未确认"} · {capability.sourceType === "manual" ? "人工确认" : "已有来源"} · 生效 {capability.effectiveFrom ?? "未指定"}{capability.effectiveTo ? ` 至 ${capability.effectiveTo}` : ""}</div>
             </div>
             {editable ? <button className="text-xs text-danger hover:underline" onClick={() => setInvalidations((current) => [...current, capability.id])} type="button">标记失效</button> : null}
           </div>
