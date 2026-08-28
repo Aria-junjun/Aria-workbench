@@ -13,7 +13,7 @@ export type SupplierCapabilityEditorHandle = {
 };
 
 type CapabilityDraft = {
-  productFamilyKey: string;
+  productFamilyKeys: string[];
   processNames: string;
   materialNames: string;
   equipmentNames: string;
@@ -31,8 +31,8 @@ type Props = {
   onSaved?: () => void;
 };
 
-const emptyDraft = (productFamilyKey = ""): CapabilityDraft => ({
-  productFamilyKey,
+const emptyDraft = (productFamilyKeys: string[] = []): CapabilityDraft => ({
+  productFamilyKeys,
   processNames: "",
   materialNames: "",
   equipmentNames: "",
@@ -49,17 +49,17 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
   editable,
   onSaved,
 }, ref) {
-  const [draft, setDraft] = useState<CapabilityDraft>(() => emptyDraft(productFamilies[0]?.key));
+  const [draft, setDraft] = useState<CapabilityDraft>(() => emptyDraft());
   const [invalidations, setInvalidations] = useState<string[]>([]);
   const [message, setMessage] = useState("");
 
   useImperativeHandle(ref, () => ({
     save() {
       try {
-        if (draft.productFamilyKey && (draft.processNames.trim() || draft.materialNames.trim() || draft.equipmentNames.trim())) {
-          saveSupplierCapabilities([{
+        if (draft.productFamilyKeys.length > 0 && (draft.processNames.trim() || draft.materialNames.trim() || draft.equipmentNames.trim())) {
+          saveSupplierCapabilities(draft.productFamilyKeys.map((productFamilyKey) => ({
             supplierId,
-            productFamilyKey: draft.productFamilyKey,
+            productFamilyKey,
             processNames: splitList(draft.processNames),
             materialNames: splitList(draft.materialNames),
             equipmentNames: splitList(draft.equipmentNames),
@@ -70,11 +70,11 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
             sourceRecordIds: [],
             sourceType: "manual",
             status: "candidate",
-          }]);
+          })));
         }
         invalidations.forEach((id) => invalidateSupplierCapability(id));
         setMessage("供应商能力已保存");
-        setDraft(emptyDraft(productFamilies[0]?.key));
+        setDraft(emptyDraft());
         setInvalidations([]);
         onSaved?.();
         return { saved: true };
@@ -83,7 +83,7 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
       }
     },
     reset() {
-      setDraft(emptyDraft(productFamilies[0]?.key));
+      setDraft(emptyDraft());
       setInvalidations([]);
       setMessage("");
     },
@@ -116,9 +116,9 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
 
       {editable ? (
         <div className="mt-4 border-t border-line pt-4">
-          <div className="text-xs font-medium text-muted">新增能力（保存能力由页面右上角“保存”统一提交）</div>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
-            <label className="text-xs text-muted">产品族<select className="mt-1 block w-full border border-line bg-white px-3 py-2 text-sm text-ink" value={draft.productFamilyKey} onChange={(event) => setDraft({ ...draft, productFamilyKey: event.target.value })}><option value="">选择产品族</option>{productFamilies.map((family) => <option key={family.key} value={family.key}>{family.label}</option>)}</select></label>
+           <div className="text-xs font-medium text-muted">新增能力（可同时选择多个产品族，保存能力由页面右上角“保存”统一提交）</div>
+           <div className="mt-2 grid gap-3 sm:grid-cols-2">
+             <label className="text-xs text-muted">产品族（可多选）<select className="mt-1 block min-h-24 w-full border border-line bg-white px-3 py-2 text-sm text-ink" multiple value={draft.productFamilyKeys} onChange={(event) => setDraft({ ...draft, productFamilyKeys: Array.from(event.target.selectedOptions, (option) => option.value) })}>{productFamilies.map((family) => <option key={family.key} value={family.key}>{family.label}</option>)}</select><span className="mt-1 block text-[11px] text-muted-light">按住 Ctrl / ⌘ 可多选</span></label>
             <Field label="工艺（逗号分隔）" value={draft.processNames} onChange={(value) => setDraft({ ...draft, processNames: value })} />
             <Field label="原材料（逗号分隔）" value={draft.materialNames} onChange={(value) => setDraft({ ...draft, materialNames: value })} />
             <Field label="设备（逗号分隔）" value={draft.equipmentNames} onChange={(value) => setDraft({ ...draft, equipmentNames: value })} />

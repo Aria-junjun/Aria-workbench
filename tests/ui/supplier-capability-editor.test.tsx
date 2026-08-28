@@ -15,6 +15,8 @@ describe("supplier capability editor UI contract", () => {
     expect(editor).toContain("保存能力");
     expect(editor).toContain("saveSupplierCapabilities");
     expect(editor).toContain("标记失效");
+    expect(editor).toContain("productFamilyKeys");
+    expect(editor).toContain("multiple");
   });
 
   it("exposes a capability entry from the supplier list", () => {
