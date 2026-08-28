@@ -20,6 +20,7 @@ import {
   buildProductInboundSummary,
   buildProductInboundSupplierSummary,
   buildProductSupplierDecisionRows,
+  groupSkuMastersByProduct,
   groupSkuMastersByOperatingProduct,
   deriveProductFamilyKey,
   sortProductMasterGroupsByOperatingData,
@@ -59,6 +60,8 @@ export default function ProductMasterPage() {
   const currentPeriod = new Date().toISOString().slice(0, 7);
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
   const [productPage, setProductPage] = useState(1);
+  const [skuQuery, setSkuQuery] = useState("");
+  const [skuSort, setSkuSort] = useState<"sales" | "return" | "inbound" | "code">("sales");
   const [draftMetrics, setDraftMetrics] = useState<
     Record<string, SkuMetricInput>
   >({});
@@ -76,7 +79,18 @@ export default function ProductMasterPage() {
     (sku) => sku.status !== "archived",
   );
   const snapshots = data.skuOperatingSnapshots ?? [];
+  function snapshotForSku(skuId: string, period: string): LocalSkuOperatingSnapshot {
+    return snapshots.find((snapshot) => snapshot.skuMasterId === skuId && snapshot.period === period) ?? {
+      id: `missing-${skuId}-${period}`,
+      skuMasterId: skuId,
+      period,
+      source: "manual",
+      createdAt: "",
+      updatedAt: "",
+    };
+  }
   const productGroups = groupSkuMastersByOperatingProduct(skus);
+  const productFamilyGroups = groupSkuMastersByProduct(skus);
   const inboundGroups = productGroups.filter((group) =>
     data.products.some(
       (product) =>
@@ -93,10 +107,29 @@ export default function ProductMasterPage() {
     data.monthlyInboundSnapshots ?? [],
     selectedPeriod,
   );
+  const filteredInboundGroups = sortedInboundGroups
+    .filter((group) => {
+      const query = skuQuery.trim().toLowerCase();
+      if (!query) return true;
+      return [group.productName, group.operatingProductCode, ...group.internalSkuCodes]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
+    })
+    .sort((left, right) => {
+      if (skuSort === "code") return (left.operatingProductCode ?? "").localeCompare(right.operatingProductCode ?? "");
+      const valueFor = (group: typeof sortedInboundGroups[number]) => {
+        const groupSkus = skus.filter((sku) => group.skuIds.includes(sku.id));
+        if (skuSort === "inbound") return (data.monthlyInboundSnapshots ?? []).filter((snapshot) => snapshot.period === selectedPeriod && group.skuIds.includes(snapshot.skuMasterId)).reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
+        const metrics = groupSkus.map((sku) => snapshotForSku(sku.id, selectedPeriod));
+        if (skuSort === "return") return aggregateSkuMetrics(metrics).returnRate ?? -1;
+        return aggregateSkuMetrics(metrics).monthlySales ?? -1;
+      };
+      return valueFor(right) - valueFor(left);
+    });
   const productPageSize = 20;
-  const productPageCount = Math.max(1, Math.ceil(sortedInboundGroups.length / productPageSize));
+  const productPageCount = Math.max(1, Math.ceil(filteredInboundGroups.length / productPageSize));
   const safeProductPage = Math.min(productPage, productPageCount);
-  const visibleInboundGroups = sortedInboundGroups.slice(
+  const visibleInboundGroups = filteredInboundGroups.slice(
     (safeProductPage - 1) * productPageSize,
     safeProductPage * productPageSize,
   );
@@ -115,8 +148,17 @@ export default function ProductMasterPage() {
     snapshots,
     selectedPeriod,
   );
-  const actionableDecisionRows = decisionRows.filter((row) => row.decision !== "maintain_primary");
+  const actionableDecisionRows = decisionRows
+    .filter((row) => row.decision !== "maintain_primary")
+    .sort((left, right) => decisionPriority(right) - decisionPriority(left) || (right.returnRate ?? -1) - (left.returnRate ?? -1));
   const previousPeriod = getPreviousPeriod(selectedPeriod);
+  const productFamilyComparisonGroups = productFamilyGroups.filter((group) =>
+    data.products.some((product) =>
+      product.recordKind === "existing" &&
+      product.productMode !== "dropship" &&
+      (product.productFamilyKey === group.familyKey || deriveProductFamilyKey(product.name) === group.familyKey),
+    ),
+  );
   const salesQuality = salesPreview
     ? summarizeImportQuality({
         sourceLabel: "销售表",
@@ -568,6 +610,44 @@ export default function ProductMasterPage() {
           </div>
         </section>
       ) : null}
+      {productFamilyComparisonGroups.length > 0 ? (
+        <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm">
+          <div>
+            <h2 className="font-medium text-slate-800">产品族经营对比</h2>
+            <p className="mt-1 text-xs text-slate-500">先看大类在整体经营盘子中的权重，再进入下方经营产品和 SKU 明细定位问题。</p>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-paper-warm text-slate-500"><tr>
+                <th className="px-3 py-2">产品族</th><th className="px-3 py-2">经营产品</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">本月实发</th><th className="px-3 py-2">较上月</th><th className="px-3 py-2">实际入仓</th><th className="px-3 py-2">退货率</th><th className="px-3 py-2">关注提示</th>
+              </tr></thead>
+              <tbody className="divide-y divide-line">
+                {productFamilyComparisonGroups.map((family) => {
+                  const familySkus = skus.filter((sku) => family.skuIds.includes(sku.id));
+                  const comparison = aggregateSkuSnapshots(
+                    familySkus.map((sku) => draftFor(sku)),
+                    familySkus.map((sku) => snapshotFor(sku.id, previousPeriod) ? pickMetricFields(snapshotFor(sku.id, previousPeriod)!) : {}),
+                    selectedPeriod,
+                  );
+                  const familyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
+                  const familyAttention = getProductFamilyAttention({ pendingSkuCount: 0, returnRate: comparison.current.returnRate, currentSales: comparison.current.monthlySales, previousSales: comparison.previous.monthlySales, hasCurrentData: comparison.current.source !== "pending" });
+                  const operatingCount = productGroups.filter((group) => (group.productFamilyKey ?? group.familyKey) === family.familyKey).length;
+                  return <tr key={family.familyKey} className="align-top">
+                    <td className="px-3 py-3 font-medium text-slate-800">{family.productName}</td>
+                    <td className="px-3 py-3 text-slate-600">{operatingCount}</td>
+                    <td className="px-3 py-3 text-slate-600">{familySkus.length}</td>
+                    <td className="px-3 py-3 text-slate-600">{comparison.current.monthlySales ?? "待采集"}</td>
+                    <td className={`px-3 py-3 font-medium ${comparison.delta.monthlySales != null && comparison.delta.monthlySales < 0 ? "text-red-600" : "text-emerald-700"}`}>{comparison.delta.monthlySales == null ? "—" : `${comparison.delta.monthlySales >= 0 ? "+" : ""}${comparison.delta.monthlySales}`}</td>
+                    <td className="px-3 py-3 text-slate-600">{familyInbound.receivedQuantity || "—"}</td>
+                    <td className="px-3 py-3 text-slate-600">{comparison.current.returnRate != null ? `${comparison.current.returnRate}%` : "待采集"}</td>
+                    <td className={`px-3 py-3 ${familyAttention[0] === "当前无明显异常" ? "text-slate-500" : "font-medium text-amber-700"}`}>{familyAttention[0]}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       {inboundGroups.length === 0 ? (
         <EmptyState
           title={pendingGroups.length > 0 ? "还没有已确认的入仓产品主表" : "还没有入仓产品主表"}
@@ -580,6 +660,23 @@ export default function ProductMasterPage() {
           actionLabel="进入 SKU 导入"
         />
       ) : (
+        <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-medium text-slate-800">SKU 明细对比</h2>
+              <p className="mt-1 text-xs text-slate-500">按经营产品归并后查看原始 SKU；默认按本月实发排序，组合装不会另起主表产品。</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input aria-label="搜索 SKU 或产品" className="h-9 w-56 rounded-md border border-line px-3 text-sm" onChange={(event) => { setSkuQuery(event.target.value); setProductPage(1); }} placeholder="搜索产品、编码、规格" value={skuQuery} />
+              <select aria-label="SKU排序" className="h-9 rounded-md border border-line px-3 text-sm" onChange={(event) => { setSkuSort(event.target.value as typeof skuSort); setProductPage(1); }} value={skuSort}>
+                <option value="sales">按本月实发排序</option>
+                <option value="return">按退货率排序</option>
+                <option value="inbound">按实际入仓排序</option>
+                <option value="code">按经营编码排序</option>
+              </select>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500">当前显示 {filteredInboundGroups.length} 个经营产品 · 共 {productFamilyComparisonGroups.length} 个产品族</div>
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <table className="min-w-[1160px] w-full table-fixed text-sm">
             <colgroup>
@@ -844,6 +941,7 @@ export default function ProductMasterPage() {
             </div>
           ) : null}
         </div>
+        </section>
       )}
     </div>
   );
@@ -865,6 +963,13 @@ function DecisionCount({ label, value, tone }: { label: string; value: number; t
     red: "bg-red-50 text-red-700",
   };
   return <span className={`rounded-full px-2.5 py-1 ${colors[tone]}`}>{label} {value}</span>;
+}
+
+function decisionPriority(row: { decision: string; returnRate?: number }) {
+  if (row.decision === "confirm_supplier") return 300;
+  if (row.decision === "review_split") return 200;
+  if (row.decision === "review_quality") return 100 + (row.returnRate ?? 0);
+  return 0;
 }
 
 function ProductFamilySupplierAction({ relationships, exceptionCount }: { relationships: SkuRelationshipSummary[]; exceptionCount: number }) {
