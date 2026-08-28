@@ -15,6 +15,7 @@ import { labelLifecycleStage, labelSignalStatus, labelProductRecordKind, LIFECYC
 import { randomId } from "@/lib/random-id";
 import { buildSupplyDecisionTasks, buildSupplyPlan } from "@/features/workbench/supply-decision";
 import { deriveProductFamilyKey } from "@/features/workbench/product-master";
+import { findSupplierCapabilityMatches } from "@/features/workbench/supplier-capability";
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -415,6 +416,7 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
           <RelatedSuppliersAndOffers product={product} workbenchData={workbenchData} />
         </DetailSection>
       ) : null}
+      <ProductOpportunitySupplierMatches product={product} />
     </>
   );
 
@@ -450,6 +452,65 @@ function ProductKnowledgeView({ product }: { product: ProductKnowledgeV2 }) {
         </section>
       ) : null}
     </div>
+  );
+}
+
+function ProductOpportunitySupplierMatches({ product }: { product: ProductKnowledgeV2 }) {
+  const data = useWorkbenchData();
+  const familyKey = product.productFamilyKey || deriveProductFamilyKey(product.name);
+  const matches = findSupplierCapabilityMatches({
+    productFamilyKey: familyKey,
+    processNames: product.manufacturing.processes,
+    materialNames: product.materialStructures.map((item) => item.name),
+    equipmentNames: product.machinery,
+    capabilities: (data.supplierCapabilities ?? []).filter((item) => item.status !== "expired"),
+  });
+  const supplierById = new Map(data.suppliers.map((supplier) => [supplier.id, supplier]));
+
+  function createSamplingTask(supplierId: string) {
+    const supplier = supplierById.get(supplierId);
+    const current = getWorkbenchSnapshot();
+    const exists = current.tasks.some((task) => task.status === "open" && task.productId === product.id && task.supplierId === supplierId && task.title === "确认新品打样");
+    if (exists) return;
+    saveLocalWorkbenchData({
+      ...current,
+      tasks: [{
+        id: randomId(),
+        title: "确认新品打样",
+        productId: product.id,
+        productName: product.name,
+        supplierId,
+        supplierName: supplier?.name,
+        sourceEvidence: `匹配产品族：${familyKey}`,
+        priority: "medium",
+        type: "supplier_development",
+        status: "open",
+        createdAt: new Date().toISOString(),
+      }, ...current.tasks],
+    });
+  }
+
+  return (
+    <DetailSection title="可复用供应能力">
+      <p className="text-xs text-slate-500">按产品族、工艺、原材料和设备匹配已有供应商能力；匹配结果不会自动建立供应关系。</p>
+      {matches.length === 0 ? <p className="mt-3 text-sm text-slate-500">暂无匹配能力记录</p> : (
+        <div className="mt-3 space-y-2">
+          {matches.map((match) => {
+            const supplier = supplierById.get(match.supplierId);
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line py-2 last:border-b-0" key={match.capabilityId}>
+                <div className="text-sm">
+                  {supplier ? <Link className="font-medium text-action hover:underline" href={`/suppliers/${supplier.id}`}>{supplier.name}</Link> : <span className="font-medium">供应商 {match.supplierId}</span>}
+                  <span className="ml-2 text-xs text-slate-500">匹配：{match.matchedDimensions.join("、")}</span>
+                  <span className={`ml-2 text-xs ${match.status === "verified" ? "text-success" : "text-warning"}`}>{match.status === "verified" ? "已验证" : match.status === "needs_review" ? "待复核" : "待确认"}</span>
+                </div>
+                <button className="border border-line px-2.5 py-1 text-xs hover:bg-paper-warm" onClick={() => createSamplingTask(match.supplierId)} type="button">新品打样候选</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </DetailSection>
   );
 }
 
