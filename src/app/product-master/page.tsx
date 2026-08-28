@@ -82,8 +82,8 @@ export default function ProductMasterPage() {
       (product) =>
         product.recordKind === "existing" &&
         product.productMode !== "dropship" &&
-        (product.productFamilyKey === group.familyKey ||
-          deriveProductFamilyKey(product.name) === group.familyKey),
+        (product.productFamilyKey === (group.productFamilyKey ?? group.familyKey) ||
+          deriveProductFamilyKey(product.name) === (group.productFamilyKey ?? group.familyKey)),
     ),
   );
   const pendingGroups = productGroups.filter((group) => !inboundGroups.some((item) => item.familyKey === group.familyKey));
@@ -598,9 +598,10 @@ export default function ProductMasterPage() {
                   (item) =>
                     item.recordKind === "existing" &&
                     item.productMode !== "dropship" &&
-                    (item.productFamilyKey === group.familyKey ||
-                      deriveProductFamilyKey(item.name) === group.familyKey),
+                    (item.productFamilyKey === (group.productFamilyKey ?? group.familyKey) ||
+                      deriveProductFamilyKey(item.name) === (group.productFamilyKey ?? group.familyKey)),
                 );
+                const productFamilyKey = group.productFamilyKey ?? group.familyKey;
                 const productSkus = sortProductMasterSkusByOperatingData(
                   skus.filter((sku) => group.skuIds.includes(sku.id)),
                   snapshots,
@@ -636,7 +637,7 @@ export default function ProductMasterPage() {
                 const relationshipSummaries = productSkus.map((sku) => classifySkuRelationship({
                   skuMasterId: sku.id,
                   skuCode: sku.internalSkuCode,
-                  productFamilyKey: group.familyKey,
+                  productFamilyKey,
                   period: selectedPeriod,
                   offerLinks: data.skuOfferLinks ?? [],
                   assignments: data.skuSupplierAssignments ?? [],
@@ -740,7 +741,7 @@ export default function ProductMasterPage() {
                       const skuRelationship = classifySkuRelationship({
                         skuMasterId: sku.id,
                         skuCode: sku.internalSkuCode,
-                        productFamilyKey: group.familyKey,
+                        productFamilyKey,
                         period: selectedPeriod,
                         offerLinks: data.skuOfferLinks ?? [],
                         assignments: data.skuSupplierAssignments ?? [],

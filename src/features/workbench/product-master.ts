@@ -9,6 +9,7 @@ export type ProductMasterSkuInput = {
 export type ProductMasterGroup = {
   familyKey: string;
   productName: string;
+  productFamilyKey?: string;
   skuIds: string[];
   internalSkuCodes: string[];
   operatingProductCode?: string;
@@ -549,29 +550,26 @@ export function groupSkuMastersByProduct(rows: ProductMasterSkuInput[]): Product
 }
 
 export function groupSkuMastersByOperatingProduct(rows: ProductMasterSkuInput[]): ProductMasterGroup[] {
-  const baseCodes = new Set(rows.map((row) => row.internalSkuCode.trim()).filter((code) =>
-    code && rows.some((candidate) => candidate.internalSkuCode !== code && candidate.internalSkuCode.startsWith(`${code}-`)),
-  ));
-  const operatingCodeFor = (code: string) => [...baseCodes]
-    .filter((baseCode) => code === baseCode || code.startsWith(`${baseCode}-`))
-    .sort((left, right) => right.length - left.length)[0] ?? code;
-  const sourceGroups = groupSkuMastersByProduct(rows);
-  const sourceGroupForCode = new Map(sourceGroups.flatMap((group) => group.internalSkuCodes.map((code) => [code, group] as const)));
   const groups = new Map<string, ProductMasterGroup>();
 
-  for (const group of sourceGroups) {
-    const operatingProductCode = operatingCodeFor(group.internalSkuCodes[0]);
-    const baseGroup = sourceGroupForCode.get(operatingProductCode) ?? group;
-    const current = groups.get(operatingProductCode) ?? {
-      familyKey: baseGroup.familyKey,
-      productName: baseGroup.productName,
+  for (const row of rows) {
+    const code = row.internalSkuCode.trim();
+    const productFamilyKey = deriveProductFamilyKey(row.productName, row.productFamilyKey);
+    if (!code || !productFamilyKey) continue;
+    const isGiftVariant = /\+|＋|组合装|套装|礼盒|件套/.test(`${row.productName} ${row.specification}`) && /-8$/.test(code);
+    const operatingProductCode = isGiftVariant ? code.replace(/-8$/, "") : code;
+    const familyKey = `${productFamilyKey}::${operatingProductCode}`;
+    const current = groups.get(familyKey) ?? {
+      familyKey,
+      productName: productFamilyKey,
+      productFamilyKey,
       skuIds: [],
       internalSkuCodes: [],
       operatingProductCode,
     };
-    current.skuIds = [...new Set([...current.skuIds, ...group.skuIds])];
-    current.internalSkuCodes = [...new Set([...current.internalSkuCodes, ...group.internalSkuCodes])];
-    groups.set(operatingProductCode, current);
+    if (!current.skuIds.includes(row.id)) current.skuIds.push(row.id);
+    if (!current.internalSkuCodes.includes(code)) current.internalSkuCodes.push(code);
+    groups.set(familyKey, current);
   }
   return [...groups.values()];
 }

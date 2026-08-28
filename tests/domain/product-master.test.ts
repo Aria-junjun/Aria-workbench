@@ -35,11 +35,14 @@ describe("inbound product master", () => {
   it("merges a base purchasing SKU and suffixed sales variants into one operating product", () => {
     const groups = groupSkuMastersByOperatingProduct([
       { id: "base", internalSkuCode: "Y-05BBT", productName: "白板贴", specification: "90*2" },
-      { id: "gift", internalSkuCode: "Y-05BBT-8", productName: "白板贴+8支笔", specification: "90*2" },
+      { id: "gift", internalSkuCode: "Y-05BBT-8", productName: "白板贴", specification: "90*2+8支笔" },
+      { id: "other-base", internalSkuCode: "Y-10BBT", productName: "白板贴", specification: "90*2" },
+      { id: "other-gift", internalSkuCode: "Y-10BBT-8", productName: "白板贴", specification: "90*2+8支笔" },
     ]);
 
-    expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({ operatingProductCode: "Y-05BBT", productName: "白板贴", skuIds: ["base", "gift"] });
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ operatingProductCode: "Y-05BBT", productFamilyKey: "白板贴", productName: "白板贴", skuIds: ["base", "gift"] });
+    expect(groups[1]).toMatchObject({ operatingProductCode: "Y-10BBT", productFamilyKey: "白板贴", productName: "白板贴", skuIds: ["other-base", "other-gift"] });
   });
 
   it("promotes an opportunity without deleting its research fields", () => {
