@@ -42,6 +42,7 @@ import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { deriveProductFamilyKey } from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import { SupplierRelationshipEditor, type SupplierRelationshipEditorHandle } from "@/components/workbench/supplier-relationship-editor";
+import { SupplierCapabilityEditor, type SupplierCapabilityEditorHandle } from "@/components/workbench/supplier-capability-editor";
 import {
   AlertCircle,
   AlertTriangle,
@@ -86,6 +87,7 @@ export default function SupplierDetailPage() {
   const [decisionVersion, setDecisionVersion] = useState(0);
   const [saveError, setSaveError] = useState("");
   const relationshipEditorRef = useRef<SupplierRelationshipEditorHandle>(null);
+  const capabilityEditorRef = useRef<SupplierCapabilityEditorHandle>(null);
 
   // 聊天快速评估 state
   const [showChatEval, setShowChatEval] = useState(false);
@@ -183,6 +185,12 @@ export default function SupplierDetailPage() {
       setEditing(true);
       return;
     }
+    const capabilitySaveResult = capabilityEditorRef.current?.save();
+    if (capabilitySaveResult && !capabilitySaveResult.saved) {
+      setSaveError(`供应商能力保存失败：${capabilitySaveResult.message ?? "请检查能力字段"}`);
+      setEditing(true);
+      return;
+    }
     updateLocalItem("suppliers", draft.id, draft);
     setSaveError("");
     setEditing(false);
@@ -193,6 +201,7 @@ export default function SupplierDetailPage() {
     setSaveError("");
     setDraft(supplier);
     relationshipEditorRef.current?.reset();
+    capabilityEditorRef.current?.reset();
   }
 
   function recordDecision(action: SupplierDecisionAction) {
@@ -436,6 +445,15 @@ export default function SupplierDetailPage() {
         productFamilies={productFamilies}
         currentPeriod={latestInboundPeriod ?? defaultPeriod()}
         existingAssignments={data.productSupplierAssignments ?? []}
+        editable={editing}
+        onSaved={() => setDecisionVersion((value) => value + 1)}
+      />
+
+      <SupplierCapabilityEditor
+        ref={capabilityEditorRef}
+        supplierId={supplierId}
+        productFamilies={productFamilies}
+        capabilities={(data.supplierCapabilities ?? []).filter((item) => item.supplierId === supplierId)}
         editable={editing}
         onSaved={() => setDecisionVersion((value) => value + 1)}
       />
