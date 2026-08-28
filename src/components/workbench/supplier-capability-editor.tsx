@@ -52,6 +52,7 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
   const [draft, setDraft] = useState<CapabilityDraft>(() => emptyDraft());
   const [invalidations, setInvalidations] = useState<string[]>([]);
   const [message, setMessage] = useState("");
+  const [familyMenuOpen, setFamilyMenuOpen] = useState(false);
 
   useImperativeHandle(ref, () => ({
     save() {
@@ -117,8 +118,22 @@ export const SupplierCapabilityEditor = forwardRef<SupplierCapabilityEditorHandl
       {editable ? (
         <div className="mt-4 border-t border-line pt-4">
            <div className="text-xs font-medium text-muted">新增能力（可同时选择多个产品族，保存能力由页面右上角“保存”统一提交）</div>
-           <div className="mt-2 grid gap-3 sm:grid-cols-2">
-             <label className="text-xs text-muted">产品族（可多选）<select className="mt-1 block min-h-24 w-full border border-line bg-white px-3 py-2 text-sm text-ink" multiple value={draft.productFamilyKeys} onChange={(event) => setDraft({ ...draft, productFamilyKeys: Array.from(event.target.selectedOptions, (option) => option.value) })}>{productFamilies.map((family) => <option key={family.key} value={family.key}>{family.label}</option>)}</select><span className="mt-1 block text-[11px] text-muted-light">按住 Ctrl / ⌘ 可多选</span></label>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <div className="relative text-xs text-muted" data-testid="product-family-picker">
+                <span>产品族（可多选）</span>
+                <button aria-expanded={familyMenuOpen} className="mt-1 flex min-h-10 w-full items-center justify-between border border-line bg-white px-3 py-2 text-left text-sm text-ink" onClick={() => setFamilyMenuOpen((open) => !open)} type="button">
+                  <span>{draft.productFamilyKeys.length > 0 ? `已选 ${draft.productFamilyKeys.length} 个产品族` : "请选择产品族"}</span>
+                  <span className="text-muted-light">⌄</span>
+                </button>
+                {familyMenuOpen ? (
+                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto border border-line bg-white p-2 shadow-lg" role="listbox">
+                    {productFamilies.map((family) => {
+                      const checked = draft.productFamilyKeys.includes(family.key);
+                      return <label className="flex cursor-pointer items-center gap-2 px-2 py-2 text-sm text-ink hover:bg-paper-warm" key={family.key}><input checked={checked} onChange={() => setDraft({ ...draft, productFamilyKeys: checked ? draft.productFamilyKeys.filter((key) => key !== family.key) : [...draft.productFamilyKeys, family.key] })} type="checkbox" />{family.label}</label>;
+                    })}
+                  </div>
+                ) : null}
+              </div>
             <Field label="工艺（逗号分隔）" value={draft.processNames} onChange={(value) => setDraft({ ...draft, processNames: value })} />
             <Field label="原材料（逗号分隔）" value={draft.materialNames} onChange={(value) => setDraft({ ...draft, materialNames: value })} />
             <Field label="设备（逗号分隔）" value={draft.equipmentNames} onChange={(value) => setDraft({ ...draft, equipmentNames: value })} />
