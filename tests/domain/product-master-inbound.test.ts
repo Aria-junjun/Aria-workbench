@@ -31,6 +31,23 @@ describe("product master inbound summary", () => {
     )).toEqual({ receivedQuantity: 500, actualStock: undefined, availableStock: undefined, inventoryGap: undefined, inTransitQuantity: undefined, receivedToShippedRatio: undefined, missingPreviousPeriod: true });
   });
 
+  it("aggregates a product-family inbound fact without assigning it to every SKU", () => {
+    const summary = buildProductInboundSummary(
+      [
+        { id: "a", internalSkuCode: "Y-05BBT", productName: "白板贴", specification: "0.45*10m", productFamilyKey: "whiteboard-family" },
+        { id: "b", internalSkuCode: "Y-05BBT-8", productName: "白板贴", specification: "0.45*10m+8支笔", productFamilyKey: "whiteboard-family" },
+      ],
+      [{ id: "family-in", skuMasterId: "a", productFamilyKey: "whiteboard-family", mappingLevel: "product_family", period: "2026-07", receivedQuantity: 120, sourceFileName: "inbound.xlsx", sourceSheetName: "Sheet1", importedAt: "now" }],
+      [
+        { id: "sales-a", skuMasterId: "a", period: "2026-07", shippedQuantity: 80 },
+        { id: "sales-b", skuMasterId: "b", period: "2026-07", shippedQuantity: 40 },
+      ],
+      "2026-07",
+    );
+
+    expect(summary).toMatchObject({ receivedQuantity: 120, receivedToShippedRatio: 1 });
+  });
+
   it("identifies actual inbound suppliers and flags split supply by product", () => {
     const result = buildProductInboundSupplierSummary(
       [

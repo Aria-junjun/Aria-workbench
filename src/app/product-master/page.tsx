@@ -10,6 +10,7 @@ import {
   createInboundProductsFromSkuMasters,
   saveMonthlyInboundSnapshots,
   saveSkuOperatingSnapshots,
+  type LocalMonthlyInboundSnapshot,
   type LocalSkuOperatingSnapshot,
 } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
@@ -91,6 +92,8 @@ export default function ProductMasterPage() {
   }
   const productGroups = groupSkuMastersByOperatingProduct(skus);
   const productFamilyGroups = groupSkuMastersByProduct(skus);
+  const inboundMatchesGroup = (snapshot: LocalMonthlyInboundSnapshot, group: { skuIds: string[]; productFamilyKey?: string; familyKey?: string }) =>
+    group.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && Boolean(snapshot.productFamilyKey) && snapshot.productFamilyKey === (group.productFamilyKey ?? group.familyKey));
   const inboundGroups = productGroups.filter((group) =>
     data.products.some(
       (product) =>
@@ -111,7 +114,10 @@ export default function ProductMasterPage() {
     .filter((group) => {
       const query = skuQuery.trim().toLowerCase();
       if (!query) return true;
-      return [group.productName, group.operatingProductCode, ...group.internalSkuCodes]
+      const familyCodeAliases = [group.operatingProductCode, ...group.internalSkuCodes]
+        .filter(Boolean)
+        .map((code) => code!.replace(/^([a-z]+)-\d+/i, "$1-"));
+      return [group.productName, group.productFamilyKey, ...familyCodeAliases, ...group.internalSkuCodes]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(query));
     })
@@ -119,7 +125,7 @@ export default function ProductMasterPage() {
       if (skuSort === "code") return (left.operatingProductCode ?? "").localeCompare(right.operatingProductCode ?? "");
       const valueFor = (group: typeof sortedInboundGroups[number]) => {
         const groupSkus = skus.filter((sku) => group.skuIds.includes(sku.id));
-        if (skuSort === "inbound") return (data.monthlyInboundSnapshots ?? []).filter((snapshot) => snapshot.period === selectedPeriod && group.skuIds.includes(snapshot.skuMasterId)).reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
+        if (skuSort === "inbound") return (data.monthlyInboundSnapshots ?? []).filter((snapshot) => snapshot.period === selectedPeriod && inboundMatchesGroup(snapshot, group)).reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
         const metrics = groupSkus.map((sku) => snapshotForSku(sku.id, selectedPeriod));
         if (skuSort === "return") return aggregateSkuMetrics(metrics).returnRate ?? -1;
         return aggregateSkuMetrics(metrics).monthlySales ?? -1;
@@ -136,9 +142,16 @@ export default function ProductMasterPage() {
   const periodInboundSnapshots = (data.monthlyInboundSnapshots ?? []).filter(
     (snapshot) => snapshot.period === selectedPeriod,
   );
+  const productFamilyComparisonGroups = productFamilyGroups.filter((group) =>
+    data.products.some((product) =>
+      product.recordKind === "existing" &&
+      product.productMode !== "dropship" &&
+      (product.productFamilyKey === group.familyKey || deriveProductFamilyKey(product.name) === group.familyKey),
+    ),
+  );
   const decisionRows = buildProductSupplierDecisionRows(
-    inboundGroups.filter((group) =>
-      periodInboundSnapshots.some((snapshot) => group.skuIds.includes(snapshot.skuMasterId)),
+    productFamilyComparisonGroups.filter((group) =>
+      periodInboundSnapshots.some((snapshot) => inboundMatchesGroup(snapshot, group)),
     ).map((group) => ({
       familyKey: group.familyKey,
       productName: group.productName,
@@ -152,13 +165,6 @@ export default function ProductMasterPage() {
     .filter((row) => row.decision !== "maintain_primary")
     .sort((left, right) => decisionPriority(right) - decisionPriority(left) || (right.returnRate ?? -1) - (left.returnRate ?? -1));
   const previousPeriod = getPreviousPeriod(selectedPeriod);
-  const productFamilyComparisonGroups = productFamilyGroups.filter((group) =>
-    data.products.some((product) =>
-      product.recordKind === "existing" &&
-      product.productMode !== "dropship" &&
-      (product.productFamilyKey === group.familyKey || deriveProductFamilyKey(product.name) === group.familyKey),
-    ),
-  );
   const totalFamilySales = productFamilyComparisonGroups.reduce((total, family) => {
     const familySkus = skus.filter((sku) => family.skuIds.includes(sku.id));
     return total + (aggregateSkuMetrics(familySkus.map((sku) => draftFor(sku))).monthlySales ?? 0);
@@ -274,10 +280,16 @@ export default function ProductMasterPage() {
   }
 
   function saveInboundImport(rows: ConfirmedInboundRow[]) {
-    saveMonthlyInboundSnapshots(rows);
+    const grouped = new Map<string, ConfirmedInboundRow>();
+    rows.forEach((row) => {
+      const key = row.mappingLevel === "product_family" && row.productFamilyKey ? `family:${row.productFamilyKey}` : `sku:${row.skuMasterId}`;
+      const existing = grouped.get(key);
+      grouped.set(key, existing ? { ...existing, receivedQuantity: existing.receivedQuantity + row.receivedQuantity } : row);
+    });
+    saveMonthlyInboundSnapshots([...grouped.values()]);
     setInboundPreview(null);
     setInboundFileMeta(null);
-    setMessage(`已保存 ${selectedPeriod} 实际入仓：${rows.length} 条 SKU 记录；未匹配行未写入。`);
+    setMessage(`已保存 ${selectedPeriod} 实际入仓：${grouped.size} 条产品族/ SKU 记录；未匹配行未写入。`);
   }
 
   function saveSalesImport() {
@@ -636,8 +648,8 @@ export default function ProductMasterPage() {
                   );
                   const familyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                   const previousFamilyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, previousPeriod);
-                  const hasFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === selectedPeriod && family.skuIds.includes(snapshot.skuMasterId));
-                  const hasPreviousFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === previousPeriod && family.skuIds.includes(snapshot.skuMasterId));
+                  const hasFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === selectedPeriod && (family.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey === family.familyKey)));
+                  const hasPreviousFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === previousPeriod && (family.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey === family.familyKey)));
                   const familyInboundDelta = hasFamilyInbound && hasPreviousFamilyInbound ? familyInbound.receivedQuantity - previousFamilyInbound.receivedQuantity : undefined;
                   const familySales = comparison.current.monthlySales ?? 0;
                   const familyAttention = getProductFamilyAttention({ pendingSkuCount: 0, returnRate: comparison.current.returnRate, currentSales: comparison.current.monthlySales, previousSales: comparison.previous.monthlySales, hasCurrentData: comparison.current.source !== "pending" });

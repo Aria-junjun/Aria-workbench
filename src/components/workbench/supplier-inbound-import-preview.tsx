@@ -9,6 +9,8 @@ import { summarizeImportQuality } from "@/features/workbench/import-data-quality
 
 export type ConfirmedInboundRow = {
   skuMasterId: string;
+  productFamilyKey?: string;
+  mappingLevel?: "sku" | "product_family";
   period: string;
   receivedQuantity: number;
   supplierId?: string;
@@ -73,6 +75,35 @@ export function suggestInboundSku(
   return relationshipCandidates.length === 1 ? relationshipCandidates[0].id : undefined;
 }
 
+export type InboundMappingSuggestion =
+  | { kind: "sku"; skuMasterId: string }
+  | { kind: "product_family"; productFamilyKey: string; skuMasterId: string };
+
+/** 有唯一有效供应关系时按产品族归属，避免把一笔入仓量错误复制到多个 SKU。 */
+export function suggestInboundMapping(
+  row: { supplierProductName: string; supplierSpec: string },
+  skuMasters: LocalSkuMaster[],
+  options: MatchingOptions = {},
+): InboundMappingSuggestion | undefined {
+  const supplierAssignments = (options.assignments ?? [])
+    .filter((assignment) => assignment.status === "active")
+    .filter((assignment) => !options.period || assignment.effectiveFrom <= options.period)
+    .filter((assignment) => !options.period || !assignment.effectiveTo || assignment.effectiveTo >= options.period)
+    .filter((assignment) => options.supplierId
+      ? assignment.supplierId === options.supplierId
+      : normalize(assignment.supplierName ?? "") === normalize(options.supplierName ?? ""));
+  const familyKeys = [...new Set(supplierAssignments.map((assignment) => assignment.productFamilyKey).filter(Boolean))];
+  const familyCandidates = familyKeys.flatMap((familyKey) => {
+    const familySkus = skuMasters.filter((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey) === familyKey);
+    return familySkus.length ? [{ familyKey, skuMasterId: familySkus[0].id }] : [];
+  });
+  if (familyCandidates.length === 1) {
+    return { kind: "product_family", productFamilyKey: familyCandidates[0].familyKey, skuMasterId: familyCandidates[0].skuMasterId };
+  }
+  const skuMasterId = suggestInboundSku(row, skuMasters, options);
+  return skuMasterId ? { kind: "sku", skuMasterId } : undefined;
+}
+
 export function SupplierInboundImportPreview({ result, period, fileName, sheetName, skuMasters, suppliers, existingAssignments = [], onCancel, onConfirm }: Props) {
   const [supplierId, setSupplierId] = useState(() => {
     const embeddedName = result.rows.find((row) => row.supplierName)?.supplierName;
@@ -81,12 +112,15 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
   const supplierFromFile = result.rows.find((row) => row.supplierName)?.supplierName;
   const skuSignature = skuMasters.map((sku) => `${sku.id}:${sku.productName}:${sku.specification}:${sku.productFamilyKey ?? ""}`).join("|");
   const assignmentSignature = existingAssignments.map((assignment) => `${assignment.id}:${assignment.productFamilyKey}:${assignment.supplierId ?? ""}:${assignment.supplierName ?? ""}:${assignment.effectiveFrom}:${assignment.effectiveTo ?? ""}:${assignment.status}`).join("|");
-  const initialMatches = useMemo(() => Object.fromEntries(result.rows.map((row) => [row.rowNumber, suggestInboundSku(row, skuMasters, {
+  const initialMatches = useMemo(() => Object.fromEntries(result.rows.map((row) => {
+    const suggestion = suggestInboundMapping(row, skuMasters, {
     supplierId,
     supplierName: supplierFromFile,
     period,
     assignments: existingAssignments,
-  })])), [result.rows, skuSignature, supplierId, supplierFromFile, period, assignmentSignature]);
+    });
+    return [row.rowNumber, suggestion?.kind === "product_family" ? `family:${suggestion.productFamilyKey}` : suggestion?.skuMasterId];
+  })), [result.rows, skuSignature, supplierId, supplierFromFile, period, assignmentSignature]);
   const [matches, setMatches] = useState<Record<number, string | undefined>>(initialMatches);
   useEffect(() => setMatches(initialMatches), [initialMatches]);
   const matchedCount = result.rows.filter((row) => matches[row.rowNumber]).length;
@@ -110,10 +144,16 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
   function confirm() {
     const supplier = suppliers.find((item) => item.id === supplierId);
     onConfirm(result.rows.flatMap((row) => {
-      const skuMasterId = matches[row.rowNumber];
+      const match = matches[row.rowNumber];
+      if (!match) return [];
+      const familyKey = match.startsWith("family:") ? match.slice("family:".length) : undefined;
+      const skuMasterId = familyKey
+        ? skuMasters.find((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey) === familyKey)?.id
+        : match;
       if (!skuMasterId) return [];
       return [{
         skuMasterId,
+        ...(familyKey ? { productFamilyKey: familyKey, mappingLevel: "product_family" as const } : { mappingLevel: "sku" as const }),
         period,
         receivedQuantity: row.receivedQuantity,
         supplierId: supplier?.id,
@@ -135,11 +175,11 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
         <div className="text-xs text-slate-600">原始 {result.summary.rawRowCount ?? result.rows.length} 行 · 合并后 {result.rows.length} 行 · 已关联 {matchedCount} 行 · 待确认 {result.rows.length - matchedCount} 行</div>
       </div>
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
-        本次只保存表格明确证明的实际入仓数量。系统会优先复用已确认的供应商—产品族关系，再按名称和规格自动匹配；没有供应商名称时，请先为整张表选择供应商。未关联 SKU 的行不会写入。
+        本次只保存表格明确证明的实际入仓数量。若该供应商与一个产品族存在唯一有效关系，系统会自动按产品族归属并合并入仓量；没有唯一关系时才回退到 SKU 匹配。未关联行不会写入；没有供应商名称时，请先为整张表选择供应商。
       </div>
       <div className={`rounded-lg px-3 py-2 text-xs leading-5 ${quality.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
         <div className="font-medium">数据质量检查：{quality.headline}</div>
-        <div className="mt-1">{quality.details.join(" · ")}。只有已匹配行会写入本次实际入仓。</div>
+        <div className="mt-1">{quality.details.join(" · ")}。产品族级关联会合并保存入仓总量，不会拆分或复制到每个 SKU。</div>
       </div>
       {!matchedCount && futureRelationshipCount > 0 ? <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
         已找到该供应商的供应关系，但关系生效月份晚于本次导入月份（{period}）。系统不会把未来关系倒灌到历史数据；请确认保存月份，或将关系生效月份修正为真实生效月份。
@@ -163,9 +203,10 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
               <td className="px-3 py-2">{row.supplierSpec}</td>
               <td className="px-3 py-2">{row.receivedQuantity}{row.unit ? ` ${row.unit}` : ""}</td>
               <td className="px-3 py-2">
-                <select aria-label={`第${row.rowNumber}行对应内部SKU`} className="w-full rounded border border-line px-2 py-1" value={matches[row.rowNumber] ?? ""} onChange={(event) => setMatches((current) => ({ ...current, [row.rowNumber]: event.target.value || undefined }))}>
+                <select aria-label={`第${row.rowNumber}行对应产品族或SKU`} className="w-full rounded border border-line px-2 py-1" value={matches[row.rowNumber] ?? ""} onChange={(event) => setMatches((current) => ({ ...current, [row.rowNumber]: event.target.value || undefined }))}>
                   <option value="">暂不关联</option>
-                  {skuMasters.filter((sku) => sku.status !== "archived").map((sku) => <option key={sku.id} value={sku.id}>{sku.internalSkuCode} · {sku.productName} · {sku.specification}</option>)}
+                  {[...new Map(skuMasters.filter((sku) => sku.status !== "archived").map((sku) => [deriveProductFamilyKey(sku.productName, sku.productFamilyKey), sku])).entries()].map(([familyKey, sku]) => <option key={`family:${familyKey}`} value={`family:${familyKey}`}>产品族：{familyKey}</option>)}
+                  {skuMasters.filter((sku) => sku.status !== "archived").map((sku) => <option key={sku.id} value={sku.id}>SKU：{sku.internalSkuCode} · {sku.productName} · {sku.specification}</option>)}
                 </select>
               </td>
             </tr>)}

@@ -114,6 +114,8 @@ type InboundSnapshotForSummary = {
   sourceSheetName?: string;
   importedAt?: string;
   skuMasterId: string;
+  productFamilyKey?: string;
+  mappingLevel?: "sku" | "product_family";
   period: string;
   receivedQuantity?: number;
   actualStock?: number;
@@ -134,6 +136,8 @@ type OperatingSnapshotForSummary = {
 
 type InboundSupplierForSummary = {
   skuMasterId: string;
+  productFamilyKey?: string;
+  mappingLevel?: "sku" | "product_family";
   period: string;
   receivedQuantity?: number;
   supplierId?: string;
@@ -209,18 +213,19 @@ export function buildProductSupplierDecisionRows(
 ): ProductSupplierDecisionRow[] {
   return groups.map((group) => {
     const skuIds = new Set(group.skus.map((sku) => sku.id));
-    const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+    const familyKeys = new Set(group.skus.map((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey)));
+    const inbound = inboundSnapshots.filter((snapshot) => snapshot.period === period && (skuIds.has(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey && familyKeys.has(snapshot.productFamilyKey))));
     const operating = operatingSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
     const supplierNames = [...new Set(inbound.map((snapshot) => snapshot.supplierName?.trim()).filter((name): name is string => Boolean(name)))];
     const namedSupplierIds = [...new Set(inbound.map((snapshot) => snapshot.supplierId).filter((id): id is string => Boolean(id)))];
-    const coveredSkuIds = new Set(inbound.map((snapshot) => snapshot.skuMasterId));
+    const coveredSkuIds = new Set(inbound.flatMap((snapshot) => snapshot.mappingLevel === "product_family" ? group.skus.map((sku) => sku.id) : [snapshot.skuMasterId]));
     const receivedQuantity = inbound.reduce((total, snapshot) => total + (snapshot.receivedQuantity ?? 0), 0);
     const shippedQuantity = operating.reduce((total, snapshot) => total + (snapshot.shippedQuantity ?? snapshot.monthlySales ?? 0), 0);
     const returnQuantity = operating.reduce((total, snapshot) => total + (snapshot.returnQuantity ?? 0), 0);
     const hasReturnQuantity = operating.some((snapshot) => snapshot.returnQuantity !== undefined);
     const returnRate = hasReturnQuantity && shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
     const skuDetails = group.skus.map((sku) => {
-      const skuInbound = inbound.filter((snapshot) => snapshot.skuMasterId === sku.id);
+      const skuInbound = inbound.filter((snapshot) => snapshot.mappingLevel !== "product_family" && snapshot.skuMasterId === sku.id);
       const skuOperating = operating.filter((snapshot) => snapshot.skuMasterId === sku.id);
       const skuShipped = skuOperating.reduce((total, snapshot) => total + (snapshot.shippedQuantity ?? snapshot.monthlySales ?? 0), 0);
       const skuReturned = skuOperating.reduce((total, snapshot) => total + (snapshot.returnQuantity ?? 0), 0);
@@ -308,7 +313,8 @@ export function buildSupplierDecisionOverviewRows(
 
   for (const group of groups) {
     const skuIds = new Set(group.skus.map((sku) => sku.id));
-    const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+    const familyKeys = new Set(group.skus.map((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey)));
+    const inbound = inboundSnapshots.filter((snapshot) => snapshot.period === period && (skuIds.has(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey && familyKeys.has(snapshot.productFamilyKey))));
     const assignments = productSupplierAssignments.filter((assignment) =>
       assignment.productFamilyKey === group.familyKey &&
       assignment.status === "active" &&
@@ -442,7 +448,8 @@ export function buildProductInboundSummary(
   period: string
 ): ProductInboundSummary {
   const skuIds = new Set(skuMasters.map((sku) => sku.id));
-  const inbound = inboundSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
+  const familyKeys = new Set(skuMasters.map((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey)));
+  const inbound = inboundSnapshots.filter((snapshot) => snapshot.period === period && (skuIds.has(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey && familyKeys.has(snapshot.productFamilyKey))));
   const sales = salesSnapshots.filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period);
   const sum = (values: Array<number | undefined>): number | undefined => {
     const defined = values.filter((value): value is number => value !== undefined && Number.isFinite(value));
@@ -453,7 +460,7 @@ export function buildProductInboundSummary(
   const availableStock = sum(inbound.map((snapshot) => snapshot.availableStock));
   const shippedQuantity = sum(sales.map((snapshot) => snapshot.shippedQuantity ?? snapshot.monthlySales));
   const previousPeriod = previousMonth(period);
-  const missingPreviousPeriod = !inboundSnapshots.some((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === previousPeriod);
+  const missingPreviousPeriod = !inboundSnapshots.some((snapshot) => snapshot.period === previousPeriod && (skuIds.has(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey && familyKeys.has(snapshot.productFamilyKey))));
   return {
     receivedQuantity,
     actualStock,
@@ -471,10 +478,11 @@ export function buildProductInboundSupplierSummary(
   period: string,
 ): ProductInboundSupplierSummary {
   const skuIds = new Set(skuMasters.map((sku) => sku.id));
+  const familyKeys = new Set(skuMasters.map((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey)));
   const grouped = new Map<string, { supplierId?: string; supplierName: string; receivedQuantity: number; skuIds: Set<string> }>();
 
   inboundSnapshots
-    .filter((snapshot) => skuIds.has(snapshot.skuMasterId) && snapshot.period === period)
+    .filter((snapshot) => snapshot.period === period && (skuIds.has(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey && familyKeys.has(snapshot.productFamilyKey))))
     .forEach((snapshot) => {
       const supplierName = snapshot.supplierName?.trim() || "供应商待确认";
       const key = snapshot.supplierId ? `id:${snapshot.supplierId}` : `name:${supplierName}`;
@@ -485,7 +493,8 @@ export function buildProductInboundSupplierSummary(
         skuIds: new Set<string>(),
       };
       current.receivedQuantity += snapshot.receivedQuantity ?? 0;
-      current.skuIds.add(snapshot.skuMasterId);
+      if (snapshot.mappingLevel === "product_family") skuMasters.forEach((sku) => current.skuIds.add(sku.id));
+      else current.skuIds.add(snapshot.skuMasterId);
       grouped.set(key, current);
     });
 

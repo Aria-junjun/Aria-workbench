@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { suggestInboundSku } from "@/components/workbench/supplier-inbound-import-preview";
+import { suggestInboundMapping, suggestInboundSku } from "@/components/workbench/supplier-inbound-import-preview";
 
 describe("supplier inbound SKU matching", () => {
   const skuMasters = [
@@ -34,5 +34,29 @@ describe("supplier inbound SKU matching", () => {
         }],
       },
     )).toBe("sku-90-2");
+  });
+
+  it("prefers a confirmed unique supplier-family relationship over SKU-level matching", () => {
+    expect(suggestInboundMapping(
+      { supplierProductName: "白板墙贴", supplierSpec: "90*2" },
+      [
+        { ...skuMasters[0], productName: "无胶白板贴小纸管", productFamilyKey: "whiteboard-family" },
+        { ...skuMasters[1], productName: "无胶白板贴小纸管", productFamilyKey: "whiteboard-family" },
+      ],
+      {
+        supplierId: "supplier-a",
+        period: "2026-07",
+        assignments: [{
+          id: "assignment-1",
+          productFamilyKey: "whiteboard-family",
+          supplierId: "supplier-a",
+          supplierName: "供应商A",
+          role: "primary",
+          effectiveFrom: "2026-06",
+          status: "active",
+          source: "manual",
+        }],
+      },
+    )).toEqual({ kind: "product_family", productFamilyKey: "whiteboard-family", skuMasterId: "sku-90-2" });
   });
 });
