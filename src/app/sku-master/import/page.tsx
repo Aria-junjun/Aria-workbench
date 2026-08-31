@@ -23,8 +23,8 @@ export default function SkuMasterImportPage() {
   const [showSecondaryAssociationTools, setShowSecondaryAssociationTools] = useState(false);
   const [selectedSkuIds, setSelectedSkuIds] = useState<string[]>([]);
   const [batchFamilyKey, setBatchFamilyKey] = useState("");
-  const [batchSupplierId, setBatchSupplierId] = useState("");
-  const [batchRole, setBatchRole] = useState<"primary" | "backup">("primary");
+  const [batchPrimarySupplierId, setBatchPrimarySupplierId] = useState("");
+  const [batchBackupSupplierId, setBatchBackupSupplierId] = useState("");
   const [batchMessage, setBatchMessage] = useState("");
   const activeSkuMasters = skuMasters.filter((item) => item.status !== "archived");
   const existingCount = activeSkuMasters.length;
@@ -101,26 +101,29 @@ export default function SkuMasterImportPage() {
   }
 
   function applyBatchSupplierMapping() {
-    if (!selectedSkuIds.length || !batchFamilyKey || !batchSupplierId) return;
+    if (!selectedSkuIds.length || !batchFamilyKey || (!batchPrimarySupplierId && !batchBackupSupplierId)) return;
     const selectedFamilies = new Set(activeSkuMasters.filter((item) => selectedSkuIds.includes(item.id)).map((item) => deriveProductFamilyKey(item.productName, item.productFamilyKey)));
     if (selectedFamilies.size > 1) {
       setBatchMessage("本次勾选包含多个产品族，请拆分后分别归属，避免供应商关系被错误合并。");
       return;
     }
-    const supplier = suppliers.find((item) => item.id === batchSupplierId);
-    if (!supplier) return;
-    saveProductSupplierAssignments([{
+    const selectedSuppliers = [
+      { id: batchPrimarySupplierId, role: "primary" as const },
+      { id: batchBackupSupplierId, role: "backup" as const },
+    ].filter((selection) => selection.id).map((selection) => ({ ...selection, supplier: suppliers.find((item) => item.id === selection.id) })).filter((selection) => selection.supplier);
+    if (!selectedSuppliers.length) return;
+    saveProductSupplierAssignments(selectedSuppliers.map(({ supplier, role }) => ({
       productFamilyKey: batchFamilyKey,
-      supplierId: supplier.id,
-      supplierName: supplier.name,
-      role: batchRole,
+      supplierId: supplier!.id,
+      supplierName: supplier!.name,
+      role,
       effectiveFrom: new Date().toISOString().slice(0, 7),
-      status: "active",
-      source: "manual",
+      status: "active" as const,
+      source: "manual" as const,
       reason: "由产品编码表批量建立产品族供货关系",
       evidence: `已选择 ${selectedSkuIds.length} 个 SKU 作为产品族编码归并依据`,
-    }]);
-    setBatchMessage(`已将 ${selectedSkuIds.length} 个 SKU 归入产品族“${batchFamilyKey}”，${batchRole === "primary" ? "主供" : "备供"}供应商为“${supplier.name}”。经营产品编码按基础编码自动归并。`);
+    })));
+    setBatchMessage(`已将 ${selectedSkuIds.length} 个 SKU 归入产品族“${batchFamilyKey}”，并保存${selectedSuppliers.map(({ role }) => role === "primary" ? "主供" : "备供").join("、")}关系。经营产品编码按基础编码自动归并。`);
     setSelectedSkuIds([]);
   }
 
@@ -210,11 +213,11 @@ export default function SkuMasterImportPage() {
               <div><h3 className="font-medium text-slate-900">批量归属产品族与供应商</h3><p className="mt-1 text-xs text-slate-500">先勾选同一产品族的 SKU，再统一选择产品族、供应商角色和供应商；不会改变销售数据的 SKU 编码。</p></div>
               <span className="text-xs text-slate-500">已选 {selectedSkuIds.length} 条</span>
             </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
               <select aria-label="批量选择产品族" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchFamilyKey} onChange={(event) => setBatchFamilyKey(event.target.value)}><option value="">选择产品族</option>{productFamilies.map((family) => <option key={family} value={family}>{family}</option>)}</select>
-              <select aria-label="批量选择主供或备供" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchRole} onChange={(event) => setBatchRole(event.target.value as "primary" | "backup")}><option value="primary">主供</option><option value="backup">备供</option></select>
-              <select aria-label="批量选择供应商" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchSupplierId} onChange={(event) => setBatchSupplierId(event.target.value)}><option value="">选择供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select>
-              <button className="rounded-xl bg-action px-4 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={!selectedSkuIds.length || !batchFamilyKey || !batchSupplierId} onClick={applyBatchSupplierMapping} type="button">保存归属</button>
+              <select aria-label="批量选择主供供应商" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchPrimarySupplierId} onChange={(event) => setBatchPrimarySupplierId(event.target.value)}><option value="">选择主供</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select>
+              <select aria-label="批量选择备供供应商" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchBackupSupplierId} onChange={(event) => setBatchBackupSupplierId(event.target.value)}><option value="">选择备供</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select>
+              <button className="rounded-xl bg-action px-4 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={!selectedSkuIds.length || !batchFamilyKey || (!batchPrimarySupplierId && !batchBackupSupplierId)} onClick={applyBatchSupplierMapping} type="button">保存</button>
             </div>
             {batchMessage ? <p className="mt-3 text-xs text-emerald-700">{batchMessage}</p> : null}
           </div>

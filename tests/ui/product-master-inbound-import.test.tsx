@@ -42,7 +42,8 @@ describe("product master monthly inbound import contract", () => {
     expect(skuPage).toContain("需要处理的异常提示");
     expect(skuPage).toContain("showSecondaryAssociationTools && activeSkuMasters.length > 0 && matchSummary.results.some");
     expect(skuPage).toContain("showSecondaryAssociationTools && activeSkuMasters.length > 0 ? (");
-    expect(skuPage).toContain("批量选择主供或备供");
+    expect(skuPage).toContain("批量选择主供供应商");
+    expect(skuPage).toContain("批量选择备供供应商");
     expect(skuPage).not.toContain(">候选货盘</div>");
   });
 });
