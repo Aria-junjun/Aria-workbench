@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { parseSkuMasterRows, type SkuMasterImportResult } from "@/features/workbench/sku-master-import";
-import { archiveSkuMaster, confirmSkuImportBatch, confirmSkuOfferLink, loadLocalWorkbenchData, revokeSkuOfferLink, saveSkuMasterImport, updateSkuMaster, type LocalSkuMaster } from "@/features/workbench/local-store";
+import { archiveSkuMaster, confirmSkuImportBatch, confirmSkuOfferLink, loadLocalWorkbenchData, revokeSkuOfferLink, saveProductSupplierAssignments, saveSkuMasterImport, updateSkuMaster, type LocalSkuMaster } from "@/features/workbench/local-store";
+import { deriveOperatingProductCode, deriveProductFamilyKey } from "@/features/workbench/product-master";
 import { findSkuOfferMatches } from "@/features/workbench/sku-master-matching";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 
@@ -20,11 +21,17 @@ export default function SkuMasterImportPage() {
   const [manualSkuId, setManualSkuId] = useState(skuMasters[0]?.id ?? "");
   const [manualQuery, setManualQuery] = useState("");
   const [showSecondaryAssociationTools, setShowSecondaryAssociationTools] = useState(false);
+  const [selectedSkuIds, setSelectedSkuIds] = useState<string[]>([]);
+  const [batchFamilyKey, setBatchFamilyKey] = useState("");
+  const [batchSupplierId, setBatchSupplierId] = useState("");
+  const [batchMessage, setBatchMessage] = useState("");
   const activeSkuMasters = skuMasters.filter((item) => item.status !== "archived");
   const existingCount = activeSkuMasters.length;
   const workbench = useWorkbenchData();
   const offers = workbench.offers;
-  const products = workbench.products;
+  const suppliers = workbench.suppliers;
+  const allInternalSkuCodes = activeSkuMasters.map((item) => item.internalSkuCode);
+  const productFamilies = [...new Set(activeSkuMasters.map((item) => deriveProductFamilyKey(item.productName, item.productFamilyKey)))].sort((left, right) => left.localeCompare(right, "zh-CN"));
   const matchSummary = useMemo(() => {
     const results = activeSkuMasters.map((item) => ({ item, matches: findSkuOfferMatches(item, offers) }));
     return {
@@ -84,17 +91,31 @@ export default function SkuMasterImportPage() {
     setSkuMasters((current) => current.map((row) => row.id === item.id ? { ...row, specification, status: specification.trim() ? "ready" : "needs_spec" } : row));
   }
 
-  function saveProductAssociation(item: LocalSkuMaster, productId: string) {
-    updateSkuMaster(item.id, { productId: productId || undefined });
-    setSkuMasters((current) => current.map((row) => row.id === item.id ? { ...row, productId: productId || undefined } : row));
-  }
-
   function archiveSku(item: LocalSkuMaster) {
     if (!window.confirm(`确定停用 SKU ${item.internalSkuCode} 吗？历史经营数据、货盘关联和决策记录会保留。`)) return;
     archiveSkuMaster(item.id);
     setSkuMasters((current) => current.map((row) => row.id === item.id ? { ...row, status: "archived" as const } : row));
     setManualSkuId((current) => current === item.id ? (activeSkuMasters.find((row) => row.id !== item.id)?.id ?? "") : current);
     setSavedMessage(`已停用 ${item.internalSkuCode}；历史快照和关联记录仍保留。`);
+  }
+
+  function applyBatchSupplierMapping() {
+    if (!selectedSkuIds.length || !batchFamilyKey || !batchSupplierId) return;
+    const supplier = suppliers.find((item) => item.id === batchSupplierId);
+    if (!supplier) return;
+    saveProductSupplierAssignments([{
+      productFamilyKey: batchFamilyKey,
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      role: "primary",
+      effectiveFrom: new Date().toISOString().slice(0, 7),
+      status: "active",
+      source: "manual",
+      reason: "由产品编码表批量建立产品族供货关系",
+      evidence: `已选择 ${selectedSkuIds.length} 个 SKU 作为产品族编码归并依据`,
+    }]);
+    setBatchMessage(`已将 ${selectedSkuIds.length} 个 SKU 归入产品族“${batchFamilyKey}”，主供供应商为“${supplier.name}”。经营产品编码按基础编码自动归并。`);
+    setSelectedSkuIds([]);
   }
 
   function confirmLatestBatch() {
@@ -178,10 +199,22 @@ export default function SkuMasterImportPage() {
             </div>
             {batches[0]?.status === "pending_review" ? <button className="rounded-xl bg-action px-4 py-2 text-sm font-medium text-white" onClick={confirmLatestBatch} type="button">确认主表</button> : <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs text-emerald-700">已确认</span>}
           </div>
+          <div className="rounded-2xl bg-paper-warm p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h3 className="font-medium text-slate-900">批量归属产品族与供应商</h3><p className="mt-1 text-xs text-slate-500">先勾选同一产品族的 SKU，再统一选择产品族和主供供应商；不会改变销售数据的 SKU 编码。</p></div>
+              <span className="text-xs text-slate-500">已选 {selectedSkuIds.length} 条</span>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+              <select aria-label="批量选择产品族" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchFamilyKey} onChange={(event) => setBatchFamilyKey(event.target.value)}><option value="">选择产品族</option>{productFamilies.map((family) => <option key={family} value={family}>{family}</option>)}</select>
+              <select aria-label="批量选择供应商" className="rounded-xl border border-line bg-white px-3 py-2 text-sm" value={batchSupplierId} onChange={(event) => setBatchSupplierId(event.target.value)}><option value="">选择主供供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select>
+              <button className="rounded-xl bg-action px-4 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={!selectedSkuIds.length || !batchFamilyKey || !batchSupplierId} onClick={applyBatchSupplierMapping} type="button">保存归属</button>
+            </div>
+            {batchMessage ? <p className="mt-3 text-xs text-emerald-700">{batchMessage}</p> : null}
+          </div>
           <div className="max-h-[520px] overflow-auto rounded-2xl border border-line">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-paper-warm text-left text-xs text-slate-500"><tr><th className="px-3 py-2">商品编码</th><th className="px-3 py-2">商品名称</th><th className="px-3 py-2">颜色及规格</th><th className="px-3 py-2">所属产品</th><th className="px-3 py-2">状态</th><th className="px-3 py-2">操作</th></tr></thead>
-              <tbody className="divide-y divide-line">{activeSkuMasters.map((item) => <SkuMasterRow item={item} key={item.id} matches={matchSummary.results.find((result) => result.item.id === item.id)?.matches.length ?? 0} onArchive={archiveSku} onSaveSpecification={saveSpecification} onSaveProductAssociation={saveProductAssociation} products={products} />)}</tbody>
+              <thead className="sticky top-0 bg-paper-warm text-left text-xs text-slate-500"><tr><th className="w-10 px-3 py-2"><input aria-label="全选 SKU" checked={selectedSkuIds.length === activeSkuMasters.length} onChange={(event) => setSelectedSkuIds(event.target.checked ? activeSkuMasters.map((item) => item.id) : [])} type="checkbox" /></th><th className="px-3 py-2">商品编码</th><th className="px-3 py-2">经营产品编码</th><th className="px-3 py-2">商品名称</th><th className="px-3 py-2">颜色及规格</th><th className="px-3 py-2">状态</th><th className="px-3 py-2">操作</th></tr></thead>
+              <tbody className="divide-y divide-line">{activeSkuMasters.map((item) => <SkuMasterRow item={item} key={item.id} checked={selectedSkuIds.includes(item.id)} operatingProductCode={deriveOperatingProductCode(item.internalSkuCode, item.productName, item.specification, allInternalSkuCodes)} matches={matchSummary.results.find((result) => result.item.id === item.id)?.matches.length ?? 0} onToggle={(checked) => setSelectedSkuIds((current) => checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id))} onArchive={archiveSku} onSaveSpecification={saveSpecification} />)}</tbody>
             </table>
           </div>
         </section>
@@ -244,8 +277,8 @@ export default function SkuMasterImportPage() {
   );
 }
 
-function SkuMasterRow({ item, matches, onArchive, onSaveSpecification, onSaveProductAssociation, products }: { item: LocalSkuMaster; matches: number; onArchive: (item: LocalSkuMaster) => void; onSaveSpecification: (item: LocalSkuMaster, specification: string) => void; onSaveProductAssociation: (item: LocalSkuMaster, productId: string) => void; products: Array<{ id: string; name: string }> }) {
+function SkuMasterRow({ item, checked, operatingProductCode, matches, onToggle, onArchive, onSaveSpecification }: { item: LocalSkuMaster; checked: boolean; operatingProductCode: string; matches: number; onToggle: (checked: boolean) => void; onArchive: (item: LocalSkuMaster) => void; onSaveSpecification: (item: LocalSkuMaster, specification: string) => void }) {
   const [draft, setDraft] = useState(item.specification);
   const changed = draft !== item.specification;
-  return <tr><td className="whitespace-nowrap px-3 py-2 font-medium">{item.internalSkuCode}</td><td className="px-3 py-2">{item.productName}</td><td className="min-w-[240px] px-3 py-2"><input className="w-full rounded-lg border border-line px-2 py-1 text-sm" onChange={(event) => setDraft(event.target.value)} value={draft} />{changed ? <button className="mt-1 text-xs text-action hover:underline" onClick={() => onSaveSpecification(item, draft)} type="button">保存规格</button> : null}</td><td className="min-w-[200px] px-3 py-2"><select aria-label={`${item.internalSkuCode}所属产品`} className="w-full rounded-lg border border-line bg-white px-2 py-1 text-xs" onChange={(event) => onSaveProductAssociation(item, event.target.value)} value={item.productId ?? ""}><option value="">待关联产品</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></td><td className="whitespace-nowrap px-3 py-2 text-xs">{item.status === "ready" ? <span className="text-emerald-700">可用</span> : item.status === "archived" ? <span className="text-slate-500">已停用</span> : <span className="text-amber-700">规格待补充</span>}<div className="mt-1 text-slate-400">候选货盘 {matches}</div></td><td className="whitespace-nowrap px-3 py-2"><button className="text-xs text-red-600 hover:underline" onClick={() => onArchive(item)} type="button">停用</button></td></tr>;
+  return <tr><td className="px-3 py-2"><input aria-label={`选择 ${item.internalSkuCode}`} checked={checked} onChange={(event) => onToggle(event.target.checked)} type="checkbox" /></td><td className="whitespace-nowrap px-3 py-2 font-medium">{item.internalSkuCode}</td><td className="whitespace-nowrap px-3 py-2 text-action">{operatingProductCode}</td><td className="px-3 py-2">{item.productName}</td><td className="min-w-[240px] px-3 py-2"><input className="w-full rounded-lg border border-line px-2 py-1 text-sm" onChange={(event) => setDraft(event.target.value)} value={draft} />{changed ? <button className="mt-1 text-xs text-action hover:underline" onClick={() => onSaveSpecification(item, draft)} type="button">保存规格</button> : null}</td><td className="whitespace-nowrap px-3 py-2 text-xs">{item.status === "ready" ? <span className="text-emerald-700">可用</span> : item.status === "archived" ? <span className="text-slate-500">已停用</span> : <span className="text-amber-700">规格待补充</span>}<div className="mt-1 text-slate-400">候选货盘 {matches}</div></td><td className="whitespace-nowrap px-3 py-2"><button className="text-xs text-red-600 hover:underline" onClick={() => onArchive(item)} type="button">停用</button></td></tr>;
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("product master monthly inbound import contract", () => {
   const page = fs.readFileSync(path.join(process.cwd(), "src/app/product-master/page.tsx"), "utf8");
+  const skuPage = fs.readFileSync(path.join(process.cwd(), "src/app/sku-master/import/page.tsx"), "utf8");
   const preview = fs.readFileSync(path.join(process.cwd(), "src/components/workbench/supplier-inbound-import-preview.tsx"), "utf8");
 
   it("exposes a separate inbound import entry and only saves from confirmation", () => {
@@ -27,5 +28,11 @@ describe("product master monthly inbound import contract", () => {
   it("does not reset manual row selections on an unrelated rerender", () => {
     expect(preview).toContain("skuSignature");
     expect(preview).toContain("assignmentSignature");
+  });
+
+  it("exposes batch product-family supplier mapping and operating-code grouping", () => {
+    expect(skuPage).toContain("批量归属产品族与供应商");
+    expect(skuPage).toContain("saveProductSupplierAssignments");
+    expect(skuPage).toContain("deriveOperatingProductCode");
   });
 });
