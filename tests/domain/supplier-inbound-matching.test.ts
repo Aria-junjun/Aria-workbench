@@ -36,12 +36,12 @@ describe("supplier inbound SKU matching", () => {
     )).toBe("sku-90-2");
   });
 
-  it("prefers a confirmed unique supplier-family relationship over SKU-level matching", () => {
+  it("maps gift variants to one operating product instead of the whole product family", () => {
     expect(suggestInboundMapping(
       { supplierProductName: "白板墙贴", supplierSpec: "90*2" },
       [
-        { ...skuMasters[0], productName: "无胶白板贴小纸管", productFamilyKey: "whiteboard-family" },
-        { ...skuMasters[1], productName: "无胶白板贴小纸管", productFamilyKey: "whiteboard-family" },
+        { ...skuMasters[0], internalSkuCode: "Y-05BBT", productName: "无胶白板贴小纸管", productFamilyKey: "whiteboard-family" },
+        { ...skuMasters[1], internalSkuCode: "Y-05BBT-8", productName: "无胶白板贴小纸管", productFamilyKey: "whiteboard-family" },
       ],
       {
         supplierId: "supplier-a",
@@ -57,6 +57,6 @@ describe("supplier inbound SKU matching", () => {
           source: "manual",
         }],
       },
-    )).toEqual({ kind: "product_family", productFamilyKey: "whiteboard-family", skuMasterId: "sku-90-2" });
+    )).toEqual({ kind: "operating_product", productFamilyKey: "whiteboard-family", operatingProductCode: "Y-05BBT", skuMasterId: "sku-90-2" });
   });
 });

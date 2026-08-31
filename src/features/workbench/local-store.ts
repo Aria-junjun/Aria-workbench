@@ -329,9 +329,10 @@ export type LocalSkuOperatingSnapshotMetrics = Pick<LocalSkuOperatingSnapshot, "
 export type LocalMonthlyInboundSnapshot = {
   id: string;
   skuMasterId: string;
-  /** 产品族级入仓记录使用产品族键保存，skuMasterId 仅保留一个代表 SKU 兼容旧结构。 */
+  /** 经营产品级入仓记录按基础编码保存，skuMasterId 仅保留一个代表 SKU 兼容旧结构。 */
   productFamilyKey?: string;
-  mappingLevel?: "sku" | "product_family";
+  operatingProductCode?: string;
+  mappingLevel?: "sku" | "operating_product";
   period: string;
   receivedQuantity?: number;
   actualStock?: number;
@@ -2079,8 +2080,8 @@ export function saveMonthlyInboundSnapshots(entries: Array<Omit<LocalMonthlyInbo
   const now = new Date().toISOString();
   const saved = entries.map((entry) => {
     const existing = snapshots.find((item) => item.period === entry.period && (
-      entry.mappingLevel === "product_family" && entry.productFamilyKey
-        ? item.mappingLevel === "product_family" && item.productFamilyKey === entry.productFamilyKey
+      entry.mappingLevel === "operating_product" && entry.operatingProductCode
+        ? item.mappingLevel === "operating_product" && item.operatingProductCode === entry.operatingProductCode
         : item.skuMasterId === entry.skuMasterId
     ));
     const snapshot: LocalMonthlyInboundSnapshot = {

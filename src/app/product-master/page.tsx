@@ -24,6 +24,7 @@ import {
   groupSkuMastersByProduct,
   groupSkuMastersByOperatingProduct,
   deriveProductFamilyKey,
+  deriveOperatingProductCode,
   sortProductMasterGroupsByOperatingData,
   sortProductMasterSkusByOperatingData,
   type SkuMetricInput,
@@ -93,7 +94,7 @@ export default function ProductMasterPage() {
   const productGroups = groupSkuMastersByOperatingProduct(skus);
   const productFamilyGroups = groupSkuMastersByProduct(skus);
   const inboundMatchesGroup = (snapshot: LocalMonthlyInboundSnapshot, group: { skuIds: string[]; productFamilyKey?: string; familyKey?: string }) =>
-    group.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && Boolean(snapshot.productFamilyKey) && snapshot.productFamilyKey === (group.productFamilyKey ?? group.familyKey));
+    group.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "operating_product" && snapshot.operatingProductCode !== undefined && new Set(skus.filter((sku) => group.skuIds.includes(sku.id)).map((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, skus.map((item) => item.internalSkuCode)))).has(snapshot.operatingProductCode));
   const inboundGroups = productGroups.filter((group) =>
     data.products.some(
       (product) =>
@@ -282,7 +283,7 @@ export default function ProductMasterPage() {
   function saveInboundImport(rows: ConfirmedInboundRow[]) {
     const grouped = new Map<string, ConfirmedInboundRow>();
     rows.forEach((row) => {
-      const key = row.mappingLevel === "product_family" && row.productFamilyKey ? `family:${row.productFamilyKey}` : `sku:${row.skuMasterId}`;
+      const key = row.mappingLevel === "operating_product" && row.operatingProductCode ? `operating:${row.operatingProductCode}` : `sku:${row.skuMasterId}`;
       const existing = grouped.get(key);
       grouped.set(key, existing ? { ...existing, receivedQuantity: existing.receivedQuantity + row.receivedQuantity } : row);
     });
@@ -648,8 +649,9 @@ export default function ProductMasterPage() {
                   );
                   const familyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, selectedPeriod);
                   const previousFamilyInbound = buildProductInboundSummary(familySkus, data.monthlyInboundSnapshots ?? [], snapshots, previousPeriod);
-                  const hasFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === selectedPeriod && (family.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey === family.familyKey)));
-                  const hasPreviousFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === previousPeriod && (family.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "product_family" && snapshot.productFamilyKey === family.familyKey)));
+                  const familyOperatingCodes = new Set(familySkus.map((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, skus.map((item) => item.internalSkuCode))));
+                  const hasFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === selectedPeriod && (family.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "operating_product" && snapshot.operatingProductCode !== undefined && familyOperatingCodes.has(snapshot.operatingProductCode))));
+                  const hasPreviousFamilyInbound = (data.monthlyInboundSnapshots ?? []).some((snapshot) => snapshot.period === previousPeriod && (family.skuIds.includes(snapshot.skuMasterId) || (snapshot.mappingLevel === "operating_product" && snapshot.operatingProductCode !== undefined && familyOperatingCodes.has(snapshot.operatingProductCode))));
                   const familyInboundDelta = hasFamilyInbound && hasPreviousFamilyInbound ? familyInbound.receivedQuantity - previousFamilyInbound.receivedQuantity : undefined;
                   const familySales = comparison.current.monthlySales ?? 0;
                   const familyAttention = getProductFamilyAttention({ pendingSkuCount: 0, returnRate: comparison.current.returnRate, currentSales: comparison.current.monthlySales, previousSales: comparison.previous.monthlySales, hasCurrentData: comparison.current.source !== "pending" });

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { LocalSkuMaster, LocalSupplier } from "@/features/workbench/local-store";
-import { deriveProductFamilyKey } from "@/features/workbench/product-master";
+import { deriveOperatingProductCode, deriveProductFamilyKey } from "@/features/workbench/product-master";
 import type { LocalProductSupplierAssignment } from "@/features/workbench/local-store";
 import type { SupplierInboundImportResult } from "@/features/workbench/supplier-inbound-import";
 import { summarizeImportQuality } from "@/features/workbench/import-data-quality";
@@ -10,7 +10,8 @@ import { summarizeImportQuality } from "@/features/workbench/import-data-quality
 export type ConfirmedInboundRow = {
   skuMasterId: string;
   productFamilyKey?: string;
-  mappingLevel?: "sku" | "product_family";
+  operatingProductCode?: string;
+  mappingLevel?: "sku" | "operating_product";
   period: string;
   receivedQuantity: number;
   supplierId?: string;
@@ -77,9 +78,9 @@ export function suggestInboundSku(
 
 export type InboundMappingSuggestion =
   | { kind: "sku"; skuMasterId: string }
-  | { kind: "product_family"; productFamilyKey: string; skuMasterId: string };
+  | { kind: "operating_product"; productFamilyKey: string; operatingProductCode: string; skuMasterId: string };
 
-/** 有唯一有效供应关系时按产品族归属，避免把一笔入仓量错误复制到多个 SKU。 */
+/** 有唯一有效供应关系时，先按规格定位经营产品，再合并其普通 SKU 与组合 SKU。 */
 export function suggestInboundMapping(
   row: { supplierProductName: string; supplierSpec: string },
   skuMasters: LocalSkuMaster[],
@@ -93,12 +94,20 @@ export function suggestInboundMapping(
       ? assignment.supplierId === options.supplierId
       : normalize(assignment.supplierName ?? "") === normalize(options.supplierName ?? ""));
   const familyKeys = [...new Set(supplierAssignments.map((assignment) => assignment.productFamilyKey).filter(Boolean))];
+  const allCodes = skuMasters.map((sku) => sku.internalSkuCode);
   const familyCandidates = familyKeys.flatMap((familyKey) => {
     const familySkus = skuMasters.filter((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey) === familyKey);
-    return familySkus.length ? [{ familyKey, skuMasterId: familySkus[0].id }] : [];
+    const operatingCodes = [...new Set(familySkus.map((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, allCodes)))];
+    const matchingCodes = familySkus.filter((sku) => {
+      const normalizedSpec = normalize(row.supplierSpec);
+      const signature = dimensionSignature(row.supplierSpec);
+      return normalize(sku.specification) === normalizedSpec || (signature !== undefined && dimensionSignature(sku.specification) === signature);
+    }).map((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, allCodes));
+    const targetCode = [...new Set(matchingCodes)].length === 1 ? [...new Set(matchingCodes)][0] : operatingCodes.length === 1 ? operatingCodes[0] : undefined;
+    return targetCode && familySkus.length ? [{ familyKey, operatingProductCode: targetCode, skuMasterId: familySkus.find((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, allCodes) === targetCode)!.id }] : [];
   });
   if (familyCandidates.length === 1) {
-    return { kind: "product_family", productFamilyKey: familyCandidates[0].familyKey, skuMasterId: familyCandidates[0].skuMasterId };
+    return { kind: "operating_product", productFamilyKey: familyCandidates[0].familyKey, operatingProductCode: familyCandidates[0].operatingProductCode, skuMasterId: familyCandidates[0].skuMasterId };
   }
   const skuMasterId = suggestInboundSku(row, skuMasters, options);
   return skuMasterId ? { kind: "sku", skuMasterId } : undefined;
@@ -119,7 +128,7 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
     period,
     assignments: existingAssignments,
     });
-    return [row.rowNumber, suggestion?.kind === "product_family" ? `family:${suggestion.productFamilyKey}` : suggestion?.skuMasterId];
+    return [row.rowNumber, suggestion?.kind === "operating_product" ? `operating:${suggestion.operatingProductCode}|${suggestion.productFamilyKey}` : suggestion?.skuMasterId];
   })), [result.rows, skuSignature, supplierId, supplierFromFile, period, assignmentSignature]);
   const [matches, setMatches] = useState<Record<number, string | undefined>>(initialMatches);
   useEffect(() => setMatches(initialMatches), [initialMatches]);
@@ -146,14 +155,15 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
     onConfirm(result.rows.flatMap((row) => {
       const match = matches[row.rowNumber];
       if (!match) return [];
-      const familyKey = match.startsWith("family:") ? match.slice("family:".length) : undefined;
+      const operatingMatch = match.startsWith("operating:") ? match.slice("operating:".length) : undefined;
+      const [operatingProductCode, familyKey] = operatingMatch?.split("|") ?? [];
       const skuMasterId = familyKey
-        ? skuMasters.find((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey) === familyKey)?.id
+        ? skuMasters.find((sku) => deriveProductFamilyKey(sku.productName, sku.productFamilyKey) === familyKey && deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, skuMasters.map((item) => item.internalSkuCode)) === operatingProductCode)?.id
         : match;
       if (!skuMasterId) return [];
       return [{
         skuMasterId,
-        ...(familyKey ? { productFamilyKey: familyKey, mappingLevel: "product_family" as const } : { mappingLevel: "sku" as const }),
+        ...(familyKey ? { productFamilyKey: familyKey, operatingProductCode, mappingLevel: "operating_product" as const } : { mappingLevel: "sku" as const }),
         period,
         receivedQuantity: row.receivedQuantity,
         supplierId: supplier?.id,
@@ -179,7 +189,7 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
       </div>
       <div className={`rounded-lg px-3 py-2 text-xs leading-5 ${quality.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
         <div className="font-medium">数据质量检查：{quality.headline}</div>
-        <div className="mt-1">{quality.details.join(" · ")}。产品族级关联会合并保存入仓总量，不会拆分或复制到每个 SKU。</div>
+        <div className="mt-1">{quality.details.join(" · ")}。经营产品级关联会合并保存入仓总量，不会拆分或复制到每个 SKU。</div>
       </div>
       {!matchedCount && futureRelationshipCount > 0 ? <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
         已找到该供应商的供应关系，但关系生效月份晚于本次导入月份（{period}）。系统不会把未来关系倒灌到历史数据；请确认保存月份，或将关系生效月份修正为真实生效月份。
@@ -196,7 +206,7 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
       {result.errors.length ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{result.errors.map((item) => `第${item.rowNumber}行：${item.message}`).join("；")}</p> : null}
       <div className="max-h-96 overflow-auto rounded-lg border border-line">
         <table className="min-w-full text-left text-xs">
-          <thead className="sticky top-0 bg-paper-warm text-slate-500"><tr><th className="px-3 py-2">供应商商品</th><th className="px-3 py-2">供应商规格</th><th className="px-3 py-2">实际入仓</th><th className="px-3 py-2">对应内部 SKU</th></tr></thead>
+          <thead className="sticky top-0 bg-paper-warm text-slate-500"><tr><th className="px-3 py-2">供应商商品</th><th className="px-3 py-2">供应商规格</th><th className="px-3 py-2">实际入仓</th><th className="px-3 py-2">对应经营产品 / SKU</th></tr></thead>
           <tbody className="divide-y divide-line">
             {result.rows.map((row) => <tr key={row.rowNumber}>
               <td className="px-3 py-2">{row.supplierProductName}</td>
@@ -205,7 +215,7 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
               <td className="px-3 py-2">
                 <select aria-label={`第${row.rowNumber}行对应产品族或SKU`} className="w-full rounded border border-line px-2 py-1" value={matches[row.rowNumber] ?? ""} onChange={(event) => setMatches((current) => ({ ...current, [row.rowNumber]: event.target.value || undefined }))}>
                   <option value="">暂不关联</option>
-                  {[...new Map(skuMasters.filter((sku) => sku.status !== "archived").map((sku) => [deriveProductFamilyKey(sku.productName, sku.productFamilyKey), sku])).entries()].map(([familyKey, sku]) => <option key={`family:${familyKey}`} value={`family:${familyKey}`}>产品族：{familyKey}</option>)}
+        {[...new Map(skuMasters.filter((sku) => sku.status !== "archived").map((sku) => [deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, skuMasters.map((item) => item.internalSkuCode)), sku])).entries()].map(([operatingProductCode]) => <option key={`operating:${operatingProductCode}`} value={`operating:${operatingProductCode}|${deriveProductFamilyKey(skuMasters.find((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, skuMasters.map((item) => item.internalSkuCode)) === operatingProductCode)!.productName, skuMasters.find((sku) => deriveOperatingProductCode(sku.internalSkuCode, sku.productName, sku.specification, skuMasters.map((item) => item.internalSkuCode)) === operatingProductCode)!.productFamilyKey)}`}>经营产品：{operatingProductCode}</option>)}
                   {skuMasters.filter((sku) => sku.status !== "archived").map((sku) => <option key={sku.id} value={sku.id}>SKU：{sku.internalSkuCode} · {sku.productName} · {sku.specification}</option>)}
                 </select>
               </td>
