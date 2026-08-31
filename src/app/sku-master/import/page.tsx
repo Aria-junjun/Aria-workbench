@@ -101,6 +101,11 @@ export default function SkuMasterImportPage() {
 
   function applyBatchSupplierMapping() {
     if (!selectedSkuIds.length || !batchFamilyKey || !batchSupplierId) return;
+    const selectedFamilies = new Set(activeSkuMasters.filter((item) => selectedSkuIds.includes(item.id)).map((item) => deriveProductFamilyKey(item.productName, item.productFamilyKey)));
+    if (selectedFamilies.size > 1) {
+      setBatchMessage("本次勾选包含多个产品族，请拆分后分别归属，避免供应商关系被错误合并。");
+      return;
+    }
     const supplier = suppliers.find((item) => item.id === batchSupplierId);
     if (!supplier) return;
     saveProductSupplierAssignments([{
