@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LocalProductSupplierAssignment } from "@/features/workbench/local-store";
-import { classifySkuRelationship, formatSkuRelationshipStatus } from "@/features/workbench/relationship-rules";
+import { classifySkuRelationship, formatSkuRelationshipStatus, getActiveProductSupplierAssignments } from "@/features/workbench/relationship-rules";
 
 const familyPrimary = (supplierName: string): LocalProductSupplierAssignment => ({
   id: `family-${supplierName}`,
@@ -14,6 +14,18 @@ const familyPrimary = (supplierName: string): LocalProductSupplierAssignment => 
 });
 
 describe("SKU relationship rules", () => {
+  it("returns the active primary and backup suppliers for a product family", () => {
+    const assignments = [
+      familyPrimary("供应商A"),
+      { ...familyPrimary("供应商B"), id: "backup", role: "backup" as const },
+    ];
+
+    expect(getActiveProductSupplierAssignments(assignments, "白板贴", "2026-08").map((item) => [item.role, item.supplierName])).toEqual([
+      ["primary", "供应商A"],
+      ["backup", "供应商B"],
+    ]);
+  });
+
   it("treats a confirmed offer link as a match but does not infer a primary supplier", () => {
     const result = classifySkuRelationship({
       skuMasterId: "sku-a",

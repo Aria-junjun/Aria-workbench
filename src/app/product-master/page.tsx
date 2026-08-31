@@ -11,7 +11,9 @@ import {
   saveMonthlyInboundSnapshots,
   saveSkuOperatingSnapshots,
   type LocalMonthlyInboundSnapshot,
+  type LocalProductSupplierAssignment,
   type LocalSkuOperatingSnapshot,
+  type LocalSupplier,
 } from "@/features/workbench/local-store";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
@@ -46,10 +48,12 @@ import {
 } from "@/components/workbench/supplier-inbound-import-preview";
 import { SkuCompositionPanel } from "@/components/workbench/sku-composition-panel";
 import { SkuSupplierExceptionEditor } from "@/components/workbench/sku-supplier-exception-editor";
+import { OperatingProductSupplierEditor } from "@/components/workbench/operating-product-supplier-editor";
 import { getProductFamilyAttention, isCompositeSalesSku } from "@/features/workbench/product-master-presentation";
 import {
   classifySkuRelationship,
   formatSkuRelationshipStatus,
+  getActiveProductSupplierAssignments,
   type SkuRelationshipSummary,
 } from "@/features/workbench/relationship-rules";
 
@@ -839,7 +843,7 @@ export default function ProductMasterPage() {
                       </td>
                       <td className="px-4 py-3 text-center align-top font-medium">{productSkus.length}</td>
                       <td className="px-4 py-3 align-top text-left text-xs">
-                        <ProductFamilySupplierAction relationships={relationshipSummaries} exceptionCount={skuExceptionCount} />
+                        <ProductFamilySupplierAction relationships={relationshipSummaries} exceptionCount={skuExceptionCount} productFamilyKey={productFamilyKey} period={selectedPeriod} suppliers={data.suppliers} assignments={data.productSupplierAssignments ?? []} onSaved={() => setMessage(`${productFamilyKey} 的供应关系已更新，所有经营编码将按产品族关系显示`)} />
                       </td>
                       <td className="px-4 py-3 text-center align-top">
                         {operatingStatus}
@@ -998,20 +1002,23 @@ function decisionPriority(row: { decision: string; returnRate?: number }) {
   return 0;
 }
 
-function ProductFamilySupplierAction({ relationships, exceptionCount }: { relationships: SkuRelationshipSummary[]; exceptionCount: number }) {
+function ProductFamilySupplierAction({ relationships, exceptionCount, productFamilyKey, period, suppliers: availableSuppliers, assignments, onSaved }: { relationships: SkuRelationshipSummary[]; exceptionCount: number; productFamilyKey: string; period: string; suppliers: LocalSupplier[]; assignments: LocalProductSupplierAssignment[]; onSaved: () => void }) {
   const assignedRelationships = relationships.filter((summary) => summary.supplyStatus === "assigned" && summary.supplierName);
   const familyPrimaryRelationships = assignedRelationships.filter(
     (summary) => summary.supplierRelationshipSource === "family_assignment" && summary.role === "primary",
   );
-  const suppliers = Array.from(new Map(
+  const displaySuppliers = Array.from(new Map(
     (familyPrimaryRelationships.length ? familyPrimaryRelationships : assignedRelationships)
       .map((summary) => [summary.supplierId ?? summary.supplierName!, summary]),
   ).values());
+  const familyAssignments = getActiveProductSupplierAssignments(assignments, productFamilyKey, period);
+  const primary = familyAssignments.find((assignment) => assignment.role === "primary");
+  const backup = familyAssignments.find((assignment) => assignment.role === "backup");
   const evidencedSupplier = relationships.find(
     (summary) => summary.supplyStatus === "evidenced" && summary.supplierName,
   );
 
-  if (suppliers.length === 0) {
+  if (displaySuppliers.length === 0) {
     if (evidencedSupplier?.supplierId) {
       return (
         <div className="space-y-1 text-[11px]">
@@ -1032,18 +1039,12 @@ function ProductFamilySupplierAction({ relationships, exceptionCount }: { relati
 
   return (
     <div className="space-y-1 text-[11px] text-slate-700">
-      <div className="whitespace-nowrap"><span className="font-medium">{familyPrimaryRelationships.length ? "主供：" : "供应商："}</span>{suppliers.map((summary, index) => (
-        <Fragment key={`${summary.supplierId ?? summary.supplierName}-${index}`}>
-          {index > 0 ? "、" : null}
-          {summary.supplierId ? (
-            <Link className="text-action hover:underline" href={`/suppliers/${summary.supplierId}#supplier-relationship`}>
-              {summary.supplierName}
-            </Link>
-          ) : summary.supplierName}
-        </Fragment>
-      ))}
+      <div className="space-y-0.5">
+        <div className="whitespace-nowrap"><span className="font-medium">主供：</span>{primary?.supplierName || displaySuppliers[0]?.supplierName}</div>
+        {backup ? <div className="whitespace-nowrap"><span className="font-medium">备供：</span>{backup.supplierName}</div> : null}
       </div>
       <div className="text-slate-500">{exceptionCount > 0 ? `异常 SKU ${exceptionCount}，仅例外核对` : "关系持续有效"}</div>
+       <OperatingProductSupplierEditor productFamilyKey={productFamilyKey} period={period} suppliers={availableSuppliers} assignments={assignments} onSaved={onSaved} />
     </div>
   );
 }

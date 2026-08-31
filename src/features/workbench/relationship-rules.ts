@@ -68,7 +68,15 @@ export function getActiveProductSupplierAssignment(
   productFamilyKey: string | undefined,
   period: string,
 ): LocalProductSupplierAssignment | undefined {
-  if (!productFamilyKey) return undefined;
+  return getActiveProductSupplierAssignments(assignments, productFamilyKey, period)[0];
+}
+
+export function getActiveProductSupplierAssignments(
+  assignments: LocalProductSupplierAssignment[],
+  productFamilyKey: string | undefined,
+  period: string,
+): LocalProductSupplierAssignment[] {
+  if (!productFamilyKey) return [];
   return assignments
     .filter((assignment) => assignment.productFamilyKey === productFamilyKey)
     .filter((assignment) => assignment.effectiveFrom <= period)
@@ -77,7 +85,7 @@ export function getActiveProductSupplierAssignment(
     .sort((a, b) => {
       if (a.role !== b.role) return a.role === "primary" ? -1 : 1;
       return b.effectiveFrom.localeCompare(a.effectiveFrom);
-    })[0];
+    });
 }
 
 export function classifySkuRelationship(input: ClassifySkuRelationshipInput): SkuRelationshipSummary {

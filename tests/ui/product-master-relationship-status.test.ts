@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 
 describe("product master relationship status UI contract", () => {
   it("shows actual supplier relationship status in family and SKU views", () => {
-    const source = fs.readFileSync(path.join(process.cwd(), "src/app/product-master/page.tsx"), "utf8");
+  const source = fs.readFileSync(path.join(process.cwd(), "src/app/product-master/page.tsx"), "utf8");
+    const editor = fs.readFileSync(path.join(process.cwd(), "src/components/workbench/operating-product-supplier-editor.tsx"), "utf8");
 
     expect(source).toContain("供应商");
     expect(source).toContain("formatSkuRelationshipStatus");
@@ -12,6 +13,11 @@ describe("product master relationship status UI contract", () => {
     expect(source).toContain("productSupplierAssignments");
     expect(source).toContain("待确认");
     expect(source).toContain("supplierRelationshipSource");
+    expect(source).toContain("OperatingProductSupplierEditor");
+    expect(editor).toContain("调整供应关系");
+    expect(editor).toContain("选择主供或备供");
+    expect(editor).toContain("变更原因");
+    expect(editor).toContain("关系依据");
   });
 
   it("routes supplier maintenance to the current supplier and keeps the family view decision-oriented", () => {
