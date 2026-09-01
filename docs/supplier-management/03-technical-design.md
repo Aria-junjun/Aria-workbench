@@ -7,7 +7,7 @@
 ## 2. 建议新增领域模块
 
 - `supplier-performance-baseline.ts`：标准值、版本、生效期和工作日计算。
-- `supplier-performance.ts`：交付、沟通、改善、质量指标计算。
+- `supplier-performance.ts`：交付、首次响应、问题解决、改善、质量指标计算。
 - `supplier-performance-export.ts`：将原始事实、基准、公式和结果展开为 CSV/Excel 数据。
 
 ## 3. 数据流
@@ -25,7 +25,7 @@
 
 ## 4. 数据结构要求
 
-每个指标结果必须保存：`metricKey`、`period`、`rawValues`、`baseline`、`formula`、`value`、`status`、`evidenceIds`、`responsibility`、`calculatedAt`。
+每个指标结果必须保存：`metricKey`、`period`、`rawValues`、`baseline`、`formula`、`value`、`status`、`evidenceIds`、`responsibility`、`calculatedAt`。`status` 至少包括 `measured`、`not_applicable`、`missing`、`unverifiable`。
 
 基准值必须保存：`metricKey`、`value`、`unit`、`scope`、`source`、`effectiveFrom`、`effectiveTo`、`version`。
 
@@ -37,6 +37,7 @@
 - 供应商归属冲突：进入待确认，不自动归因。
 - 同一事实重复导入：按来源、期间、业务键幂等替换，不重复累加。
 - 云端暂时不可用：本地保存，显示未同步状态并允许稍后重试。
+- 无问题记录：指标状态为 `not_applicable`，不写入 0，不进入总分分母。
 
 ## 6. 导出
 

@@ -441,6 +441,37 @@ export function calculateTotalScoreAndGrade(
   return { total, grade: gradeFromTotal(total) };
 }
 
+export type SupplierScoreDimension = "delivery" | "cost" | "quality" | "service";
+
+/**
+ * 只对有有效证据的维度计分；未发生或没有来源数据的维度不计入分母。
+ * 这与“没有问题不是 0 分”一致，也避免用默认满分制造虚假的综合评分。
+ */
+export function calculateApplicableTotalScoreAndGrade(
+  dimScores: Partial<Record<SupplierScoreDimension, number | undefined>>,
+  model: SupplierBusinessModel = "inbound"
+) {
+  const weights = getQcdsWeights(model);
+  const dimensions: SupplierScoreDimension[] = ["delivery", "cost", "quality", "service"];
+  const includedDimensions = dimensions.filter((dimension) => {
+    const score = dimScores[dimension];
+    return typeof score === "number" && Number.isFinite(score);
+  });
+  const excludedDimensions = dimensions.filter((dimension) => !includedDimensions.includes(dimension));
+
+  if (includedDimensions.length === 0) {
+    return { total: undefined, grade: undefined, includedDimensions, excludedDimensions };
+  }
+
+  const applicableWeight = includedDimensions.reduce((sum, dimension) => sum + weights[dimension], 0);
+  const weightedScore = includedDimensions.reduce(
+    (sum, dimension) => sum + (dimScores[dimension] as number) * weights[dimension],
+    0,
+  );
+  const total = weightedScore / applicableWeight;
+  return { total, grade: gradeFromTotal(total), includedDimensions, excludedDimensions };
+}
+
 // ===== 风险标签（入仓/代发分别触发）=====
 export function deriveRiskLabels(
   metrics: SupplierEvaluationMetrics,
@@ -533,10 +564,11 @@ export type SubMetricDetail = {
 };
 
 export type DimensionBreakdown = {
-  dimension: "delivery" | "cost" | "quality" | "service";
+  dimension: SupplierScoreDimension;
   label: string;
   weight: number;
-  score: number;
+  score: number | undefined;
+  status?: "measured" | "not_applicable";
   subMetrics: SubMetricDetail[];
   formulaText: string;
 };
@@ -554,8 +586,8 @@ export type RiskTriggerDetail = {
 export type ScoreBreakdown = {
   dimensions: DimensionBreakdown[];
   totalFormulaText: string;
-  total: number;
-  grade: SupplierGrade;
+  total: number | undefined;
+  grade: SupplierGrade | undefined;
   riskTriggers: RiskTriggerDetail[];
 };
 
@@ -596,14 +628,17 @@ export function getDeliveryBreakdown(
     { key: "expediteOnTimeRate", label: "加急兑现率", value: metrics.expediteOnTimeRate, displayValue: fmtPct(metrics.expediteOnTimeRate), formula: "= 加急按时批数 ÷ 加急总批数", source: "加急订单表现", weight: w.expedite, weightedScore: expedite * w.expedite },
   ].filter((s): s is SubMetricDetail => !!s && s.weight > 0);
 
-  const score = calculateDeliveryScore(metrics, model);
-  const formulaTextRaw = subsAll
+  const applicableSubs = subsAll.filter((sub) => sub.value !== undefined);
+  const score = applicableSubs.length > 0
+    ? applicableSubs.reduce((sum, sub) => sum + sub.weightedScore, 0) / applicableSubs.reduce((sum, sub) => sum + sub.weight, 0)
+    : undefined;
+  const formulaTextRaw = applicableSubs
     .map((s) => `${Math.round(s.weightedScore / s.weight)}×${s.weight}`)
     .join(" + ");
   return {
     dimension: "delivery", label: `交付 ${formulaTag}`, weight: getQcdsWeights(model).delivery, score,
     subMetrics: subsAll,
-    formulaText: `${formulaTextRaw} = ${Math.round(score)}`
+    formulaText: score === undefined ? "暂无有效数据，不计入综合评分" : `${formulaTextRaw} ÷ ${applicableSubs.reduce((sum, sub) => sum + sub.weight, 0)} = ${Math.round(score)}`
   };
 }
 
@@ -721,6 +756,26 @@ export function getScoreBreakdown(
   let quality = getQualityBreakdown(metrics, model);
   let service = getServiceBreakdown(metrics);
 
+  const hasAny = (...values: unknown[]) => values.some((value) => typeof value === "number" && Number.isFinite(value));
+  const applicable: Record<SupplierScoreDimension, boolean> = {
+    delivery: model === "dropship"
+      ? hasAny(metrics.shipWithin48hRate, metrics.logisticsPickupOnTimeRate, metrics.onTimeDeliveryRate, metrics.orderFulfillmentRate, metrics.expediteOnTimeRate)
+      : hasAny(metrics.onTimeDeliveryRate, metrics.peakDeliveryRate, metrics.orderFulfillmentRate, metrics.expediteOnTimeRate),
+    cost: hasAny(metrics.priceCompetitiveness, metrics.currentQuote, metrics.categoryLowestPrice, metrics.priceRiseResponseDays, metrics.priceDropResponseDays, metrics.priceStabilityScore),
+    quality: model === "dropship"
+      ? hasAny(metrics.customerReturnRate, metrics.wrongShipRate, metrics.qualityIssueClosureRate, metrics.repeatIssueRate)
+      : hasAny(metrics.incomingPassRate, metrics.qualityIssueClosureRate, metrics.repeatIssueRate),
+    service: hasAny(metrics.promiseFulfillmentRate, metrics.avgResponseHours, metrics.cooperationAverageScore, metrics.attitudeAverageScore, metrics.solutionProposalRate, metrics.solutionFulfillmentRate, metrics.evasionCount),
+  };
+
+  const markApplicability = (dimension: DimensionBreakdown): DimensionBreakdown => applicable[dimension.dimension]
+    ? { ...dimension, status: "measured" }
+    : { ...dimension, score: undefined, status: "not_applicable", subMetrics: [], formulaText: "暂无有效数据，不计入综合评分" };
+  delivery = markApplicability(delivery);
+  cost = markApplicability(cost);
+  quality = markApplicability(quality);
+  service = markApplicability(service);
+
   // 应用手动扣分项/加分项到维度分数（加分溢出上限120，扣分下限0）
   const activeItems = manualDeductions.filter((d) => !d.ignored);
   for (const item of activeItems) {
@@ -728,33 +783,33 @@ export function getScoreBreakdown(
     const isBonus = item.type === "bonus";
     const maxScore = 120;
     if (item.dimension === "delivery") {
-      delivery = { ...delivery, score: isBonus ? Math.min(maxScore, delivery.score + pts) : Math.max(0, delivery.score - pts) };
+      if (delivery.score !== undefined) delivery = { ...delivery, score: isBonus ? Math.min(maxScore, delivery.score + pts) : Math.max(0, delivery.score - pts) };
     }
     if (item.dimension === "cost") {
-      cost = { ...cost, score: isBonus ? Math.min(maxScore, cost.score + pts) : Math.max(0, cost.score - pts) };
+      if (cost.score !== undefined) cost = { ...cost, score: isBonus ? Math.min(maxScore, cost.score + pts) : Math.max(0, cost.score - pts) };
     }
     if (item.dimension === "quality") {
-      quality = { ...quality, score: isBonus ? Math.min(maxScore, quality.score + pts) : Math.max(0, quality.score - pts) };
+      if (quality.score !== undefined) quality = { ...quality, score: isBonus ? Math.min(maxScore, quality.score + pts) : Math.max(0, quality.score - pts) };
     }
     if (item.dimension === "service") {
-      service = { ...service, score: isBonus ? Math.min(maxScore, service.score + pts) : Math.max(0, service.score - pts) };
+      if (service.score !== undefined) service = { ...service, score: isBonus ? Math.min(maxScore, service.score + pts) : Math.max(0, service.score - pts) };
     }
   }
 
-  const { total, grade } = calculateTotalScoreAndGrade(
+  const { total, grade, includedDimensions, excludedDimensions } = calculateApplicableTotalScoreAndGrade(
     { delivery: delivery.score, cost: cost.score, quality: quality.score, service: service.score },
     model
   );
   const w = getQcdsWeights(model);
+  const dimensionLookup: Record<SupplierScoreDimension, DimensionBreakdown> = { delivery, cost, quality, service };
   const riskTriggers = getRiskTriggerDetails(metrics, model);
   const modelLabel = model === "dropship" ? "代发型权重" : model === "hybrid" ? "混合型权重" : "入仓型权重";
   return {
     dimensions: [delivery, cost, quality, service],
     totalFormulaText:
-      `${Math.round(delivery.score)}×${w.delivery}（交付） + ` +
-      `${Math.round(cost.score)}×${w.cost}（成本） + ` +
-      `${Math.round(quality.score)}×${w.quality}（质量） + ` +
-      `${Math.round(service.score)}×${w.service}（服务） = ${Math.round(total)}分 → ${grade}级\n（${modelLabel}）`,
+      includedDimensions.length > 0
+        ? `${includedDimensions.map((dimension) => `${Math.round(dimensionLookup[dimension].score as number)}×${w[dimension]}（${dimension}）`).join(" + ")} ÷ ${includedDimensions.reduce((sum, dimension) => sum + w[dimension], 0)} = ${Math.round(total as number)}分 → ${grade}级\n（${modelLabel}；未计入：${excludedDimensions.join("、") || "无"}）`
+        : "暂无有效指标，暂不生成综合评分",
     total, grade, riskTriggers
   };
 }

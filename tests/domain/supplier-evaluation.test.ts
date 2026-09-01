@@ -14,7 +14,9 @@ import {
   gradeFromTotal,
   deriveRiskLabels,
   evaluateSupplierFromRaw,
-  aggregateMetricsFromRecords
+  aggregateMetricsFromRecords,
+  calculateApplicableTotalScoreAndGrade,
+  getScoreBreakdown,
 } from "@/features/workbench/supplier-evaluation";
 
 describe("supplier evaluation schemas", () => {
@@ -56,6 +58,34 @@ describe("supplier evaluation schemas", () => {
 });
 
 describe("qcds scoring engine", () => {
+  it("excludes non-applicable dimensions from the total score", () => {
+    const result = calculateApplicableTotalScoreAndGrade({
+      delivery: 90,
+      cost: undefined,
+      quality: 80,
+      service: undefined,
+    });
+    expect(result.total).toBeCloseTo(85, 5);
+    expect(result.includedDimensions).toEqual(["delivery", "quality"]);
+    expect(result.excludedDimensions).toEqual(["cost", "service"]);
+    expect(result.grade).toBe("A");
+  });
+
+  it("returns no score when every dimension is non-applicable", () => {
+    const result = calculateApplicableTotalScoreAndGrade({});
+    expect(result.total).toBeUndefined();
+    expect(result.grade).toBeUndefined();
+  });
+
+  it("marks dimensions without evidence as N/A and excludes them from the displayed total", () => {
+    const result = getScoreBreakdown({ onTimeDeliveryRate: 90 });
+    expect(result.dimensions.find((dim) => dim.dimension === "delivery")?.status).toBe("measured");
+    expect(result.dimensions.find((dim) => dim.dimension === "cost")?.status).toBe("not_applicable");
+    expect(result.dimensions.find((dim) => dim.dimension === "cost")?.score).toBeUndefined();
+    expect(result.total).toBeCloseTo(90, 5);
+    expect(result.grade).toBe("A");
+  });
+
   it("calculateDeliveryScore (入仓): OTD×0.35 + peak×0.30 + fulfill×0.20 + expedite×0.15", () => {
     const s = calculateDeliveryScore({ onTimeDeliveryRate: 70, peakDeliveryRate: 40, orderFulfillmentRate: 88, expediteOnTimeRate: 65 });
     // 70×0.35=24.5 + 40×0.30=12 + 88×0.20=17.6 + 65×0.15=9.75 = 63.85

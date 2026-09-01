@@ -351,7 +351,7 @@ export default function SupplierDetailPage() {
         ) : (
           <div className="flex flex-wrap items-start gap-4">
             <div className="flex items-center gap-3">
-              {latestEval && scoreBreakdown ? (
+              {latestEval && scoreBreakdown && scoreBreakdown.grade && scoreBreakdown.total !== undefined ? (
                 <GradeCircle grade={scoreBreakdown.grade} score={scoreBreakdown.total} />
               ) : (
                 <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-2 border-line bg-paper-warm">
@@ -651,9 +651,13 @@ function OverviewTab({ latestEval, scoreBreakdown, offers, linkedProducts, tasks
       {/* 综合得分 + 公式 + 4维度 - 去卡片化 */}
       <section>
         <div className="flex items-center gap-5 mb-6">
-          <GradeCircle grade={scoreBreakdown.grade} score={scoreBreakdown.total} size="lg" />
+          {scoreBreakdown.total !== undefined && scoreBreakdown.grade ? (
+            <GradeCircle grade={scoreBreakdown.grade} score={scoreBreakdown.total} size="lg" />
+          ) : (
+            <div className="w-20 h-20 rounded-full border border-line flex items-center justify-center text-xs text-muted text-center">暂无<br />评分</div>
+          )}
           <div className="flex-1">
-            <div className="text-xs text-muted">综合评分 · {Math.round(scoreBreakdown.total)}分 / {scoreBreakdown.grade}级</div>
+            <div className="text-xs text-muted">综合评分 · {scoreBreakdown.total !== undefined && scoreBreakdown.grade ? `${Math.round(scoreBreakdown.total)}分 / ${scoreBreakdown.grade}级` : "暂无有效指标"}</div>
             <div className="mt-1 text-sm text-slate-600 font-mono">{scoreBreakdown.totalFormulaText}</div>
           </div>
         </div>
@@ -731,9 +735,9 @@ function DimensionHeader({ dim }: { dim: DimensionBreakdown }) {
   return (
     <div>
       <div className="text-[11px] text-muted">{dim.label} · 权重 {Math.round(dim.weight * 100)}%</div>
-      <div className={`mt-1 text-3xl font-bold ${colorMap[dim.dimension]}`}>{Math.round(dim.score)}</div>
+      <div className={`mt-1 text-3xl font-bold ${colorMap[dim.dimension]}`}>{dim.status === "not_applicable" ? "N/A" : Math.round(dim.score as number)}</div>
       <div className="mt-2 h-1 bg-paper-warm overflow-hidden">
-        <div className={`h-full ${colorMap[dim.dimension].replace("text-", "bg-")}`} style={{ width: `${Math.min(100, dim.score)}%` }} />
+        <div className={`h-full ${colorMap[dim.dimension].replace("text-", "bg-")}`} style={{ width: `${Math.min(100, dim.score ?? 0)}%` }} />
       </div>
     </div>
   );
@@ -741,18 +745,20 @@ function DimensionHeader({ dim }: { dim: DimensionBreakdown }) {
 
 // 维度详情 - 默认全部展开（无折叠）
 function DimensionDetail({ dim }: { dim: DimensionBreakdown }) {
-  const scoreColor = dim.score >= 85 ? "text-success" : dim.score >= 70 ? "text-action" : dim.score >= 60 ? "text-warning" : "text-danger";
+  const scoreColor = dim.score === undefined ? "text-muted" : dim.score >= 85 ? "text-success" : dim.score >= 70 ? "text-action" : dim.score >= 60 ? "text-warning" : "text-danger";
 
   return (
     <section className="border-b border-line pb-6">
       <div className="flex items-center gap-3 mb-4">
         <span className="text-base font-semibold">{dim.label}</span>
         <span className="text-xs text-muted">权重 {Math.round(dim.weight * 100)}%</span>
-        <span className={`text-2xl font-bold ${scoreColor} ml-auto`}>{Math.round(dim.score)}</span>
+        <span className={`text-2xl font-bold ${scoreColor} ml-auto`}>{dim.status === "not_applicable" ? "N/A" : Math.round(dim.score as number)}</span>
       </div>
 
       {/* 子指标列表 - 扁平表格感 */}
-      <div className="space-y-0 mb-3">
+      {dim.status === "not_applicable" ? (
+        <div className="px-3 py-3 text-sm text-muted bg-paper-warm/60">暂无有效数据，本期不计入综合评分。</div>
+      ) : <div className="space-y-0 mb-3">
         {dim.subMetrics.map((sub, idx) => (
           <div key={sub.key} className={`flex items-start gap-4 py-2.5 ${idx < dim.subMetrics.length - 1 ? "border-b border-line-soft" : ""}`}>
             <div className="flex-1 min-w-0">
@@ -772,7 +778,7 @@ function DimensionDetail({ dim }: { dim: DimensionBreakdown }) {
             </div>
           </div>
         ))}
-      </div>
+      </div>}
       <div className="px-3 py-2 text-xs font-mono text-slate-600 bg-paper-warm/60">
         {dim.formulaText}
       </div>
