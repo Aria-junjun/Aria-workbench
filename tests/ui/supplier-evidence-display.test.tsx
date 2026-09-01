@@ -13,4 +13,11 @@ describe("supplier evidence display", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
     expect(source).toContain("去规格关联");
   });
+
+  it("uses the applicable-dimension score breakdown on the supplier overview", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/page.tsx"), "utf8");
+    expect(source).toContain("getScoreBreakdown");
+    expect(source).toContain("N/A");
+    expect(source).toContain("暂无评分");
+  });
 });

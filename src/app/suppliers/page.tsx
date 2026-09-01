@@ -11,7 +11,7 @@ import {
   sortPinnedFirst,
   togglePinned,
 } from "@/features/workbench/local-store";
-import { buildSupplierAutoEvidence, getSupplierKpiSummary, getQcdsWeights, type SupplierEvaluationRecord, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
+import { buildSupplierAutoEvidence, getScoreBreakdown, getSupplierKpiSummary, getQcdsWeights, type SupplierEvaluationRecord, type SupplierGrade, type SupplierBusinessModel } from "@/features/workbench/supplier-evaluation";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import {
   buildSupplierDecisionOverviewRows,
@@ -104,10 +104,13 @@ export default function SuppliersPage() {
     : "—";
   const periodSuppliers = suppliers.map((supplier) => {
     const selectedEvaluation = getSelectedEvaluation(supplier.evaluations, period, decisionAnchor);
+    const scoreBreakdown = selectedEvaluation
+      ? getScoreBreakdown(selectedEvaluation.rawMetrics, selectedEvaluation.businessModel ?? supplier.businessModel ?? "inbound")
+      : null;
     return {
       ...supplier,
-      latestEvaluationGrade: selectedEvaluation?.scores.grade,
-      latestEvaluationScore: selectedEvaluation?.scores.total,
+      latestEvaluationGrade: scoreBreakdown?.grade,
+      latestEvaluationScore: scoreBreakdown?.total,
     };
   });
   const kpi = getSupplierKpiSummary(periodSuppliers);
@@ -349,7 +352,7 @@ export default function SuppliersPage() {
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <KpiFlat label="周期内供应商" value={kpi.total} sub={`主供 ${kpi.active} · 备用 ${kpi.backup}`} accent="text-ink" />
-          <KpiFlat label="A级供应商" value={kpi.gradeA} sub={`占比 ${kpi.gradeAPct}%`} accent="text-success" />
+          <KpiFlat label="A级供应商" value={kpi.gradeA} sub={`占有评分供应商 ${kpi.gradeAPct}%`} accent="text-success" />
           <KpiFlat label="聚水潭质量参考" value={autoQualityAverage} sub="实退数量 ÷ 实发数量" accent="text-action" />
           <KpiFlat label="待改善（C/D级）" value={kpi.needsAction} sub={kpi.gradeD > 0 ? `D级 ${kpi.gradeD} · 需启动汰换` : "暂无D级"} accent={kpi.needsAction > 0 ? "text-danger" : "text-success"} />
         </div>
@@ -450,7 +453,10 @@ export default function SuppliersPage() {
             <tbody>
               {paginatedSuppliers.map((supplier) => {
                 const selectedEvaluation = getSelectedEvaluation(supplier.evaluations, period, decisionAnchor);
-                const scores = selectedEvaluation?.scores;
+                const scoreBreakdown = selectedEvaluation
+                  ? getScoreBreakdown(selectedEvaluation.rawMetrics, selectedEvaluation.businessModel ?? supplier.businessModel ?? "inbound")
+                  : null;
+                const score = scoreBreakdown?.total;
                 const autoEvidence = autoEvidenceBySupplier.get(supplier.id);
                 return (
                   <tr key={supplier.id} className="border-b border-line-soft hover:bg-paper-warm/50 transition-colors group">
@@ -486,10 +492,10 @@ export default function SuppliersPage() {
                     </td>
                     <td className="py-3 px-4 text-slate-600">{join(supplier.categories) || "—"}</td>
                     <td className="py-3 px-4 text-center">
-                      {scores ? (
-                        <span className="text-base font-bold">{Math.round(scores.total)}</span>
+                      {scoreBreakdown?.grade && score !== undefined ? (
+                        <span className="text-base font-bold" title={scoreBreakdown.totalFormulaText}>{Math.round(score)}</span>
                       ) : (
-                        <span className="text-muted-light">—</span>
+                        <span className="text-muted-light" title="暂无有效指标">暂无评分</span>
                       )}
                     </td>
                     <td className="py-3 px-4 text-center text-xs">
@@ -503,16 +509,16 @@ export default function SuppliersPage() {
                       )}
                     </td>
                     <td className="py-3 px-4 text-center">
-                      {scores ? (
-                        <GradePill grade={scores.grade} />
+                      {scoreBreakdown?.grade ? (
+                        <GradePill grade={scoreBreakdown.grade} />
                       ) : (
-                        <span className="text-muted-light text-xs">未评估</span>
+                        <span className="text-muted-light text-xs">暂无评分</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-center">{scores ? <MiniScore value={scores.delivery} /> : "—"}</td>
-                    <td className="py-3 px-4 text-center">{scores ? <MiniScore value={scores.cost} /> : "—"}</td>
-                    <td className="py-3 px-4 text-center">{scores ? <MiniScore value={scores.quality} /> : "—"}</td>
-                    <td className="py-3 px-4 text-center">{scores ? <MiniScore value={scores.service} /> : "—"}</td>
+                    <td className="py-3 px-4 text-center"><MiniScore value={scoreBreakdown?.dimensions.find((dim) => dim.dimension === "delivery")?.score} /></td>
+                    <td className="py-3 px-4 text-center"><MiniScore value={scoreBreakdown?.dimensions.find((dim) => dim.dimension === "cost")?.score} /></td>
+                    <td className="py-3 px-4 text-center"><MiniScore value={scoreBreakdown?.dimensions.find((dim) => dim.dimension === "quality")?.score} /></td>
+                    <td className="py-3 px-4 text-center"><MiniScore value={scoreBreakdown?.dimensions.find((dim) => dim.dimension === "service")?.score} /></td>
                     <td className="py-3 px-4">
                        {selectedEvaluation && selectedEvaluation.riskLabels.length > 0 && selectedEvaluation.riskLabels[0] !== "无风险" ? (
                          <div className="flex flex-wrap gap-1">
@@ -650,7 +656,8 @@ function GradePill({ grade }: { grade: SupplierGrade }) {
   );
 }
 
-function MiniScore({ value }: { value: number }) {
+function MiniScore({ value }: { value: number | undefined }) {
+  if (value === undefined) return <span className="text-muted-light">N/A</span>;
   const v = Math.round(value);
   const color = v >= 85 ? "text-success" : v >= 70 ? "text-action" : v >= 60 ? "text-warning" : "text-danger";
   return <span className={`font-medium ${color}`}>{v}</span>;
