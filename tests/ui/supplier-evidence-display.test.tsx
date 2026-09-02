@@ -6,10 +6,12 @@ describe("supplier evidence display", () => {
   it("uses monthly operating data as the primary supplier detail view", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
     expect(source).toContain("<MonthlyPerformanceTab");
-    expect(source).toContain("当前月份");
+    expect(source).toContain("当前操作月份");
     expect(source).toContain("产品族表现");
-    expect(source).toContain('label="数据依据"');
-    expect(source).toContain('label="历史判断"');
+    expect(source).toContain("月度表现 ·");
+    expect(source).toContain("<CostReductionTab");
+    expect(source).not.toContain('label="数据依据"');
+    expect(source).not.toContain('label="历史判断"');
     expect(source).not.toContain('label="评估详情"');
   });
 

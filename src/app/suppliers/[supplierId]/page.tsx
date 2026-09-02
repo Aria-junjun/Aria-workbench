@@ -323,8 +323,9 @@ export default function SupplierDetailPage() {
           <div className="flex flex-wrap items-start gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-2 border-action/30 bg-action-soft">
-                <span className="text-[10px] text-action">当前月份</span>
-                <span className="mt-0.5 text-sm font-semibold text-action">{latestInboundPeriod ?? "未采集"}</span>
+                <span className="text-[10px] text-action">当前操作月份</span>
+                <span className="mt-0.5 text-sm font-semibold text-action">{defaultMonth()}</span>
+                <span className="mt-0.5 text-[9px] text-muted">最新数据 {latestInboundPeriod ?? "未采集"}</span>
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -404,21 +405,29 @@ export default function SupplierDetailPage() {
 
       {/* Tab 导航 - 扁平下划线式 */}
       <div className="flex items-center gap-0 border-b border-line">
-        <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="本月数据" />
-        <TabButton tab="rawData" activeTab={activeTab} onClick={setActiveTab} label="数据依据" count={orderRecords.length + qualityRecords.length + serviceRecords.length} />
-        <TabButton tab="costReduction" activeTab={activeTab} onClick={setActiveTab} label="降本记录" count={costReductionRecords.length} />
-        <TabButton tab="history" activeTab={activeTab} onClick={setActiveTab} label="历史判断" count={evaluations.length} />
+        <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="月度表现" />
       </div>
 
       {/* Tab 内容 */}
       {activeTab === "overview" ? (
-        <MonthlyPerformanceTab
-          period={latestInboundPeriod}
-          inboundTotal={actualInboundTotal}
-          inboundSkuCount={actualInboundProducts.length}
-          returnRate={productReturnRate}
-          monthlyCostRows={monthlyCostRows}
-        />
+        <div className="space-y-6">
+          <MonthlyPerformanceTab
+            period={latestInboundPeriod}
+            inboundTotal={actualInboundTotal}
+            inboundSkuCount={actualInboundProducts.length}
+            returnRate={productReturnRate}
+            monthlyCostRows={monthlyCostRows}
+          />
+          <CostReductionTab
+            costReductionRecords={costReductionRecords}
+            offers={offers}
+            monthlyCostRows={monthlyCostRows}
+            costEvents={supplier.costEvents ?? []}
+            supplierId={supplierId}
+            period={latestInboundPeriod ?? defaultMonth()}
+            onSaved={() => setDecisionVersion((value) => value + 1)}
+          />
+        </div>
       ) : null}
 
       {activeTab === "rawData" ? (
@@ -562,7 +571,7 @@ function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRa
   return (
     <section className="space-y-5 border border-line bg-white p-5">
       <div>
-        <h2 className="text-sm font-semibold">本月数据 · {period ?? "未采集"}</h2>
+        <h2 className="text-sm font-semibold">月度表现 · {period ?? "未采集"}</h2>
         <p className="mt-1 text-xs text-muted">本区域只展示已经导入的聚水潭/结算数据，不把未到月末的数据当作供应商异常。</p>
       </div>
       <div className="grid gap-5 sm:grid-cols-4">
