@@ -28,6 +28,11 @@ describe("supplier dashboard view model", () => {
     const quality = result.suppliers.find((item) => item.supplierId === "quality");
     expect(quality?.erpPerformanceScore).toBe(88);
     expect(quality?.workbenchJudgment).toBe("needs_review");
+    expect(quality?.basis.quality).toBe("abnormal");
+    expect(quality?.basis.delivery).toBe("missing");
+    const delivery = result.suppliers.find((item) => item.supplierId === "delivery");
+    expect(delivery?.basis.delivery).toBe("available");
+    expect(delivery?.basis.quality).toBe("missing");
   });
 
   it("does not treat normal keep-primary decisions as actions", () => {

@@ -649,12 +649,16 @@ export default function SuppliersPage() {
  }
 
  function DashboardBasis({ supplier, cost, hasRelationship }: { supplier: SupplierDashboardViewModel["suppliers"][number]; cost?: number; hasRelationship: boolean }) {
-   const quality = supplier.issue === "quality" ? "异常" : supplier.dataStatus === "available" ? "已采集" : "待采集";
-   const delivery = supplier.dataStatus === "available" ? "已采集" : "待采集";
+   const quality = basisStatusLabel(supplier.basis.quality);
+   const delivery = basisStatusLabel(supplier.basis.delivery);
    const costLabel = cost === undefined ? "待核验" : "已核算";
    const relationship = hasRelationship ? "已关联" : "待确认";
    const completeness = supplier.dataStatus === "available" ? "完整" : "待补";
    return <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-light"><span>质量 {quality}</span><span>交付 {delivery}</span><span>成本 {costLabel}</span><span>供应关系 {relationship}</span><span>数据完整度 {completeness}</span></div>;
+ }
+
+ function basisStatusLabel(status: "available" | "abnormal" | "missing") {
+   return status === "available" ? "已采集" : status === "abnormal" ? "异常" : "待采集";
  }
 
  // ===== 子组件 =====

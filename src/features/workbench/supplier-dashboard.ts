@@ -1,6 +1,7 @@
 export type SupplierDashboardIssueType = "quality" | "delivery" | "cost" | "relationship" | "data_missing";
 export type SupplierWorkbenchJudgment = "normal" | "needs_review" | "waiting_data";
 export type SupplierDataStatus = "available" | "partial" | "missing";
+export type SupplierBasisStatus = "available" | "abnormal" | "missing";
 
 export type SupplierDashboardSupplier = {
   supplierId: string;
@@ -9,6 +10,7 @@ export type SupplierDashboardSupplier = {
   erpPerformanceGrade?: string;
   workbenchJudgment: SupplierWorkbenchJudgment;
   dataStatus: SupplierDataStatus;
+  basis: { quality: SupplierBasisStatus; delivery: SupplierBasisStatus };
   issue?: SupplierDashboardIssueType;
   recommendedAction: string;
 };
@@ -77,17 +79,25 @@ export function buildSupplierDashboard(data: DashboardInput, period: string): Su
         supplierName: supplier.name,
         workbenchJudgment: "waiting_data",
         dataStatus: "missing",
+        basis: { quality: "missing", delivery: "missing" },
         issue: "data_missing",
         recommendedAction: "等待数据",
       };
     }
+    const returnRate = typeof evaluation.rawMetrics?.returnRate === "number" ? evaluation.rawMetrics.returnRate : undefined;
+    const onTimeDeliveryRate = typeof evaluation.rawMetrics?.onTimeDeliveryRate === "number" ? evaluation.rawMetrics.onTimeDeliveryRate : undefined;
+    const basis = {
+      quality: returnRate === undefined ? "missing" : returnRate >= 5 ? "abnormal" : "available",
+      delivery: onTimeDeliveryRate === undefined ? "missing" : "available",
+    } as const;
     return {
       supplierId: supplier.id,
       supplierName: supplier.name,
       erpPerformanceScore: evaluation.scores?.total,
       erpPerformanceGrade: evaluation.scores?.grade,
       workbenchJudgment: issue ? "needs_review" : "normal",
-      dataStatus: "available",
+      dataStatus: basis.quality === "available" && basis.delivery === "available" ? "available" : "partial",
+      basis,
       issue: issue?.issueType,
       recommendedAction: issue?.action ?? "保持主供",
     };
