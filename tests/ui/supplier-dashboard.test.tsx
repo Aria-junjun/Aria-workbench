@@ -12,6 +12,10 @@ describe("supplier dashboard UI contract", () => {
     expect(source).toContain("全部供应商绩效总览");
     expect(source).toContain("聚水潭绩效");
     expect(source).toContain("工作台判断");
+    expect(source).toContain("当前操作月份");
+    expect(source).toContain("最新已导入数据");
+    expect(source).toContain("成本偏差");
+    expect(source).toContain("costRowsBySupplier");
   });
 
   it("does not present the supplier home as a long archive table", () => {

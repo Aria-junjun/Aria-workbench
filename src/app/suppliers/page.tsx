@@ -21,6 +21,7 @@ import {
 } from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import { buildSupplierDashboard, type SupplierDashboardViewModel } from "@/features/workbench/supplier-dashboard";
+import { buildSupplierMonthlyCostRows, type SupplierMonthlyCostRow } from "@/features/workbench/supplier-monthly-cost";
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -158,6 +159,13 @@ export default function SuppliersPage() {
     decisionRowCount: supplierDecisionRows.length,
   });
   const supplierDashboard = buildSupplierDashboard(data, decisionAnchor);
+  const costRowsBySupplier = new Map(suppliers.map((supplier) => [supplier.id, buildSupplierMonthlyCostRows({
+    supplierId: supplier.id,
+    period: decisionAnchor,
+    skuMasters,
+    inboundRows: data.monthlyInboundSnapshots ?? [],
+    offers: data.offers,
+  })]));
 
   function pin(id: string) {
     togglePinned("suppliers", id);
@@ -216,7 +224,7 @@ export default function SuppliersPage() {
     );
   }
 
-  return <SupplierDashboardView dashboard={supplierDashboard} decisionRows={supplierDecisionRows} />;
+  return <SupplierDashboardView dashboard={supplierDashboard} decisionRows={supplierDecisionRows} costRowsBySupplier={costRowsBySupplier} />;
 
   /* 旧版评分与档案页面保留在源码中，仅用于迁移期间的对照，不再作为供应商主页渲染。 */
   return (
@@ -577,8 +585,9 @@ export default function SuppliersPage() {
   );
 }
 
- function SupplierDashboardView({ dashboard, decisionRows }: { dashboard: SupplierDashboardViewModel; decisionRows: SupplierDecisionOverviewRow[] }) {
+ function SupplierDashboardView({ dashboard, decisionRows, costRowsBySupplier }: { dashboard: SupplierDashboardViewModel; decisionRows: SupplierDecisionOverviewRow[]; costRowsBySupplier: Map<string, SupplierMonthlyCostRow[]> }) {
    const rowBySupplier = new Map(decisionRows.map((row) => [row.supplierId, row]));
+   const currentMonth = new Date().toISOString().slice(0, 7);
    return (
      <div className="space-y-6">
        <div className="flex flex-wrap items-start justify-between gap-3">
@@ -588,8 +597,9 @@ export default function SuppliersPage() {
            <p className="mt-1 text-sm text-muted">先处理异常，再看全部供应商绩效表现。</p>
          </div>
          <div className="border border-line bg-white px-4 py-2 text-right text-xs text-muted">
-           当前统计月份
-           <div className="mt-1 text-sm font-medium text-ink">{dashboard.period}</div>
+           <div>当前操作月份</div>
+           <div className="mt-1 text-sm font-medium text-ink">{currentMonth}</div>
+           <div className="mt-1 text-[11px] text-muted-light">最新已导入数据：{dashboard.period}</div>
          </div>
        </div>
 
@@ -609,7 +619,7 @@ export default function SuppliersPage() {
 
        <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
          <div className="mb-3 flex items-center justify-between"><div><h2 className="text-sm font-semibold">全部供应商绩效总览</h2><p className="mt-1 text-xs text-muted">聚水潭绩效是输入，工作台判断负责形成供应关系动作。</p></div><span className="text-xs text-action">筛选　排序　导出</span></div>
-         <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead><tr className="border-b border-line text-xs text-muted"><th className="py-2 text-left font-medium">供应商</th><th className="py-2 text-left font-medium">主供产品族</th><th className="py-2 text-right font-medium">本月入仓</th><th className="py-2 text-right font-medium">聚水潭绩效</th><th className="py-2 text-left font-medium">工作台判断</th><th className="py-2 text-left font-medium">成本偏差</th><th className="py-2 text-left font-medium">当前建议</th></tr></thead><tbody>{dashboard.suppliers.map((supplier) => { const row = rowBySupplier.get(supplier.supplierId); return <tr className="border-b border-line-soft" key={supplier.supplierId}><td className="py-3 font-medium"><Link className="hover:text-action" href={`/suppliers/${supplier.supplierId}`}>{supplier.supplierName}</Link></td><td className="py-3 text-muted">{row?.productNames.length ?? 0} 个</td><td className="py-3 text-right">{row?.receivedQuantity || "—"}</td><td className="py-3 text-right">{supplier.erpPerformanceScore === undefined ? "N/A" : `${Math.round(supplier.erpPerformanceScore)}分`}</td><td className="py-3"><span className={judgmentClass(supplier.workbenchJudgment)}>{judgmentLabel(supplier.workbenchJudgment)}</span></td><td className="py-3 text-muted">待核验</td><td className="py-3 text-action">{supplier.recommendedAction}</td></tr>; })}</tbody></table></div>
+         <div className="overflow-x-auto"><table className="w-full min-w-[980px] table-fixed text-sm"><colgroup><col className="w-[20%]" /><col className="w-[13%]" /><col className="w-[13%]" /><col className="w-[14%]" /><col className="w-[15%]" /><col className="w-[12%]" /><col className="w-[13%]" /></colgroup><thead><tr className="border-b border-line text-xs text-muted"><th className="py-2 pr-4 text-left font-medium">供应商</th><th className="py-2 px-2 text-left font-medium">主供产品族</th><th className="py-2 px-2 text-right font-medium">本月入仓</th><th className="py-2 px-2 text-right font-medium">聚水潭绩效</th><th className="py-2 px-2 text-left font-medium">工作台判断</th><th className="py-2 px-2 text-left font-medium">成本偏差</th><th className="py-2 pl-2 text-left font-medium">当前建议</th></tr></thead><tbody>{dashboard.suppliers.map((supplier) => { const row = rowBySupplier.get(supplier.supplierId); const cost = summarizeDashboardCost(costRowsBySupplier.get(supplier.supplierId) ?? []); return <tr className="border-b border-line-soft" key={supplier.supplierId}><td className="py-3 pr-4 font-medium"><Link className="hover:text-action" href={`/suppliers/${supplier.supplierId}`}>{supplier.supplierName}</Link></td><td className="py-3 px-2 text-muted">{row?.productNames.length ?? 0} 个</td><td className="py-3 px-2 text-right">{row?.receivedQuantity || "—"}</td><td className="py-3 px-2 text-right">{supplier.erpPerformanceScore === undefined ? "N/A" : `${Math.round(supplier.erpPerformanceScore)}分`}</td><td className="py-3 px-2"><span className={judgmentClass(supplier.workbenchJudgment)}>{judgmentLabel(supplier.workbenchJudgment)}</span></td><td className="py-3 px-2">{cost === undefined ? <span className="text-muted">待核验</span> : <span className={cost > 0 ? "text-warning" : "text-success"}>{cost > 0 ? "+" : ""}{cost.toFixed(2)}%</span>}</td><td className="py-3 pl-2 text-action">{supplier.recommendedAction}</td></tr>; })}</tbody></table></div>
        </section>
      </div>
    );
@@ -629,6 +639,13 @@ export default function SuppliersPage() {
 
  function judgmentClass(judgment: SupplierDashboardViewModel["suppliers"][number]["workbenchJudgment"]) {
    return judgment === "normal" ? "text-success" : judgment === "needs_review" ? "text-danger" : "text-warning";
+ }
+
+ function summarizeDashboardCost(rows: SupplierMonthlyCostRow[]) {
+   const measured = rows.filter((row) => row.status === "measured" && row.baselineCost !== undefined && row.settlementCost !== undefined);
+   const baseline = measured.reduce((sum, row) => sum + (row.baselineCost ?? 0), 0);
+   const settlement = measured.reduce((sum, row) => sum + (row.settlementCost ?? 0), 0);
+   return baseline > 0 && measured.length === rows.length ? ((settlement - baseline) / baseline) * 100 : undefined;
  }
 
  // ===== 子组件 =====
