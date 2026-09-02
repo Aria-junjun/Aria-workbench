@@ -86,6 +86,7 @@ export default function SupplierDetailPage() {
   const [settingsPanel, setSettingsPanel] = useState<"relationship" | "capability" | null>(null);
   const [draft, setDraft] = useState<LocalSupplier | undefined>(supplier);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [selectedPeriod, setSelectedPeriod] = useState(defaultMonth());
   const [decisionVersion, setDecisionVersion] = useState(0);
   const [saveError, setSaveError] = useState("");
   const relationshipEditorRef = useRef<SupplierRelationshipEditorHandle>(null);
@@ -114,10 +115,13 @@ export default function SupplierDetailPage() {
     (row) => row.supplierId === supplierId || row.supplierName === supplier.name,
   );
   const latestInboundPeriod = [...new Set(inboundRows.map((row) => row.period))].sort().at(-1);
-  const latestInbound = latestInboundPeriod
-    ? inboundRows.filter((row) => row.period === latestInboundPeriod)
+  const availablePeriods = Array.from(new Set([defaultMonth(), ...inboundRows.map((row) => row.period)]))
+    .sort()
+    .reverse();
+  const selectedInbound = selectedPeriod
+    ? inboundRows.filter((row) => row.period === selectedPeriod)
     : [];
-  const actualInboundProducts = latestInbound.reduce<Array<{ skuCode: string; productName: string; specification: string; receivedQuantity: number }>>((result, row) => {
+  const actualInboundProducts = selectedInbound.reduce<Array<{ skuCode: string; productName: string; specification: string; receivedQuantity: number }>>((result, row) => {
     const sku = data.skuMasters?.find((item) => item.id === row.skuMasterId);
     if (!sku) return result;
     const existing = result.find((item) => item.skuCode === sku.internalSkuCode);
@@ -132,17 +136,17 @@ export default function SupplierDetailPage() {
   const decisionRecords = (data.supplierDecisionRecords ?? [])
     .filter((record) => record.supplierId === supplierId)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  const latestInboundSkuIds = new Set(latestInbound.map((row) => row.skuMasterId));
-  const latestOperatingRows = latestInboundPeriod
-    ? (data.skuOperatingSnapshots ?? []).filter((row) => latestInboundSkuIds.has(row.skuMasterId) && row.period === latestInboundPeriod)
+  const selectedInboundSkuIds = new Set(selectedInbound.map((row) => row.skuMasterId));
+  const selectedOperatingRows = selectedPeriod
+    ? (data.skuOperatingSnapshots ?? []).filter((row) => selectedInboundSkuIds.has(row.skuMasterId) && row.period === selectedPeriod)
     : [];
-  const shippedQuantity = latestOperatingRows.reduce((sum, row) => sum + (row.shippedQuantity ?? row.monthlySales ?? 0), 0);
-  const returnQuantity = latestOperatingRows.reduce((sum, row) => sum + (row.returnQuantity ?? 0), 0);
+  const shippedQuantity = selectedOperatingRows.reduce((sum, row) => sum + (row.shippedQuantity ?? row.monthlySales ?? 0), 0);
+  const returnQuantity = selectedOperatingRows.reduce((sum, row) => sum + (row.returnQuantity ?? 0), 0);
   const productReturnRate = shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
-  const monthlyCostRows = latestInboundPeriod
+  const monthlyCostRows = selectedPeriod
     ? buildSupplierMonthlyCostRows({
       supplierId,
-      period: latestInboundPeriod,
+      period: selectedPeriod,
       skuMasters: data.skuMasters ?? [],
       inboundRows,
       offers,
@@ -371,7 +375,7 @@ export default function SupplierDetailPage() {
 
       <SupplierDecisionLoop
         records={decisionRecords}
-        period={latestInboundPeriod}
+        period={selectedPeriod}
         inboundTotal={actualInboundTotal}
         inboundSkuCount={actualInboundProducts.length}
         returnRate={productReturnRate}
@@ -404,15 +408,25 @@ export default function SupplierDetailPage() {
       </section> : null}
 
       {/* Tab 导航 - 扁平下划线式 */}
-      <div className="flex items-center gap-0 border-b border-line">
+      <div className="flex items-center justify-between border-b border-line">
         <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="月度表现" />
+        <label className="mb-2 flex items-center gap-2 text-xs text-muted">
+          查看月份
+          <select
+            className="border border-line bg-white px-2 py-1 text-xs text-ink"
+            value={selectedPeriod}
+            onChange={(event) => setSelectedPeriod(event.target.value)}
+          >
+            {availablePeriods.map((period) => <option key={period} value={period}>{period}{period === defaultMonth() ? "（当前月）" : ""}</option>)}
+          </select>
+        </label>
       </div>
 
       {/* Tab 内容 */}
       {activeTab === "overview" ? (
         <div className="space-y-6">
           <MonthlyPerformanceTab
-            period={latestInboundPeriod}
+            period={selectedPeriod}
             inboundTotal={actualInboundTotal}
             inboundSkuCount={actualInboundProducts.length}
             returnRate={productReturnRate}
@@ -424,7 +438,7 @@ export default function SupplierDetailPage() {
             monthlyCostRows={monthlyCostRows}
             costEvents={supplier.costEvents ?? []}
             supplierId={supplierId}
-            period={latestInboundPeriod ?? defaultMonth()}
+            period={selectedPeriod}
             onSaved={() => setDecisionVersion((value) => value + 1)}
           />
         </div>

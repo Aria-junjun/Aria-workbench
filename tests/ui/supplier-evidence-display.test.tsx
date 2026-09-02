@@ -7,6 +7,8 @@ describe("supplier evidence display", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
     expect(source).toContain("<MonthlyPerformanceTab");
     expect(source).toContain("当前操作月份");
+    expect(source).toContain("查看月份");
+    expect(source).toContain("period === defaultMonth()");
     expect(source).toContain("产品族表现");
     expect(source).toContain("月度表现 ·");
     expect(source).toContain("<CostReductionTab");
