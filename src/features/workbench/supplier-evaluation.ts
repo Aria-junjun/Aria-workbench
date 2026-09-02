@@ -133,6 +133,11 @@ export const SupplierEvaluationMetricsSchema = z.object({
 
   currentQuote: z.number().optional(),
   categoryLowestPrice: z.number().optional(),
+  // —— 成本核验：供应商约定价、结算价和责任增量成本 ——
+  baselineUnitPrice: z.number().nonnegative().optional(),
+  actualSettlementUnitPrice: z.number().nonnegative().optional(),
+  purchaseQuantity: z.number().positive().optional(),
+  supplierCausedExtraCost: z.number().nonnegative().optional(),
   priceCompetitiveness: z.number().optional(),
   priceRiseResponseDays: z.number().optional(),
   priceDropResponseDays: z.number().optional(),
@@ -371,6 +376,32 @@ export function calculateCostScore(metrics: SupplierEvaluationMetrics): number {
   const stability = m(metrics.priceStabilityScore);
 
   return compet * 0.35 + responseScore * 0.4 + stability * 0.25;
+}
+
+export type SupplierCostEvidence = {
+  baselineUnitPrice?: number;
+  actualSettlementUnitPrice?: number;
+  purchaseQuantity?: number;
+  supplierCausedExtraCost?: number;
+};
+
+export function calculateSupplierCostScore(input: SupplierCostEvidence) {
+  const hasValidBase = [input.baselineUnitPrice, input.actualSettlementUnitPrice, input.purchaseQuantity]
+    .every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0);
+  if (!hasValidBase || input.baselineUnitPrice === 0 || input.purchaseQuantity === 0) {
+    return { baselineCost: undefined, actualSupplierCost: undefined, varianceRate: undefined, score: undefined };
+  }
+
+  const baselineCost = input.baselineUnitPrice! * input.purchaseQuantity!;
+  const actualSupplierCost = input.actualSettlementUnitPrice! * input.purchaseQuantity! + (input.supplierCausedExtraCost ?? 0);
+  const varianceRate = ((actualSupplierCost - baselineCost) / baselineCost) * 100;
+  const score = varianceRate <= 0 ? 100
+    : varianceRate <= 3 ? 95
+      : varianceRate <= 5 ? 85
+        : varianceRate <= 8 ? 70
+          : varianceRate <= 12 ? 50
+            : 30;
+  return { baselineCost, actualSupplierCost, varianceRate, score };
 }
 
 // ===== 质量得分（按合作模式：入仓→来料合格率，代发→客退率/错发率）=====
@@ -637,12 +668,36 @@ export function getDeliveryBreakdown(
     .join(" + ");
   return {
     dimension: "delivery", label: `交付 ${formulaTag}`, weight: getQcdsWeights(model).delivery, score,
-    subMetrics: subsAll,
+    subMetrics: applicableSubs,
     formulaText: score === undefined ? "暂无有效数据，不计入综合评分" : `${formulaTextRaw} ÷ ${applicableSubs.reduce((sum, sub) => sum + sub.weight, 0)} = ${Math.round(score)}`
   };
 }
 
 export function getCostBreakdown(metrics: SupplierEvaluationMetrics): DimensionBreakdown {
+  const supplierCost = calculateSupplierCostScore({
+    baselineUnitPrice: metrics.baselineUnitPrice,
+    actualSettlementUnitPrice: metrics.actualSettlementUnitPrice,
+    purchaseQuantity: metrics.purchaseQuantity,
+    supplierCausedExtraCost: metrics.supplierCausedExtraCost,
+  });
+  if (supplierCost.score === undefined) {
+    return {
+      dimension: "cost", label: "成本", weight: QCDS_WEIGHTS.cost, score: undefined,
+      subMetrics: [], status: "not_applicable", formulaText: "暂无完整采购成本证据，不计入综合评分"
+    };
+  }
+  const varianceScore = supplierCost.score;
+  return {
+    dimension: "cost", label: "成本（供应商责任成本）", weight: QCDS_WEIGHTS.cost, score: varianceScore,
+    subMetrics: [{
+      key: "supplierCostVariance", label: "供应商实际落地成本偏差", value: supplierCost.varianceRate,
+      displayValue: `${supplierCost.varianceRate.toFixed(2)}%`,
+      formula: "=（结算金额+供应商责任增量成本-基准采购成本）÷ 基准采购成本",
+      source: "确认货盘报价、供应商结算单、责任成本记录", weight: 1, weightedScore: varianceScore
+    }],
+    status: "measured", formulaText: `${supplierCost.score}分（成本偏差 ${supplierCost.varianceRate.toFixed(2)}%）`
+  };
+/*
   let compet = metrics.priceCompetitiveness;
   if (typeof compet !== "number" && metrics.categoryLowestPrice && metrics.currentQuote && metrics.currentQuote > 0) {
     compet = (metrics.categoryLowestPrice / metrics.currentQuote) * 100;
@@ -666,6 +721,7 @@ export function getCostBreakdown(metrics: SupplierEvaluationMetrics): DimensionB
     subMetrics: subs,
     formulaText: `${Math.round(compet)}×0.35 + ${Math.round(responseScore)}×0.4 + ${Math.round(stability)}×0.25 = ${Math.round(score)}`
   };
+*/
 }
 
 export function getQualityBreakdown(
@@ -761,7 +817,7 @@ export function getScoreBreakdown(
     delivery: model === "dropship"
       ? hasAny(metrics.shipWithin48hRate, metrics.logisticsPickupOnTimeRate, metrics.onTimeDeliveryRate, metrics.orderFulfillmentRate, metrics.expediteOnTimeRate)
       : hasAny(metrics.onTimeDeliveryRate, metrics.peakDeliveryRate, metrics.orderFulfillmentRate, metrics.expediteOnTimeRate),
-    cost: hasAny(metrics.priceCompetitiveness, metrics.currentQuote, metrics.categoryLowestPrice, metrics.priceRiseResponseDays, metrics.priceDropResponseDays, metrics.priceStabilityScore),
+    cost: cost.score !== undefined,
     quality: model === "dropship"
       ? hasAny(metrics.customerReturnRate, metrics.wrongShipRate, metrics.qualityIssueClosureRate, metrics.repeatIssueRate)
       : hasAny(metrics.incomingPassRate, metrics.qualityIssueClosureRate, metrics.repeatIssueRate),

@@ -17,6 +17,7 @@ import {
   aggregateMetricsFromRecords,
   calculateApplicableTotalScoreAndGrade,
   getScoreBreakdown,
+  calculateSupplierCostScore,
 } from "@/features/workbench/supplier-evaluation";
 
 describe("supplier evaluation schemas", () => {
@@ -84,6 +85,23 @@ describe("qcds scoring engine", () => {
     expect(result.dimensions.find((dim) => dim.dimension === "cost")?.score).toBeUndefined();
     expect(result.total).toBeCloseTo(90, 5);
     expect(result.grade).toBe("A");
+  });
+
+  it("calculates supplier cost from confirmed price, settlement price and supplier-caused extra cost", () => {
+    const result = calculateSupplierCostScore({
+      baselineUnitPrice: 10,
+      actualSettlementUnitPrice: 10.2,
+      purchaseQuantity: 100,
+      supplierCausedExtraCost: 30,
+    });
+    expect(result.baselineCost).toBe(1000);
+    expect(result.actualSupplierCost).toBe(1050);
+    expect(result.varianceRate).toBeCloseTo(5, 5);
+    expect(result.score).toBe(85);
+  });
+
+  it("does not calculate supplier cost without both a baseline and settlement price", () => {
+    expect(calculateSupplierCostScore({ baselineUnitPrice: 10, purchaseQuantity: 100 }).score).toBeUndefined();
   });
 
   it("calculateDeliveryScore (入仓): OTD×0.35 + peak×0.30 + fulfill×0.20 + expedite×0.15", () => {
