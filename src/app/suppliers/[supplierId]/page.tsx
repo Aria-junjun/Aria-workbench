@@ -5,8 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { ListField, TextField } from "@/components/workbench/edit-fields";
 import {
-  analyzeChatAsDraft,
-  commitChatAnalysis,
   deleteLocalItem,
   updateLocalItem,
   updateSupplierRecord,
@@ -15,7 +13,6 @@ import {
   updateManualDeduction,
   deleteManualDeduction,
   saveSupplierDecisionRecord,
-  saveSupplierEvaluation,
   completeSupplierDecisionRecord,
   type LocalSupplier,
   type LocalOffer,
@@ -29,6 +26,7 @@ import {
 import {
   getScoreBreakdown,
   calculateSupplierCostScore,
+  type SupplierCostEvent,
   getQcdsWeights,
   type SupplierEvaluationRecord,
   type SupplierGrade,
@@ -42,6 +40,7 @@ import {
 } from "@/features/workbench/supplier-evaluation";
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { deriveProductFamilyKey } from "@/features/workbench/product-master";
+import { buildSupplierMonthlyCostRows, type SupplierMonthlyCostRow } from "@/features/workbench/supplier-monthly-cost";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import { SupplierRelationshipEditor, type SupplierRelationshipEditorHandle } from "@/components/workbench/supplier-relationship-editor";
 import { SupplierCapabilityEditor, type SupplierCapabilityEditorHandle } from "@/components/workbench/supplier-capability-editor";
@@ -84,20 +83,13 @@ export default function SupplierDetailPage() {
 
   const supplier = data.suppliers.find((s) => s.id === supplierId);
   const [editing, setEditing] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState<"relationship" | "capability" | null>(null);
   const [draft, setDraft] = useState<LocalSupplier | undefined>(supplier);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [decisionVersion, setDecisionVersion] = useState(0);
   const [saveError, setSaveError] = useState("");
   const relationshipEditorRef = useRef<SupplierRelationshipEditorHandle>(null);
   const capabilityEditorRef = useRef<SupplierCapabilityEditorHandle>(null);
-
-  // 聊天快速评估 state
-  const [showChatEval, setShowChatEval] = useState(false);
-  const [chatText, setChatText] = useState("");
-  const [chatPeriod, setChatPeriod] = useState(defaultPeriod());
-  const [chatPreview, setChatPreview] = useState<ChatAnalyzeResult | null>(null);
-  const [chatSaving, setChatSaving] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
 
   if (!supplier) {
     return (
@@ -147,6 +139,15 @@ export default function SupplierDetailPage() {
   const shippedQuantity = latestOperatingRows.reduce((sum, row) => sum + (row.shippedQuantity ?? row.monthlySales ?? 0), 0);
   const returnQuantity = latestOperatingRows.reduce((sum, row) => sum + (row.returnQuantity ?? 0), 0);
   const productReturnRate = shippedQuantity > 0 ? Number(((returnQuantity / shippedQuantity) * 100).toFixed(2)) : undefined;
+  const monthlyCostRows = latestInboundPeriod
+    ? buildSupplierMonthlyCostRows({
+      supplierId,
+      period: latestInboundPeriod,
+      skuMasters: data.skuMasters ?? [],
+      inboundRows,
+      offers,
+    })
+    : [];
   // 通过货盘桥接的产品
   const linkedProducts = offers
     .filter((o) => o.productId)
@@ -228,33 +229,19 @@ export default function SupplierDetailPage() {
     setDecisionVersion((value) => value + 1);
   }
 
-  function handleAnalyzeChat() {
-    if (!chatText.trim() || !supplierId) return;
-    setChatError(null);
-    try {
-      const result = analyzeChatAsDraft({ supplierId, chatText: chatText.trim(), period: chatPeriod });
-      setChatPreview(result);
-    } catch (err) {
-      setChatError(err instanceof Error ? err.message : "解析失败");
-      setChatPreview(null);
+  function saveSettingsPanel() {
+    const relationshipSaveResult = relationshipEditorRef.current?.save();
+    if (relationshipSaveResult && !relationshipSaveResult.saved) {
+      setSaveError(`供应关系保存失败：${relationshipSaveResult.message ?? "请检查关系字段"}`);
+      return;
     }
-  }
-
-  function handleCommitChat() {
-    if (!chatPreview) return;
-    setChatSaving(true);
-    setChatError(null);
-    try {
-      commitChatAnalysis(chatPreview);
-      setChatPreview(null);
-      setChatText("");
-      setShowChatEval(false);
-      router.refresh();
-    } catch (err) {
-      setChatError(err instanceof Error ? err.message : "保存失败");
-    } finally {
-      setChatSaving(false);
+    const capabilitySaveResult = capabilityEditorRef.current?.save();
+    if (capabilitySaveResult && !capabilitySaveResult.saved) {
+      setSaveError(`供应商能力保存失败：${capabilitySaveResult.message ?? "请检查能力字段"}`);
+      return;
     }
+    setSaveError("");
+    setSettingsPanel(null);
   }
 
   const orderRecords = supplier.orderRecords ?? [];
@@ -271,34 +258,16 @@ export default function SupplierDetailPage() {
       </Link>
 
       <div className="flex justify-end gap-2">
+        <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => { setSettingsPanel("relationship"); setEditing(false); }} type="button">维护供应关系</button>
+        <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => { setSettingsPanel("capability"); setEditing(false); }} type="button">维护能力</button>
         {editing ? (
           <>
             <button className="bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90" onClick={save} type="button">保存</button>
             <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={cancelEditing} type="button">取消</button>
           </>
         ) : (
-          <>
-            <button
-              className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm"
-              onClick={() => {
-                setEditing(true);
-                window.setTimeout(() => document.getElementById("supplier-capabilities")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-              }}
-              type="button"
-            >
-              维护能力
-            </button>
-            <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => setEditing(true)} type="button">编辑</button>
-          </>
+          <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => setEditing(true)} type="button">编辑档案</button>
         )}
-        <button
-          className="inline-flex items-center gap-1.5 bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90 transition-colors"
-          onClick={() => setShowChatEval((v) => !v)}
-          type="button"
-        >
-          <ClipboardList className="h-4 w-4" />
-          聊天快速评估
-        </button>
       </div>
       {saveError ? <p className="rounded-lg border border-danger/30 bg-danger-soft/20 px-3 py-2 text-sm text-danger">{saveError}</p> : null}
 
@@ -353,14 +322,10 @@ export default function SupplierDetailPage() {
         ) : (
           <div className="flex flex-wrap items-start gap-4">
             <div className="flex items-center gap-3">
-              {latestEval && scoreBreakdown && scoreBreakdown.grade && scoreBreakdown.total !== undefined ? (
-                <GradeCircle grade={scoreBreakdown.grade} score={scoreBreakdown.total} />
-              ) : (
-                <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-2 border-line bg-paper-warm">
-                  <Building2 className="h-6 w-6 text-muted-light" />
-                  <span className="mt-0.5 text-[9px] text-muted">未评估</span>
-                </div>
-              )}
+              <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-2 border-action/30 bg-action-soft">
+                <span className="text-[10px] text-action">当前月份</span>
+                <span className="mt-0.5 text-sm font-semibold text-action">{latestInboundPeriod ?? "未采集"}</span>
+              </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-2xl font-semibold">{supplier.name}</h1>
@@ -403,45 +368,6 @@ export default function SupplierDetailPage() {
         )}
       </section>
 
-      {/* 聊天快速评估面板 */}
-      {showChatEval ? (
-        <section className="border border-line p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-action" />
-              <h2 className="font-semibold">聊天快速评估</h2>
-            </div>
-            <button className="px-2 py-1 text-xs text-muted hover:text-ink" onClick={() => { setShowChatEval(false); setChatPreview(null); setChatError(null); }} type="button">
-              收起
-            </button>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted">评估周期</label>
-              <input className="border border-line bg-white px-3 py-1.5 text-sm w-40" value={chatPeriod} onChange={(e) => setChatPeriod(e.target.value)} placeholder="如 2026-Q3" />
-            </div>
-            <textarea
-              className="w-full border border-line bg-white p-3 text-sm min-h-[200px] font-mono"
-              placeholder={"粘贴企业微信/微信聊天记录...\n\n例如：\n7月23日 20:13 我: 这种少量的你们发不了吗？\n7月23日 20:13 供应商: 发物流太贵了\n7月23日 20:14 我: 一箱运费多少\n7月23日 20:15 供应商: 按体积算，明天让物流报过来"}
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-            />
-            <div className="flex items-center gap-2">
-              <button className="bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90 disabled:opacity-50" disabled={!chatText.trim() || chatSaving} onClick={handleAnalyzeChat} type="button">解析预览</button>
-              {chatPreview ? (
-                <button className="bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90 disabled:opacity-50" disabled={chatSaving} onClick={handleCommitChat} type="button">
-                  {chatSaving ? "保存中..." : "确认保存评估"}
-                </button>
-              ) : null}
-            </div>
-            {chatError ? (
-              <div className="border border-danger/30 bg-danger-soft/20 px-4 py-3 text-sm text-danger">{chatError}</div>
-            ) : null}
-            {chatPreview ? <ChatPreviewPanel preview={chatPreview} /> : null}
-          </div>
-        </section>
-      ) : null}
-
       <SupplierDecisionLoop
         records={decisionRecords}
         period={latestInboundPeriod}
@@ -452,48 +378,46 @@ export default function SupplierDetailPage() {
         onCompleteDecision={completeDecision}
       />
 
-      <SupplierRelationshipEditor
+      {settingsPanel ? <section className="border border-line bg-white p-5">
+        <div className="mb-4 flex items-center justify-between"><div className="text-sm font-semibold">{settingsPanel === "relationship" ? "维护供应关系" : "维护供应商能力"}</div><button className="text-xs text-muted hover:text-ink" onClick={() => { setSettingsPanel(null); setSaveError(""); }} type="button">收起</button></div>
+      {settingsPanel === "relationship" ? <SupplierRelationshipEditor
         ref={relationshipEditorRef}
         supplierId={supplierId}
         supplierName={supplier.name}
         productFamilies={productFamilies}
         currentPeriod={latestInboundPeriod ?? defaultPeriod()}
         existingAssignments={data.productSupplierAssignments ?? []}
-        editable={editing}
+        editable
         onSaved={() => setDecisionVersion((value) => value + 1)}
-      />
+      /> : null}
 
-      <SupplierCapabilityEditor
+      {settingsPanel === "capability" ? <SupplierCapabilityEditor
         ref={capabilityEditorRef}
         supplierId={supplierId}
         productFamilies={productFamilies}
         capabilities={(data.supplierCapabilities ?? []).filter((item) => item.supplierId === supplierId)}
-        editable={editing}
+        editable
         onSaved={() => setDecisionVersion((value) => value + 1)}
-      />
+      /> : null}
+        <div className="mt-4 flex justify-end gap-2 border-t border-line-soft pt-4"><button className="border border-line px-3 py-1.5 text-xs" onClick={() => setSettingsPanel(null)} type="button">取消</button><button className="bg-action px-3 py-1.5 text-xs text-white" onClick={saveSettingsPanel} type="button">保存</button></div>
+      </section> : null}
 
       {/* Tab 导航 - 扁平下划线式 */}
       <div className="flex items-center gap-0 border-b border-line">
-        <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="评估详情" />
-        <TabButton tab="rawData" activeTab={activeTab} onClick={setActiveTab} label="原始数据" count={orderRecords.length + qualityRecords.length + serviceRecords.length} />
-        <TabButton tab="communications" activeTab={activeTab} onClick={setActiveTab} label="沟通记录" count={communications.length} />
+        <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="本月数据" />
+        <TabButton tab="rawData" activeTab={activeTab} onClick={setActiveTab} label="数据依据" count={orderRecords.length + qualityRecords.length + serviceRecords.length} />
         <TabButton tab="costReduction" activeTab={activeTab} onClick={setActiveTab} label="降本记录" count={costReductionRecords.length} />
-        <TabButton tab="history" activeTab={activeTab} onClick={setActiveTab} label="评估历史" count={evaluations.length} />
+        <TabButton tab="history" activeTab={activeTab} onClick={setActiveTab} label="历史判断" count={evaluations.length} />
       </div>
 
       {/* Tab 内容 */}
       {activeTab === "overview" ? (
-        <OverviewTab
-          latestEval={latestEval}
-          scoreBreakdown={scoreBreakdown}
-          offers={offers}
-          linkedProducts={linkedProducts}
-          tasks={tasks}
-          actualInboundProducts={actualInboundProducts}
-          actualInboundPeriod={latestInboundPeriod}
-          actualInboundTotal={actualInboundTotal}
-          supplierId={supplierId}
-          onGoToRawData={() => setActiveTab("rawData")}
+        <MonthlyPerformanceTab
+          period={latestInboundPeriod}
+          inboundTotal={actualInboundTotal}
+          inboundSkuCount={actualInboundProducts.length}
+          returnRate={productReturnRate}
+          monthlyCostRows={monthlyCostRows}
         />
       ) : null}
 
@@ -518,6 +442,8 @@ export default function SupplierDetailPage() {
         <CostReductionTab
           costReductionRecords={costReductionRecords}
           offers={offers}
+          monthlyCostRows={monthlyCostRows}
+          costEvents={supplier.costEvents ?? []}
           supplierId={supplierId}
           period={latestInboundPeriod ?? defaultMonth()}
           onSaved={() => setDecisionVersion((value) => value + 1)}
@@ -623,6 +549,33 @@ function DecisionEvidence({ label, value, danger = false }: { label: string; val
       <div className="text-xs text-muted">{label}</div>
       <div className={danger ? "mt-1 text-sm font-medium text-danger" : "mt-1 text-sm font-medium text-ink"}>{value}</div>
     </div>
+  );
+}
+
+function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRate, monthlyCostRows }: {
+  period?: string;
+  inboundTotal: number;
+  inboundSkuCount: number;
+  returnRate?: number;
+  monthlyCostRows: SupplierMonthlyCostRow[];
+}) {
+  return (
+    <section className="space-y-5 border border-line bg-white p-5">
+      <div>
+        <h2 className="text-sm font-semibold">本月数据 · {period ?? "未采集"}</h2>
+        <p className="mt-1 text-xs text-muted">本区域只展示已经导入的聚水潭/结算数据，不把未到月末的数据当作供应商异常。</p>
+      </div>
+      <div className="grid gap-5 sm:grid-cols-4">
+        <DecisionEvidence label="本月实际入仓" value={inboundTotal ? String(inboundTotal) : "尚未收录"} />
+        <DecisionEvidence label="实际供货 SKU" value={inboundSkuCount ? `${inboundSkuCount} 个` : "尚未收录"} />
+        <DecisionEvidence label="产品质量信号" value={returnRate === undefined ? "尚未收录" : `退货率 ${returnRate}%`} danger={returnRate !== undefined && returnRate >= 5} />
+        <DecisionEvidence label="月度成本核验" value={monthlyCostRows.length ? `${monthlyCostRows.length} 个产品族` : "尚未收录"} />
+      </div>
+      <div className="border-t border-line-soft pt-4">
+        <div className="mb-2 text-xs font-medium text-muted">产品族表现</div>
+        {monthlyCostRows.length > 0 ? <div className="space-y-0">{monthlyCostRows.map((row) => <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft py-2 text-xs" key={row.productFamilyKey}><span className="font-medium text-ink">{row.productFamilyKey}</span><span>SKU {row.skuRows.length}</span><span>入仓 {row.purchaseQuantity}</span><span>{row.status === "measured" ? "成本数据完整" : "成本待复核"}</span></div>)}</div> : <div className="text-sm text-muted">本月尚未形成可核验的产品族成本数据。</div>}
+      </div>
+    </section>
   );
 }
 
@@ -1984,64 +1937,76 @@ function CommunicationsTab({ communications }: { communications: LocalCommunicat
 }
 
 // ===== Tab 4: 降本记录 - 去卡片化 =====
-function CostReductionTab({ costReductionRecords, offers, supplierId, period, onSaved }: {
+function CostReductionTab({ costReductionRecords, offers, monthlyCostRows, costEvents, supplierId, period, onSaved }: {
   costReductionRecords: SupplierCostReduction[];
   offers: LocalOffer[];
+  monthlyCostRows: SupplierMonthlyCostRow[];
+  costEvents: SupplierCostEvent[];
   supplierId?: string;
   period?: string;
   onSaved?: () => void;
 }) {
-  const [baseline, setBaseline] = useState("");
-  const [settlement, setSettlement] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [extraCost, setExtraCost] = useState("0");
+  const [eventFamily, setEventFamily] = useState("");
+  const [eventType, setEventType] = useState<SupplierCostEvent["eventType"]>("其他");
+  const [eventReason, setEventReason] = useState("");
+  const [eventAmount, setEventAmount] = useState("");
+  const [eventEvidence, setEventEvidence] = useState("");
   const [message, setMessage] = useState("");
-  const preview = calculateSupplierCostScore({
-    baselineUnitPrice: Number(baseline),
-    actualSettlementUnitPrice: Number(settlement),
-    purchaseQuantity: Number(quantity),
-    supplierCausedExtraCost: Number(extraCost || 0),
-  });
-  function saveCostEvidence() {
-    if (!supplierId || preview.score === undefined) {
-      setMessage("请填写有效的基准价、结算价和采购数量。");
+  function saveCostEvent() {
+    const amount = Number(eventAmount);
+    if (!supplierId || !eventFamily || !eventReason.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setMessage("请填写产品族、事件原因和有效的增量金额。");
       return;
     }
-    saveSupplierEvaluation({
+    const event: SupplierCostEvent = {
+      id: `cost-event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       supplierId,
       period: period ?? defaultMonth(),
-      periodType: "month",
-      metrics: {
-        baselineUnitPrice: Number(baseline),
-        actualSettlementUnitPrice: Number(settlement),
-        purchaseQuantity: Number(quantity),
-        supplierCausedExtraCost: Number(extraCost || 0),
-      },
-      note: "成本核验：基准价来自已确认货盘报价/采购约定价，实际价来自供应商结算单；ERP成本价不参与供应商评分。",
+      productFamilyKey: eventFamily,
+      eventDate: period ? `${period}-01` : defaultMonth() + "-01",
+      eventType,
+      reason: eventReason.trim(),
+      amount,
+      evidence: eventEvidence.trim() || undefined,
+      status: "pending_review",
+    };
+    updateLocalItem("suppliers", supplierId, {
+      costEvents: [...costEvents, event],
     });
-    setMessage("成本核验已保存到本地评估记录。");
+    setEventReason("");
+    setEventAmount("");
+    setEventEvidence("");
+    setMessage("增量成本事件已保存，待核实后计入月度成本。");
     onSaved?.();
   }
-  if (costReductionRecords.length === 0 && offers.length === 0) {
-    // 继续展示成本核验入口，即使当前没有价格变动记录。
-  }
+  const currentPeriod = period ?? defaultMonth();
+  const currentEvents = costEvents.filter((event) => event.period === currentPeriod);
   return (
     <div className="space-y-8">
       <section>
-        <h3 className="text-sm font-semibold mb-1">成本核验</h3>
-        <p className="text-xs text-muted mb-4">基准价使用已确认货盘报价，实际价使用供应商结算单；聚水潭 ERP 成本价不参与供应商评分。</p>
-        <div className="grid gap-3 sm:grid-cols-4">
-          <CostInput label="基准采购价" value={baseline} onChange={setBaseline} suffix="元" />
-          <CostInput label="实际结算单价" value={settlement} onChange={setSettlement} suffix="元" />
-          <CostInput label="实际采购数量" value={quantity} onChange={setQuantity} suffix="件" />
-          <CostInput label="供应商责任增量成本" value={extraCost} onChange={setExtraCost} suffix="元" />
+        <h3 className="text-sm font-semibold mb-1">成本核验 · {currentPeriod}</h3>
+        <p className="text-xs text-muted mb-4">以下数据由产品板块导入结果自动生成：基准价来自已确认货盘报价，结算价和采购数量来自本月结算/入仓数据；ERP成本价不参与供应商评分。</p>
+        {monthlyCostRows.length > 0 ? (
+          <div className="overflow-x-auto border border-line">
+            <table className="min-w-full text-xs text-left"><thead className="bg-paper-warm text-muted"><tr><th className="px-3 py-2">产品族</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">采购数量</th><th className="px-3 py-2">基准成本</th><th className="px-3 py-2">结算成本</th><th className="px-3 py-2">成本偏差</th><th className="px-3 py-2">状态</th></tr></thead><tbody>{monthlyCostRows.map((row) => {
+              const verifiedExtra = currentEvents.filter((event) => event.productFamilyKey === row.productFamilyKey && event.status === "verified").reduce((sum, event) => sum + event.amount, 0);
+              const score = row.baselineCost !== undefined && row.settlementCost !== undefined ? calculateSupplierCostScore({ baselineUnitPrice: row.baselineCost / row.purchaseQuantity, actualSettlementUnitPrice: row.settlementCost / row.purchaseQuantity, purchaseQuantity: row.purchaseQuantity, supplierCausedExtraCost: verifiedExtra }) : undefined;
+              return <tr className="border-t border-line-soft" key={row.productFamilyKey}><td className="px-3 py-2 font-medium">{row.productFamilyKey}</td><td className="px-3 py-2">{row.skuRows.length}</td><td className="px-3 py-2">{row.purchaseQuantity}</td><td className="px-3 py-2">{row.baselineCost === undefined ? "待复核" : `${row.baselineCost.toFixed(2)}元`}</td><td className="px-3 py-2">{row.settlementCost === undefined ? "待收录" : `${row.settlementCost.toFixed(2)}元`}</td><td className="px-3 py-2">{score?.varianceRate === undefined ? "N/A" : `${score.varianceRate.toFixed(2)}% / ${score.score}分`}</td><td className="px-3 py-2">{row.status === "measured" ? "已核验" : "待复核"}</td></tr>;
+            })}</tbody></table>
+          </div>
+        ) : <div className="border border-line p-4 text-sm text-muted">本月尚未导入该供应商的结算/入仓数据。</div>}
+        <div className="mt-5 border-t border-line pt-4">
+          <div className="mb-3 text-sm font-medium">补录供应商责任增量成本</div>
+          <div className="grid gap-3 sm:grid-cols-5">
+            <label className="text-xs text-muted"><span className="mb-1 block">产品族</span><select className="w-full border border-line bg-white px-2 py-2 text-sm" value={eventFamily} onChange={(event) => setEventFamily(event.target.value)}><option value="">请选择</option>{monthlyCostRows.map((row) => <option key={row.productFamilyKey} value={row.productFamilyKey}>{row.productFamilyKey}</option>)}</select></label>
+            <label className="text-xs text-muted"><span className="mb-1 block">事件类型</span><select className="w-full border border-line bg-white px-2 py-2 text-sm" value={eventType} onChange={(event) => setEventType(event.target.value as SupplierCostEvent["eventType"])}><option>代发费用</option><option>补发费用</option><option>加急物流</option><option>其他</option></select></label>
+            <CostInput label="增量金额" value={eventAmount} onChange={setEventAmount} suffix="元" />
+            <CostInput label="事件原因" value={eventReason} onChange={setEventReason} suffix="" type="text" />
+            <CostInput label="证据" value={eventEvidence} onChange={setEventEvidence} suffix="" type="text" />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3"><button className="rounded border border-action bg-action px-3 py-1.5 text-white" onClick={saveCostEvent} type="button">保存增量成本事件</button>{message ? <span className="text-xs text-muted">{message}</span> : null}</div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
-          <span>成本偏差：{preview.varianceRate === undefined ? "待补齐" : `${preview.varianceRate.toFixed(2)}%`}</span>
-          <span>成本评分：{preview.score === undefined ? "N/A" : `${preview.score}分`}</span>
-          <button className="rounded border border-action bg-action px-3 py-1.5 text-white disabled:opacity-40" disabled={preview.score === undefined} onClick={saveCostEvidence} type="button">保存成本核验</button>
-          {message ? <span className="text-xs text-muted">{message}</span> : null}
-        </div>
+        {currentEvents.length > 0 ? <div className="mt-4 border-t border-line pt-3 text-xs text-muted"><div className="mb-2 font-medium text-ink">本月增量成本事件（{currentEvents.length}）</div><div className="space-y-1">{currentEvents.map((event) => <div className="flex flex-wrap gap-x-4" key={event.id}><span>{event.productFamilyKey}</span><span>{event.eventType}</span><span>{event.reason}</span><span>{event.amount}元</span><span>{event.status === "verified" ? "已核实" : "待核实"}</span></div>)}</div></div> : null}
       </section>
 
       {costReductionRecords.length > 0 ? (
@@ -2093,12 +2058,12 @@ function CostReductionTab({ costReductionRecords, offers, supplierId, period, on
   );
 }
 
-function CostInput({ label, value, onChange, suffix }: { label: string; value: string; onChange: (value: string) => void; suffix: string }) {
+function CostInput({ label, value, onChange, suffix, type = "number" }: { label: string; value: string; onChange: (value: string) => void; suffix: string; type?: "number" | "text" }) {
   return (
     <label className="text-xs text-muted">
       <span className="mb-1 block">{label}</span>
       <div className="flex items-center border border-line bg-white px-2">
-        <input className="min-w-0 flex-1 py-2 text-sm text-ink outline-none" inputMode="decimal" min="0" onChange={(event) => onChange(event.target.value)} type="number" value={value} />
+        <input className="min-w-0 flex-1 py-2 text-sm text-ink outline-none" inputMode={type === "number" ? "decimal" : "text"} min="0" onChange={(event) => onChange(event.target.value)} type={type} value={value} />
         <span className="text-xs text-muted-light">{suffix}</span>
       </div>
     </label>

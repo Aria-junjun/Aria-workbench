@@ -14,6 +14,8 @@ export type ConfirmedInboundRow = {
   mappingLevel?: "sku" | "operating_product";
   period: string;
   receivedQuantity: number;
+  settlementUnitPrice?: number;
+  settlementAmount?: number;
   supplierId?: string;
   supplierName?: string;
   sourceFileName: string;
@@ -166,6 +168,8 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
         ...(familyKey ? { productFamilyKey: familyKey, operatingProductCode, mappingLevel: "operating_product" as const } : { mappingLevel: "sku" as const }),
         period,
         receivedQuantity: row.receivedQuantity,
+        ...(row.unitPrice !== undefined ? { settlementUnitPrice: row.unitPrice } : {}),
+        ...(row.amount !== undefined ? { settlementAmount: row.amount } : {}),
         supplierId: supplier?.id,
         supplierName: supplier?.name ?? supplierFromFile,
         sourceFileName: row.sourceFileName,

@@ -15,10 +15,19 @@ describe("supplier detail decision loop UI contract", () => {
     expect(source).toContain("completeSupplierDecisionRecord");
     expect(source).toContain("supplierDecisionRecords");
     expect(source).toContain("relationshipEditorRef");
-    expect(source).toContain("editable={editing}");
+    expect(source).toContain('{settingsPanel === "relationship" ? <SupplierRelationshipEditor');
     expect(source).toContain(">保存</button>");
     expect(source).toContain("relationshipSaveResult");
     expect(source).toContain("供应关系保存失败");
     expect(source).toContain("setEditing(true)");
+  });
+
+  it("keeps maintenance actions in the header and removes chat quick evaluation from the page", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
+
+    expect(source).toContain("维护供应关系");
+    expect(source).toContain("settingsPanel");
+    expect(source).not.toContain("showChatEval");
+    expect(source).not.toContain("聊天快速评估面板");
   });
 });

@@ -385,6 +385,51 @@ export type SupplierCostEvidence = {
   supplierCausedExtraCost?: number;
 };
 
+export type SupplierCostVerificationRecord = SupplierCostEvidence & {
+  id: string;
+  supplierId: string;
+  productFamilyKey: string;
+  period: string;
+};
+
+export type SupplierCostEvent = {
+  id: string;
+  supplierId: string;
+  productFamilyKey: string;
+  period: string;
+  eventDate: string;
+  eventType: "代发费用" | "补发费用" | "加急物流" | "其他";
+  reason: string;
+  amount: number;
+  evidence?: string;
+  status: "pending_review" | "verified";
+};
+
+/** 按供应商和月份汇总多个产品族，基准价和结算价按采购数量加权。 */
+export function aggregateSupplierCostEvidence(
+  records: SupplierCostVerificationRecord[],
+  supplierId: string,
+  period: string,
+): SupplierCostEvidence | undefined {
+  const matched = records.filter((record) => record.supplierId === supplierId && record.period === period);
+  if (matched.length === 0) return undefined;
+  const valid = matched.filter((record) =>
+    typeof record.baselineUnitPrice === "number" && record.baselineUnitPrice >= 0 &&
+    typeof record.actualSettlementUnitPrice === "number" && record.actualSettlementUnitPrice >= 0 &&
+    typeof record.purchaseQuantity === "number" && record.purchaseQuantity > 0,
+  );
+  if (valid.length === 0) return undefined;
+  const purchaseQuantity = valid.reduce((sum, record) => sum + record.purchaseQuantity!, 0);
+  const baselineCost = valid.reduce((sum, record) => sum + record.baselineUnitPrice! * record.purchaseQuantity!, 0);
+  const settlementCost = valid.reduce((sum, record) => sum + record.actualSettlementUnitPrice! * record.purchaseQuantity!, 0);
+  return {
+    baselineUnitPrice: baselineCost / purchaseQuantity,
+    actualSettlementUnitPrice: settlementCost / purchaseQuantity,
+    purchaseQuantity,
+    supplierCausedExtraCost: valid.reduce((sum, record) => sum + (record.supplierCausedExtraCost ?? 0), 0),
+  };
+}
+
 export function calculateSupplierCostScore(input: SupplierCostEvidence) {
   const hasValidBase = [input.baselineUnitPrice, input.actualSettlementUnitPrice, input.purchaseQuantity]
     .every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0);

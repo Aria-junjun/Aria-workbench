@@ -37,6 +37,7 @@ import {
   type JushuitanSalesImportResult,
 } from "@/features/workbench/jushuitan-sales-import";
 import { summarizeImportQuality } from "@/features/workbench/import-data-quality";
+import { mergeInboundCostFacts } from "@/features/workbench/supplier-monthly-cost";
 import {
   formatSupplierInboundImportError,
   parseSupplierInboundRows,
@@ -285,16 +286,14 @@ export default function ProductMasterPage() {
   }
 
   function saveInboundImport(rows: ConfirmedInboundRow[]) {
-    const grouped = new Map<string, ConfirmedInboundRow>();
-    rows.forEach((row) => {
-      const key = row.mappingLevel === "operating_product" && row.operatingProductCode ? `operating:${row.operatingProductCode}` : `sku:${row.skuMasterId}`;
-      const existing = grouped.get(key);
-      grouped.set(key, existing ? { ...existing, receivedQuantity: existing.receivedQuantity + row.receivedQuantity } : row);
-    });
-    saveMonthlyInboundSnapshots([...grouped.values()]);
+    const grouped = mergeInboundCostFacts(rows.map((row) => ({
+      ...row,
+      key: row.mappingLevel === "operating_product" && row.operatingProductCode ? `operating:${row.operatingProductCode}` : `sku:${row.skuMasterId}`,
+    })));
+    saveMonthlyInboundSnapshots(grouped.map(({ key: _key, ...row }) => row));
     setInboundPreview(null);
     setInboundFileMeta(null);
-    setMessage(`已保存 ${selectedPeriod} 实际入仓：${grouped.size} 条产品族/ SKU 记录；未匹配行未写入。`);
+    setMessage(`已保存 ${selectedPeriod} 实际入仓：${grouped.length} 条产品族/ SKU 记录；未匹配行未写入。`);
   }
 
   function saveSalesImport() {

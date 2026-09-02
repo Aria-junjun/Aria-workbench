@@ -20,6 +20,7 @@ import {
   type SupplierDecisionOverviewRow,
 } from "@/features/workbench/product-master";
 import { labelSupplierType } from "@/features/workbench/display-labels";
+import { buildSupplierDashboard, type SupplierDashboardViewModel } from "@/features/workbench/supplier-dashboard";
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -156,6 +157,7 @@ export default function SuppliersPage() {
     existingProductCount: existingProductFamilyKeys.size,
     decisionRowCount: supplierDecisionRows.length,
   });
+  const supplierDashboard = buildSupplierDashboard(data, decisionAnchor);
 
   function pin(id: string) {
     togglePinned("suppliers", id);
@@ -214,6 +216,9 @@ export default function SuppliersPage() {
     );
   }
 
+  return <SupplierDashboardView dashboard={supplierDashboard} decisionRows={supplierDecisionRows} />;
+
+  /* 旧版评分与档案页面保留在源码中，仅用于迁移期间的对照，不再作为供应商主页渲染。 */
   return (
     <div className="space-y-6" data-version={version}>
       {/* 页头：周期切换 + 操作按钮 */}
@@ -572,7 +577,61 @@ export default function SuppliersPage() {
   );
 }
 
-// ===== 子组件 =====
+ function SupplierDashboardView({ dashboard, decisionRows }: { dashboard: SupplierDashboardViewModel; decisionRows: SupplierDecisionOverviewRow[] }) {
+   const rowBySupplier = new Map(decisionRows.map((row) => [row.supplierId, row]));
+   return (
+     <div className="space-y-6">
+       <div className="flex flex-wrap items-start justify-between gap-3">
+         <div>
+           <p className="text-xs uppercase tracking-[0.12em] text-action">Supplier control center</p>
+           <h1 className="mt-1 text-xl font-semibold">供应商中心</h1>
+           <p className="mt-1 text-sm text-muted">先处理异常，再看全部供应商绩效表现。</p>
+         </div>
+         <div className="border border-line bg-white px-4 py-2 text-right text-xs text-muted">
+           当前统计月份
+           <div className="mt-1 text-sm font-medium text-ink">{dashboard.period}</div>
+         </div>
+       </div>
+
+       <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+         <DashboardKpi label="供应商总数" value={dashboard.stats.total} sub="当前档案" />
+         <DashboardKpi label="需要处理" value={dashboard.stats.needsAction} sub="异常供应商" accent="text-danger" />
+         <DashboardKpi label="正常供应商" value={dashboard.stats.normal} sub="不生成提醒" accent="text-success" />
+         <DashboardKpi label="本月实际入仓" value={decisionRows.reduce((sum, row) => sum + (row.receivedQuantity || 0), 0)} sub="聚水潭入仓数据" />
+         <DashboardKpi label="有效评分" value={dashboard.stats.validScores} sub="有有效评分结果" accent="text-action" />
+         <DashboardKpi label="待补数据" value={dashboard.stats.waitingData} sub="不参与评分" accent="text-warning" />
+       </section>
+
+       <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
+         <div className="mb-3 flex items-center justify-between"><div><h2 className="text-sm font-semibold">待处理供应商</h2><p className="mt-1 text-xs text-muted">只显示需要动作的问题点，按严重程度排序。</p></div><span className="text-xs text-muted">{dashboard.actionQueue.length} 条</span></div>
+         {dashboard.actionQueue.length === 0 ? <div className="py-7 text-center text-sm text-muted">当前月份没有需要处理的供应商。</div> : <div className="divide-y divide-line-soft">{dashboard.actionQueue.map((item) => <div className="flex flex-wrap items-center justify-between gap-3 py-3" key={item.supplierId}><div><div className="text-sm font-medium">{item.supplierName}<span className="ml-2 rounded bg-warning-soft px-2 py-0.5 text-xs text-warning">{dashboardIssueLabel(item.issueType)}</span></div><div className="mt-1 text-xs text-muted">{item.issueType === "data_missing" ? "本月尚未形成有效绩效数据" : "请进入供应商详情查看证据和产品族明细"}</div></div><div className="flex items-center gap-4"><span className="text-xs text-muted">{item.erpPerformanceScore === undefined ? "N/A" : `聚水潭 ${Math.round(item.erpPerformanceScore)}分`}</span><Link className="text-xs text-action hover:underline" href={`/suppliers/${item.supplierId}`}>{item.recommendedAction} →</Link></div></div>)}</div>}
+       </section>
+
+       <section className="rounded-xl border border-line bg-white p-5 shadow-sm">
+         <div className="mb-3 flex items-center justify-between"><div><h2 className="text-sm font-semibold">全部供应商绩效总览</h2><p className="mt-1 text-xs text-muted">聚水潭绩效是输入，工作台判断负责形成供应关系动作。</p></div><span className="text-xs text-action">筛选　排序　导出</span></div>
+         <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead><tr className="border-b border-line text-xs text-muted"><th className="py-2 text-left font-medium">供应商</th><th className="py-2 text-left font-medium">主供产品族</th><th className="py-2 text-right font-medium">本月入仓</th><th className="py-2 text-right font-medium">聚水潭绩效</th><th className="py-2 text-left font-medium">工作台判断</th><th className="py-2 text-left font-medium">成本偏差</th><th className="py-2 text-left font-medium">当前建议</th></tr></thead><tbody>{dashboard.suppliers.map((supplier) => { const row = rowBySupplier.get(supplier.supplierId); return <tr className="border-b border-line-soft" key={supplier.supplierId}><td className="py-3 font-medium"><Link className="hover:text-action" href={`/suppliers/${supplier.supplierId}`}>{supplier.supplierName}</Link></td><td className="py-3 text-muted">{row?.productNames.length ?? 0} 个</td><td className="py-3 text-right">{row?.receivedQuantity || "—"}</td><td className="py-3 text-right">{supplier.erpPerformanceScore === undefined ? "N/A" : `${Math.round(supplier.erpPerformanceScore)}分`}</td><td className="py-3"><span className={judgmentClass(supplier.workbenchJudgment)}>{judgmentLabel(supplier.workbenchJudgment)}</span></td><td className="py-3 text-muted">待核验</td><td className="py-3 text-action">{supplier.recommendedAction}</td></tr>; })}</tbody></table></div>
+       </section>
+     </div>
+   );
+ }
+
+ function DashboardKpi({ label, value, sub, accent = "text-ink" }: { label: string; value: number; sub: string; accent?: string }) {
+   return <div className="border border-line bg-white p-4"><div className="text-xs text-muted">{label}</div><div className={`mt-2 text-2xl font-semibold ${accent}`}>{value}</div><div className="mt-1 text-[11px] text-muted-light">{sub}</div></div>;
+ }
+
+ function dashboardIssueLabel(issue: string) {
+   return issue === "quality" ? "质量异常" : issue === "delivery" ? "交付异常" : issue === "cost" ? "成本偏差" : issue === "relationship" ? "关系待确认" : "待补数据";
+ }
+
+ function judgmentLabel(judgment: SupplierDashboardViewModel["suppliers"][number]["workbenchJudgment"]) {
+   return judgment === "normal" ? "正常·保持主供" : judgment === "needs_review" ? "需要处理" : "待补数据";
+ }
+
+ function judgmentClass(judgment: SupplierDashboardViewModel["suppliers"][number]["workbenchJudgment"]) {
+   return judgment === "normal" ? "text-success" : judgment === "needs_review" ? "text-danger" : "text-warning";
+ }
+
+ // ===== 子组件 =====
 
 const PERIOD_LABELS: Record<Period, string> = {
   month: "月度",
@@ -676,7 +735,8 @@ function DecisionPill({ label, value, tone, active, onClick }: { label: string; 
   );
 }
 
-function decisionFilterLabel(filter: Exclude<DecisionFilter, "all">) {
+ function decisionFilterLabel(filter: DecisionFilter) {
+   if (filter === "all") return "全部动作";
   if (filter === "maintain_primary") return "保持主供";
   if (filter === "review_split") return "复核分拆";
   if (filter === "review_quality") return "复核质量信号";

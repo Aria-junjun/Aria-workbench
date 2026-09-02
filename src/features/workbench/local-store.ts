@@ -23,6 +23,8 @@ import type {
   SupplierQualityIssue,
   SupplierServiceEvent,
   SupplierCostReduction,
+  SupplierCostVerificationRecord,
+  SupplierCostEvent,
   SupplierEvaluationMetrics,
   SupplierEvaluationScores,
   ManualDeduction
@@ -77,6 +79,8 @@ export type LocalSupplier = {
   qualityRecords?: SupplierQualityIssue[];
   serviceRecords?: SupplierServiceEvent[];
   costReductionRecords?: SupplierCostReduction[];
+  costVerificationRecords?: SupplierCostVerificationRecord[];
+  costEvents?: SupplierCostEvent[];
   manualDeductions?: ManualDeduction[];
   latestEvaluationScore?: number;
   latestEvaluationGrade?: SupplierEvaluationRecord["scores"]["grade"];
@@ -335,6 +339,9 @@ export type LocalMonthlyInboundSnapshot = {
   mappingLevel?: "sku" | "operating_product";
   period: string;
   receivedQuantity?: number;
+  /** 月度结算/采购单提供的实际结算单价与金额；不等同于聚水潭 ERP 成本价。 */
+  settlementUnitPrice?: number;
+  settlementAmount?: number;
   actualStock?: number;
   availableStock?: number;
   inTransitQuantity?: number;
@@ -1594,7 +1601,9 @@ export function mergeSuppliers(targetId: string, sourceId: string): LocalWorkben
     orderRecords: concatDedupedRecords(target.orderRecords, source.orderRecords, "id"),
     qualityRecords: concatDedupedRecords(target.qualityRecords, source.qualityRecords, "id"),
     serviceRecords: concatDedupedRecords(target.serviceRecords, source.serviceRecords, "id"),
-    costReductionRecords: concatDedupedRecords(target.costReductionRecords, source.costReductionRecords, "id")
+    costReductionRecords: concatDedupedRecords(target.costReductionRecords, source.costReductionRecords, "id"),
+    costVerificationRecords: concatDedupedRecords(target.costVerificationRecords, source.costVerificationRecords, "id"),
+    costEvents: concatDedupedRecords(target.costEvents, source.costEvents, "id")
   };
 
   // 根据合并后的 evaluations 重新计算 latest 快照，以最新 period 为准
@@ -2397,6 +2406,8 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
         qualityRecords: Array.isArray((supplier as any).qualityRecords) ? (supplier as any).qualityRecords : [],
         serviceRecords: Array.isArray((supplier as any).serviceRecords) ? (supplier as any).serviceRecords : [],
         costReductionRecords: Array.isArray((supplier as any).costReductionRecords) ? (supplier as any).costReductionRecords : [],
+        costVerificationRecords: Array.isArray((supplier as any).costVerificationRecords) ? (supplier as any).costVerificationRecords : [],
+        costEvents: Array.isArray((supplier as any).costEvents) ? (supplier as any).costEvents : [],
         // 如果还没缓存 latest 快照，从 evaluations 里推导一次
         latestEvaluationScore: (supplier as any).latestEvaluationScore ?? pickLatestEvaluationScore(normalizedEvaluations),
         latestEvaluationGrade: (supplier as any).latestEvaluationGrade ?? pickLatestEvaluationGrade(normalizedEvaluations),

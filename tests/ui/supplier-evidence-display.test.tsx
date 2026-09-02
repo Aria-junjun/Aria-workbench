@@ -3,10 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 describe("supplier evidence display", () => {
-  it("does not show a score when an evaluation has no raw evidence", () => {
+  it("uses monthly operating data as the primary supplier detail view", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
-    expect(source).toContain("hasEvaluationEvidence");
-    expect(source).toContain("未评估");
+    expect(source).toContain("<MonthlyPerformanceTab");
+    expect(source).toContain("当前月份");
+    expect(source).toContain("产品族表现");
+    expect(source).toContain('label="数据依据"');
+    expect(source).toContain('label="历史判断"');
+    expect(source).not.toContain('label="评估详情"');
   });
 
   it("keeps unassociated offers actionable from the supplier detail", () => {
@@ -21,10 +25,17 @@ describe("supplier evidence display", () => {
     expect(source).toContain("暂无评分");
   });
 
-  it("provides a structured supplier cost verification entry", () => {
+  it("shows auto-linked monthly cost verification and evidence-only event entry", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
     expect(source).toContain("成本核验");
-    expect(source).toContain("基准采购价");
-    expect(source).toContain("供应商责任增量成本");
+    expect(source).toContain("自动生成");
+    expect(source).toContain("增量金额");
+    expect(source).toContain("保存增量成本事件");
+  });
+
+  it("passes auto-linked monthly cost rows and event records into the verification tab", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
+    expect(source).toMatch(/<CostReductionTab[\s\S]*?monthlyCostRows=\{monthlyCostRows\}/);
+    expect(source).toMatch(/<CostReductionTab[\s\S]*?costEvents=\{supplier\.costEvents \?\? \[\]\}/);
   });
 });

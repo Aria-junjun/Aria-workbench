@@ -18,6 +18,7 @@ import {
   calculateApplicableTotalScoreAndGrade,
   getScoreBreakdown,
   calculateSupplierCostScore,
+  aggregateSupplierCostEvidence,
 } from "@/features/workbench/supplier-evaluation";
 
 describe("supplier evaluation schemas", () => {
@@ -102,6 +103,17 @@ describe("qcds scoring engine", () => {
 
   it("does not calculate supplier cost without both a baseline and settlement price", () => {
     expect(calculateSupplierCostScore({ baselineUnitPrice: 10, purchaseQuantity: 100 }).score).toBeUndefined();
+  });
+
+  it("aggregates cost verification records by product family for one supplier month", () => {
+    const result = aggregateSupplierCostEvidence([
+      { id: "c1", supplierId: "s1", productFamilyKey: "white-board", period: "2026-07", baselineUnitPrice: 10, actualSettlementUnitPrice: 10, purchaseQuantity: 100, supplierCausedExtraCost: 20 },
+      { id: "c2", supplierId: "s1", productFamilyKey: "white-board", period: "2026-07", baselineUnitPrice: 20, actualSettlementUnitPrice: 21, purchaseQuantity: 50, supplierCausedExtraCost: 10 },
+    ], "s1", "2026-07");
+    expect(result?.baselineUnitPrice).toBeCloseTo(13.3333, 3);
+    expect(result?.actualSettlementUnitPrice).toBeCloseTo(13.6667, 3);
+    expect(result?.purchaseQuantity).toBe(150);
+    expect(result?.supplierCausedExtraCost).toBe(30);
   });
 
   it("calculateDeliveryScore (入仓): OTD×0.35 + peak×0.30 + fulfill×0.20 + expedite×0.15", () => {
