@@ -15,6 +15,7 @@ import {
   updateManualDeduction,
   deleteManualDeduction,
   saveSupplierDecisionRecord,
+  saveSupplierEvaluation,
   completeSupplierDecisionRecord,
   type LocalSupplier,
   type LocalOffer,
@@ -27,6 +28,7 @@ import {
 } from "@/features/workbench/local-store";
 import {
   getScoreBreakdown,
+  calculateSupplierCostScore,
   getQcdsWeights,
   type SupplierEvaluationRecord,
   type SupplierGrade,
@@ -513,7 +515,13 @@ export default function SupplierDetailPage() {
       ) : null}
 
       {activeTab === "costReduction" ? (
-        <CostReductionTab costReductionRecords={costReductionRecords} offers={offers} />
+        <CostReductionTab
+          costReductionRecords={costReductionRecords}
+          offers={offers}
+          supplierId={supplierId}
+          period={latestInboundPeriod ?? defaultMonth()}
+          onSaved={() => setDecisionVersion((value) => value + 1)}
+        />
       ) : null}
 
       {activeTab === "history" ? (
@@ -1976,15 +1984,66 @@ function CommunicationsTab({ communications }: { communications: LocalCommunicat
 }
 
 // ===== Tab 4: 降本记录 - 去卡片化 =====
-function CostReductionTab({ costReductionRecords, offers }: {
+function CostReductionTab({ costReductionRecords, offers, supplierId, period, onSaved }: {
   costReductionRecords: SupplierCostReduction[];
   offers: LocalOffer[];
+  supplierId?: string;
+  period?: string;
+  onSaved?: () => void;
 }) {
+  const [baseline, setBaseline] = useState("");
+  const [settlement, setSettlement] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [extraCost, setExtraCost] = useState("0");
+  const [message, setMessage] = useState("");
+  const preview = calculateSupplierCostScore({
+    baselineUnitPrice: Number(baseline),
+    actualSettlementUnitPrice: Number(settlement),
+    purchaseQuantity: Number(quantity),
+    supplierCausedExtraCost: Number(extraCost || 0),
+  });
+  function saveCostEvidence() {
+    if (!supplierId || preview.score === undefined) {
+      setMessage("请填写有效的基准价、结算价和采购数量。");
+      return;
+    }
+    saveSupplierEvaluation({
+      supplierId,
+      period: period ?? defaultMonth(),
+      periodType: "month",
+      metrics: {
+        baselineUnitPrice: Number(baseline),
+        actualSettlementUnitPrice: Number(settlement),
+        purchaseQuantity: Number(quantity),
+        supplierCausedExtraCost: Number(extraCost || 0),
+      },
+      note: "成本核验：基准价来自已确认货盘报价/采购约定价，实际价来自供应商结算单；ERP成本价不参与供应商评分。",
+    });
+    setMessage("成本核验已保存到本地评估记录。");
+    onSaved?.();
+  }
   if (costReductionRecords.length === 0 && offers.length === 0) {
-    return <EmptyTabContent label="暂无降本/报价记录" tip="通过「聊天快速评估」提取价格变动，或添加货盘记录" />;
+    // 继续展示成本核验入口，即使当前没有价格变动记录。
   }
   return (
     <div className="space-y-8">
+      <section>
+        <h3 className="text-sm font-semibold mb-1">成本核验</h3>
+        <p className="text-xs text-muted mb-4">基准价使用已确认货盘报价，实际价使用供应商结算单；聚水潭 ERP 成本价不参与供应商评分。</p>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <CostInput label="基准采购价" value={baseline} onChange={setBaseline} suffix="元" />
+          <CostInput label="实际结算单价" value={settlement} onChange={setSettlement} suffix="元" />
+          <CostInput label="实际采购数量" value={quantity} onChange={setQuantity} suffix="件" />
+          <CostInput label="供应商责任增量成本" value={extraCost} onChange={setExtraCost} suffix="元" />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
+          <span>成本偏差：{preview.varianceRate === undefined ? "待补齐" : `${preview.varianceRate.toFixed(2)}%`}</span>
+          <span>成本评分：{preview.score === undefined ? "N/A" : `${preview.score}分`}</span>
+          <button className="rounded border border-action bg-action px-3 py-1.5 text-white disabled:opacity-40" disabled={preview.score === undefined} onClick={saveCostEvidence} type="button">保存成本核验</button>
+          {message ? <span className="text-xs text-muted">{message}</span> : null}
+        </div>
+      </section>
+
       {costReductionRecords.length > 0 ? (
         <section>
           <h3 className="text-sm font-semibold mb-3">价格变动记录（{costReductionRecords.length}）</h3>
@@ -2031,6 +2090,18 @@ function CostReductionTab({ costReductionRecords, offers }: {
         </section>
       ) : null}
     </div>
+  );
+}
+
+function CostInput({ label, value, onChange, suffix }: { label: string; value: string; onChange: (value: string) => void; suffix: string }) {
+  return (
+    <label className="text-xs text-muted">
+      <span className="mb-1 block">{label}</span>
+      <div className="flex items-center border border-line bg-white px-2">
+        <input className="min-w-0 flex-1 py-2 text-sm text-ink outline-none" inputMode="decimal" min="0" onChange={(event) => onChange(event.target.value)} type="number" value={value} />
+        <span className="text-xs text-muted-light">{suffix}</span>
+      </div>
+    </label>
   );
 }
 
@@ -2290,6 +2361,11 @@ function defaultPeriod(): string {
   const now = new Date();
   const quarter = Math.floor(now.getMonth() / 3) + 1;
   return `${now.getFullYear()}-Q${quarter}`;
+}
+
+function defaultMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 const GRADE_COLORS: Record<string, { bg: string; text: string; border: string }> = {

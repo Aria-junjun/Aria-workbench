@@ -20,4 +20,11 @@ describe("supplier evidence display", () => {
     expect(source).toContain("N/A");
     expect(source).toContain("暂无评分");
   });
+
+  it("provides a structured supplier cost verification entry", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
+    expect(source).toContain("成本核验");
+    expect(source).toContain("基准采购价");
+    expect(source).toContain("供应商责任增量成本");
+  });
 });
