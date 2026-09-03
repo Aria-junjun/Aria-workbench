@@ -25,7 +25,7 @@ describe("supplier decision overview UI contract", () => {
     expect(source).toContain("评分仅作参考");
     expect(source).toContain("buildSupplierDecisionOverviewRows");
     expect(source).toContain("decisionOperatingSnapshots");
-    expect(source).toContain("isInPeriod(snapshot.period, period, decisionAnchor)");
+    expect(source).toContain("snapshot.period === selectedMonth");
     expect(source).toContain("维护供应关系");
     expect(source).toContain("createSupplierDecisionTask");
     expect(source).toContain("生成复核待办");

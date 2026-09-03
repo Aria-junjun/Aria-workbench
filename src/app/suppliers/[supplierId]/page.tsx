@@ -41,6 +41,7 @@ import {
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { deriveProductFamilyKey } from "@/features/workbench/product-master";
 import { buildSupplierMonthlyCostRows, type SupplierMonthlyCostRow } from "@/features/workbench/supplier-monthly-cost";
+import { buildMonthOptions } from "@/features/workbench/month-options";
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import { SupplierRelationshipEditor, type SupplierRelationshipEditorHandle } from "@/components/workbench/supplier-relationship-editor";
 import { SupplierCapabilityEditor, type SupplierCapabilityEditorHandle } from "@/components/workbench/supplier-capability-editor";
@@ -115,9 +116,7 @@ export default function SupplierDetailPage() {
     (row) => row.supplierId === supplierId || row.supplierName === supplier.name,
   );
   const latestInboundPeriod = [...new Set(inboundRows.map((row) => row.period))].sort().at(-1);
-  const availablePeriods = Array.from(new Set([defaultMonth(), ...inboundRows.map((row) => row.period)]))
-    .sort()
-    .reverse();
+  const availablePeriods = buildMonthOptions(inboundRows.map((row) => row.period), defaultMonth());
   const selectedInbound = selectedPeriod
     ? inboundRows.filter((row) => row.period === selectedPeriod)
     : [];
@@ -417,7 +416,7 @@ export default function SupplierDetailPage() {
             value={selectedPeriod}
             onChange={(event) => setSelectedPeriod(event.target.value)}
           >
-            {availablePeriods.map((period) => <option key={period} value={period}>{period}{period === defaultMonth() ? "（当前月）" : ""}</option>)}
+                {availablePeriods.map((period) => <option key={period} value={period}>{period}{period === defaultMonth() ? "（当前月）" : ""}</option>)}
           </select>
         </label>
       </div>
@@ -431,6 +430,7 @@ export default function SupplierDetailPage() {
             inboundSkuCount={actualInboundProducts.length}
             returnRate={productReturnRate}
             monthlyCostRows={monthlyCostRows}
+            costEvents={supplier.costEvents ?? []}
           />
           <CostReductionTab
             costReductionRecords={costReductionRecords}
@@ -575,12 +575,13 @@ function DecisionEvidence({ label, value, danger = false }: { label: string; val
   );
 }
 
-function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRate, monthlyCostRows }: {
+function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRate, monthlyCostRows, costEvents }: {
   period?: string;
   inboundTotal: number;
   inboundSkuCount: number;
   returnRate?: number;
   monthlyCostRows: SupplierMonthlyCostRow[];
+  costEvents: SupplierCostEvent[];
 }) {
   return (
     <section className="space-y-5 border border-line bg-white p-5">
@@ -594,10 +595,10 @@ function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRa
         <DecisionEvidence label="产品质量信号" value={returnRate === undefined ? "尚未收录" : `退货率 ${returnRate}%`} danger={returnRate !== undefined && returnRate >= 5} />
         <DecisionEvidence label="月度成本核验" value={monthlyCostRows.length ? `${monthlyCostRows.length} 个产品族` : "尚未收录"} />
       </div>
-      <div className="border-t border-line-soft pt-4">
-        <div className="mb-2 text-xs font-medium text-muted">产品族表现</div>
-        {monthlyCostRows.length > 0 ? <div className="space-y-0">{monthlyCostRows.map((row) => <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft py-2 text-xs" key={row.productFamilyKey}><span className="font-medium text-ink">{row.productFamilyKey}</span><span>SKU {row.skuRows.length}</span><span>入仓 {row.purchaseQuantity}</span><span>{row.status === "measured" ? "成本数据完整" : "成本待复核"}</span></div>)}</div> : <div className="text-sm text-muted">本月尚未形成可核验的产品族成本数据。</div>}
-      </div>
+       <div className="border-t border-line-soft pt-4">
+         <div className="mb-2 text-xs font-medium text-muted">产品族表现与成本核验</div>
+         {monthlyCostRows.length > 0 ? <div className="overflow-x-auto border border-line"><table className="min-w-full text-xs text-left"><thead className="bg-paper-warm text-muted"><tr><th className="px-3 py-2">产品族</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">采购数量</th><th className="px-3 py-2">基准成本</th><th className="px-3 py-2">结算成本</th><th className="px-3 py-2">成本偏差</th><th className="px-3 py-2">状态</th></tr></thead><tbody>{monthlyCostRows.map((row) => { const verifiedExtra = costEvents.filter((event) => event.productFamilyKey === row.productFamilyKey && event.period === period && event.status === "verified").reduce((sum, event) => sum + event.amount, 0); const score = row.baselineCost !== undefined && row.settlementCost !== undefined ? calculateSupplierCostScore({ baselineUnitPrice: row.baselineCost / row.purchaseQuantity, actualSettlementUnitPrice: row.settlementCost / row.purchaseQuantity, purchaseQuantity: row.purchaseQuantity, supplierCausedExtraCost: verifiedExtra }) : undefined; return <tr className="border-t border-line-soft" key={row.productFamilyKey}><td className="px-3 py-2 font-medium">{row.productFamilyKey}</td><td className="px-3 py-2">{row.skuRows.length}</td><td className="px-3 py-2">{row.purchaseQuantity}</td><td className="px-3 py-2">{row.baselineCost === undefined ? "待复核" : `${row.baselineCost.toFixed(2)}元`}</td><td className="px-3 py-2">{row.settlementCost === undefined ? "待收录" : `${row.settlementCost.toFixed(2)}元`}</td><td className="px-3 py-2">{score?.varianceRate === undefined ? "N/A" : `${score.varianceRate.toFixed(2)}% / ${score.score}分`}</td><td className="px-3 py-2">{row.status === "measured" ? "已核验" : "待复核"}</td></tr>; })}</tbody></table></div> : <div className="text-sm text-muted">本月尚未形成可核验的产品族成本数据。</div>}
+       </div>
     </section>
   );
 }
@@ -2007,17 +2008,8 @@ function CostReductionTab({ costReductionRecords, offers, monthlyCostRows, costE
   return (
     <div className="space-y-8">
       <section>
-        <h3 className="text-sm font-semibold mb-1">成本核验 · {currentPeriod}</h3>
-        <p className="text-xs text-muted mb-4">以下数据由产品板块导入结果自动生成：基准价来自已确认货盘报价，结算价和采购数量来自本月结算/入仓数据；ERP成本价不参与供应商评分。</p>
-        {monthlyCostRows.length > 0 ? (
-          <div className="overflow-x-auto border border-line">
-            <table className="min-w-full text-xs text-left"><thead className="bg-paper-warm text-muted"><tr><th className="px-3 py-2">产品族</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">采购数量</th><th className="px-3 py-2">基准成本</th><th className="px-3 py-2">结算成本</th><th className="px-3 py-2">成本偏差</th><th className="px-3 py-2">状态</th></tr></thead><tbody>{monthlyCostRows.map((row) => {
-              const verifiedExtra = currentEvents.filter((event) => event.productFamilyKey === row.productFamilyKey && event.status === "verified").reduce((sum, event) => sum + event.amount, 0);
-              const score = row.baselineCost !== undefined && row.settlementCost !== undefined ? calculateSupplierCostScore({ baselineUnitPrice: row.baselineCost / row.purchaseQuantity, actualSettlementUnitPrice: row.settlementCost / row.purchaseQuantity, purchaseQuantity: row.purchaseQuantity, supplierCausedExtraCost: verifiedExtra }) : undefined;
-              return <tr className="border-t border-line-soft" key={row.productFamilyKey}><td className="px-3 py-2 font-medium">{row.productFamilyKey}</td><td className="px-3 py-2">{row.skuRows.length}</td><td className="px-3 py-2">{row.purchaseQuantity}</td><td className="px-3 py-2">{row.baselineCost === undefined ? "待复核" : `${row.baselineCost.toFixed(2)}元`}</td><td className="px-3 py-2">{row.settlementCost === undefined ? "待收录" : `${row.settlementCost.toFixed(2)}元`}</td><td className="px-3 py-2">{score?.varianceRate === undefined ? "N/A" : `${score.varianceRate.toFixed(2)}% / ${score.score}分`}</td><td className="px-3 py-2">{row.status === "measured" ? "已核验" : "待复核"}</td></tr>;
-            })}</tbody></table>
-          </div>
-        ) : <div className="border border-line p-4 text-sm text-muted">本月尚未导入该供应商的结算/入仓数据。</div>}
+        <h3 className="text-sm font-semibold mb-1">供应商责任增量成本 · {currentPeriod}</h3>
+        <p className="text-xs text-muted mb-4">产品族的基准成本、结算成本和成本偏差已合并到上方月度表现表；这里仅补录供应商责任事件。</p>
         <div className="mt-5 border-t border-line pt-4">
           <div className="mb-3 text-sm font-medium">补录供应商责任增量成本</div>
           <div className="grid gap-3 sm:grid-cols-5">

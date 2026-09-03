@@ -22,6 +22,7 @@ import {
 import { labelSupplierType } from "@/features/workbench/display-labels";
 import { buildSupplierDashboard, type SupplierDashboardViewModel } from "@/features/workbench/supplier-dashboard";
 import { buildSupplierMonthlyCostRows, type SupplierMonthlyCostRow } from "@/features/workbench/supplier-monthly-cost";
+import { buildMonthOptions } from "@/features/workbench/month-options";
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -39,6 +40,7 @@ const SUPPLIER_PAGE_SIZE = 10;
 
 export default function SuppliersPage() {
   const [period, setPeriod] = useState<Period>("quarter");
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth());
   const [version, setVersion] = useState(0);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicatePairs, setDuplicatePairs] = useState<ReturnType<typeof findDuplicateSuppliers>>([]);
@@ -79,21 +81,22 @@ export default function SuppliersPage() {
   for (const key of duplicateSupplierNames) supplierIdByName.delete(key);
   const inboundPeriods = (data.monthlyInboundSnapshots ?? []).map((snapshot) => snapshot.period).filter(Boolean).sort();
   const decisionAnchor = inboundPeriods.at(-1) ?? new Date().toISOString().slice(0, 7);
+  const availableMonths = buildMonthOptions(inboundPeriods, defaultMonth());
   const decisionSnapshots = (data.monthlyInboundSnapshots ?? [])
-    .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
+    .filter((snapshot) => snapshot.period === selectedMonth)
     .map((snapshot) => ({
       ...snapshot,
       supplierId: snapshot.supplierId ?? (snapshot.supplierName ? supplierIdByName.get(snapshot.supplierName.trim().toLowerCase()) : undefined),
       period: "selected",
     }));
   const decisionOperatingSnapshots = (data.skuOperatingSnapshots ?? [])
-    .filter((snapshot) => isInPeriod(snapshot.period, period, decisionAnchor))
+    .filter((snapshot) => snapshot.period === selectedMonth)
     .map((snapshot) => ({ ...snapshot, period: "selected" }));
   const autoEvidenceBySupplier = new Map(
     suppliers.map((supplier) => [supplier.id, buildSupplierAutoEvidence({
       supplierId: supplier.id,
-      period: decisionAnchor,
-      periodType: period,
+    period: selectedMonth,
+    periodType: "month",
       inboundSnapshots: data.monthlyInboundSnapshots ?? [],
       operatingSnapshots: data.skuOperatingSnapshots ?? [],
     })]),
@@ -145,7 +148,7 @@ export default function SuppliersPage() {
     "selected",
     decisionOperatingSnapshots,
     5,
-    decisionAnchor,
+    selectedMonth,
     data.productSupplierAssignments ?? [],
   );
   const focusedDecisionRows = decisionFilter === "all"
@@ -158,10 +161,10 @@ export default function SuppliersPage() {
     existingProductCount: existingProductFamilyKeys.size,
     decisionRowCount: supplierDecisionRows.length,
   });
-  const supplierDashboard = buildSupplierDashboard(data, decisionAnchor);
+  const supplierDashboard = buildSupplierDashboard(data, selectedMonth);
   const costRowsBySupplier = new Map(suppliers.map((supplier) => [supplier.id, buildSupplierMonthlyCostRows({
     supplierId: supplier.id,
-    period: decisionAnchor,
+    period: selectedMonth,
     skuMasters,
     inboundRows: data.monthlyInboundSnapshots ?? [],
     offers: data.offers,
@@ -224,7 +227,7 @@ export default function SuppliersPage() {
     );
   }
 
-  return <SupplierDashboardView dashboard={supplierDashboard} decisionRows={supplierDecisionRows} costRowsBySupplier={costRowsBySupplier} />;
+  return <SupplierDashboardView dashboard={supplierDashboard} decisionRows={supplierDecisionRows} costRowsBySupplier={costRowsBySupplier} selectedMonth={selectedMonth} availableMonths={availableMonths} latestImportedMonth={decisionAnchor} onMonthChange={setSelectedMonth} />;
 
   /* 旧版评分与档案页面保留在源码中，仅用于迁移期间的对照，不再作为供应商主页渲染。 */
   return (
@@ -585,7 +588,7 @@ export default function SuppliersPage() {
   );
 }
 
- function SupplierDashboardView({ dashboard, decisionRows, costRowsBySupplier }: { dashboard: SupplierDashboardViewModel; decisionRows: SupplierDecisionOverviewRow[]; costRowsBySupplier: Map<string, SupplierMonthlyCostRow[]> }) {
+ function SupplierDashboardView({ dashboard, decisionRows, costRowsBySupplier, selectedMonth, availableMonths, latestImportedMonth, onMonthChange }: { dashboard: SupplierDashboardViewModel; decisionRows: SupplierDecisionOverviewRow[]; costRowsBySupplier: Map<string, SupplierMonthlyCostRow[]>; selectedMonth: string; availableMonths: string[]; latestImportedMonth: string; onMonthChange: (month: string) => void }) {
    const rowBySupplier = new Map(decisionRows.map((row) => [row.supplierId, row]));
    const currentMonth = new Date().toISOString().slice(0, 7);
    return (
@@ -596,10 +599,16 @@ export default function SuppliersPage() {
            <h1 className="mt-1 text-xl font-semibold">供应商中心</h1>
            <p className="mt-1 text-sm text-muted">先处理异常，再看全部供应商绩效表现。</p>
          </div>
-         <div className="border border-line bg-white px-4 py-2 text-right text-xs text-muted">
-           <div>当前操作月份</div>
-           <div className="mt-1 text-sm font-medium text-ink">{currentMonth}</div>
-           <div className="mt-1 text-[11px] text-muted-light">最新已导入数据：{dashboard.period}</div>
+          <div className="border border-line bg-white px-4 py-2 text-right text-xs text-muted">
+            <label className="flex items-center justify-end gap-2">
+              <span>查看月份</span>
+              <select className="border border-line bg-white px-2 py-1 text-xs text-ink" value={selectedMonth} onChange={(event) => onMonthChange(event.target.value)}>
+                {availableMonths.map((month) => <option key={month} value={month}>{month}{month === currentMonth ? "（当前月）" : ""}</option>)}
+              </select>
+            </label>
+            <div className="mt-1 text-[11px] text-muted-light">当前操作月份：{currentMonth} · 正在查看：{selectedMonth}</div>
+            <div className="mt-1 text-[11px] text-muted-light">最新已导入数据：{latestImportedMonth}</div>
+            <div className="mt-1 text-[11px] text-muted-light">当前月份无数据时显示待采集，不自动回退历史月份</div>
          </div>
        </div>
 
@@ -716,6 +725,11 @@ function getSelectedEvaluation(evaluations: SupplierEvaluationRecord[] | undefin
     .filter((evaluation) => evaluation.periodType === period && isInPeriod(evaluation.period, period, anchor))
     .sort((left, right) => `${left.period}-${left.evaluatedAt}`.localeCompare(`${right.period}-${right.evaluatedAt}`))
     .at(-1);
+}
+
+function defaultMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 // 扁平KPI：大字 + 两排小字，无边框无阴影

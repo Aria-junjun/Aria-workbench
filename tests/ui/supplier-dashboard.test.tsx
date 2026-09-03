@@ -23,6 +23,10 @@ describe("supplier dashboard UI contract", () => {
     expect(source).toContain("供应关系");
     expect(source).toContain("数据完整度");
     expect(source).toContain("table-fixed");
+    expect(source).toContain("查看月份");
+    expect(source).toContain("selectedMonth");
+    expect(source).toContain("buildSupplierDashboard(data, selectedMonth)");
+    expect(source).toContain("availableMonths");
   });
 
   it("does not present the supplier home as a long archive table", () => {

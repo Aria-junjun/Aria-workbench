@@ -9,6 +9,8 @@ describe("supplier evidence display", () => {
     expect(source).toContain("当前操作月份");
     expect(source).toContain("查看月份");
     expect(source).toContain("period === defaultMonth()");
+    expect(source).toContain("产品族表现与成本核验");
+    expect(source).toContain("monthlyCostRows");
     expect(source).toContain("产品族表现");
     expect(source).toContain("月度表现 ·");
     expect(source).toContain("<CostReductionTab");
