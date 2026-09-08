@@ -92,3 +92,18 @@ export function calculateQuadrantPosition(
 export function createEmptyKanoCounts(): KanoCounts {
   return { A: 0, O: 0, M: 0, I: 0, R: 0, Q: 0 };
 }
+
+export function validateKanoQuestionDraft(input: {
+  feature: string;
+  functionalQuestion: string;
+  dysfunctionalQuestion: string;
+}): Partial<Record<"feature" | "functionalQuestion" | "dysfunctionalQuestion" | "questionPair", string>> {
+  const errors: Partial<Record<"feature" | "functionalQuestion" | "dysfunctionalQuestion" | "questionPair", string>> = {};
+  if (!input.feature.trim()) errors.feature = "请填写一个可被用户感知的产品特性";
+  if (!input.functionalQuestion.trim()) errors.functionalQuestion = "请填写正向问题";
+  if (!input.dysfunctionalQuestion.trim()) errors.dysfunctionalQuestion = "请填写反向问题";
+  if (input.functionalQuestion.trim() && input.functionalQuestion.trim() === input.dysfunctionalQuestion.trim()) {
+    errors.questionPair = "正向问题和反向问题需要分别描述有/没有该特性";
+  }
+  return errors;
+}
