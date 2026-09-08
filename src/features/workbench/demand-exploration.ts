@@ -93,6 +93,20 @@ export function createEmptyKanoCounts(): KanoCounts {
   return { A: 0, O: 0, M: 0, I: 0, R: 0, Q: 0 };
 }
 
+export function parseKanoResponseText(text: string): { responses: KanoResponse[]; invalidRows: string[] } {
+  const responses: KanoResponse[] = [];
+  const invalidRows: string[] = [];
+  for (const rawRow of text.split(/\r?\n/).map((row) => row.trim()).filter(Boolean)) {
+    const [functional, dysfunctional] = rawRow.split(/\t|,|\s{2,}/).map((value) => value.trim());
+    if (answers.includes(functional as KanoAnswer) && answers.includes(dysfunctional as KanoAnswer)) {
+      responses.push({ functional: functional as KanoAnswer, dysfunctional: dysfunctional as KanoAnswer });
+    } else {
+      invalidRows.push(rawRow);
+    }
+  }
+  return { responses, invalidRows };
+}
+
 export function validateKanoQuestionDraft(input: {
   feature: string;
   functionalQuestion: string;
