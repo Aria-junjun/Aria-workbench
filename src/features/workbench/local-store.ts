@@ -50,6 +50,10 @@ import type {
 } from "./schemas";
 import { randomId } from "@/lib/random-id";
 import {
+  createEmptyKanoCounts,
+  type KanoDemandAnalysis
+} from "./demand-exploration";
+import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
   parseBookPackage,
@@ -59,6 +63,8 @@ import {
 export type LocalSupplier = {
   id: string;
   pinned?: boolean;
+  /** 停用时间；保留后续历史入仓、货盘和绩效记录。 */
+  archivedAt?: string;
   name: string;
   categories: string[];
   location?: string;
@@ -472,6 +478,7 @@ export type LocalWorkbenchData = {
   knowledgeApplications: LocalKnowledgeApplication[];
   decisionCases: DecisionCase[];
   researchReports: ResearchReport[];
+  demandExplorations?: KanoDemandAnalysis[];
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
@@ -641,6 +648,60 @@ export function loadLocalWorkbenchData(): LocalWorkbenchData {
 /** 从云端强制同步到本地（在页面关键入口调用以确保数据新鲜） */
 export function syncFromCloud(): Promise<LocalWorkbenchData> {
   return loadWorkbenchData();
+}
+
+export function createDemandExploration(input: {
+  title: string;
+  userType: string;
+  scenario: string;
+  problem: string;
+  goal: string;
+  feature?: string;
+  productId?: string;
+  productFamily?: string;
+}): KanoDemandAnalysis {
+  const now = new Date().toISOString();
+  return {
+    id: randomId(),
+    title: input.title,
+    userType: input.userType,
+    scenario: input.scenario,
+    problem: input.problem,
+    goal: input.goal,
+    feature: input.feature ?? "",
+    functionalQuestion: "",
+    dysfunctionalQuestion: "",
+    productId: input.productId,
+    productFamily: input.productFamily,
+    responses: [],
+    counts: createEmptyKanoCounts(),
+    si: null,
+    dsi: null,
+    status: "draft",
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+export function loadDemandExplorations(): KanoDemandAnalysis[] {
+  return loadLocalWorkbenchData().demandExplorations ?? [];
+}
+
+export function saveDemandExploration(analysis: KanoDemandAnalysis) {
+  const current = loadLocalWorkbenchData();
+  const existing = current.demandExplorations ?? [];
+  saveLocalWorkbenchData({
+    ...current,
+    demandExplorations: [analysis, ...existing.filter((item) => item.id !== analysis.id)]
+  });
+}
+
+export function updateDemandExploration(id: string, patch: Partial<KanoDemandAnalysis>) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.demandExplorations ?? []).map((item) => item.id === id
+    ? { ...item, ...patch, id: item.id, updatedAt: new Date().toISOString() }
+    : item);
+  saveLocalWorkbenchData({ ...current, demandExplorations: next });
 }
 
 export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
@@ -839,6 +900,7 @@ export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void>
     // 同步失败是可恢复的网络状态，不应使用 console.error 触发 Next.js 开发错误面板。
     // pending-sync 标记会保留，下一次保存或手动同步时继续尝试。
     console.warn("[Sync] 云端暂未同步，本地已保存，稍后将重试:", e instanceof Error ? e.message : e);
+    throw e;
   }
 }
 
@@ -1407,6 +1469,49 @@ export function updateLocalItem<C extends LocalCollectionName>(collection: C, id
   }
   saveLocalWorkbenchData(next);
   return next[collection].find((item) => item.id === id);
+}
+
+export function createSupplier(input: { name: string; location?: string; supplierType?: string; categories?: string[] }) {
+  const name = input.name.trim();
+  if (!name) throw new Error("供应商名称不能为空");
+  const current = loadLocalWorkbenchData();
+  const supplier: LocalSupplier = {
+    id: `supplier-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    location: input.location?.trim() || undefined,
+    supplierType: input.supplierType || "unknown",
+    categories: input.categories ?? [],
+    riskTags: [],
+    createdAt: new Date().toISOString(),
+  };
+  saveLocalWorkbenchData({ ...current, suppliers: [...current.suppliers, supplier] });
+  return supplier;
+}
+
+export function archiveSupplier(supplierId: string) {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((item) => item.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+  const archivedAt = new Date().toISOString();
+  saveLocalWorkbenchData({
+    ...current,
+    suppliers: current.suppliers.map((item) => item.id === supplierId ? { ...item, archivedAt } : item),
+  });
+  return archivedAt;
+}
+
+export function restoreSupplier(supplierId: string) {
+  const current = loadLocalWorkbenchData();
+  const supplier = current.suppliers.find((item) => item.id === supplierId);
+  if (!supplier) throw new Error("未找到供应商");
+  saveLocalWorkbenchData({
+    ...current,
+    suppliers: current.suppliers.map((item) => {
+      if (item.id !== supplierId) return item;
+      const { archivedAt: _archivedAt, ...activeSupplier } = item;
+      return activeSupplier;
+    }),
+  });
 }
 
 export function deleteLocalItem(collection: LocalCollectionName, id: string) {
@@ -2338,6 +2443,7 @@ function emptyData(): LocalWorkbenchData {
     knowledgeApplications: []
     ,decisionCases: [],
     researchReports: [],
+    demandExplorations: [],
     skuMasters: [],
     skuImportBatches: [],
     monthlyInboundSnapshots: [],
@@ -2469,6 +2575,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
       tags: Array.isArray(card.tags) ? card.tags : []
     })),
     researchReports: data.researchReports ?? [],
+    demandExplorations: Array.isArray(data.demandExplorations) ? data.demandExplorations : [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({
       ...item,
       status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const

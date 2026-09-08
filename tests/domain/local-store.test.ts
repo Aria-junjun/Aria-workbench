@@ -26,7 +26,14 @@ import {
   saveSupplierOfferDecision,
   saveSupplierDecisionRecord,
   completeSupplierDecisionRecord,
+  createDemandExploration,
+  loadDemandExplorations,
+  saveDemandExploration,
+  updateDemandExploration,
   createSupplierDecisionTask,
+  createSupplier,
+  archiveSupplier,
+  restoreSupplier,
   updateLocalItem,
   type LocalWorkbenchData,
   type LocalSupplier
@@ -42,6 +49,7 @@ import {
   updateProductImportDraft
 } from "@/features/workbench/product-import-store";
 import type { ProductKnowledgeV2 } from "@/features/workbench/product-knowledge";
+import type { KanoDemandAnalysis } from "@/features/workbench/demand-exploration";
 
 const storage = new Map<string, string>();
 
@@ -57,6 +65,52 @@ beforeEach(() => {
 });
 
 describe("local-store operations", () => {
+  it("normalizes demand explorations for legacy snapshots", () => {
+    saveLocalWorkbenchData(sampleData());
+
+    expect(loadLocalWorkbenchData().demandExplorations).toEqual([]);
+  });
+
+  it("saves and updates an independent demand exploration record", () => {
+    const analysis = createDemandExploration({ title: "不残胶需求", userType: "普通消费者", scenario: "租房布置", problem: "撕除后可能残胶", goal: "判断是否需要优化", feature: "撕除后不残胶" });
+
+    saveDemandExploration(analysis);
+    updateDemandExploration(analysis.id, { status: "completed", si: 0.71, dsi: -0.61 });
+
+    expect(loadDemandExplorations()).toEqual([
+      expect.objectContaining({ id: analysis.id, status: "completed", si: 0.71, dsi: -0.61 })
+    ]);
+  });
+  it("creates an active supplier with empty history buckets", () => {
+    saveLocalWorkbenchData(sampleData());
+
+    const created = createSupplier({ name: "新供应商" });
+
+    expect(created.name).toBe("新供应商");
+    expect(created.archivedAt).toBeUndefined();
+    expect(loadLocalWorkbenchData().suppliers).toContainEqual(expect.objectContaining({ id: created.id, name: "新供应商" }));
+  });
+
+  it("archives a supplier without deleting its historical records", () => {
+    saveLocalWorkbenchData(sampleData());
+
+    archiveSupplier("supplier-1");
+
+    const archived = loadLocalWorkbenchData().suppliers[0];
+    expect(archived.archivedAt).toEqual(expect.any(String));
+    expect(archived.orderRecords).toEqual([]);
+  });
+
+  it("restores an archived supplier without changing historical records", () => {
+    saveLocalWorkbenchData({ ...sampleData(), suppliers: [{ ...sampleData().suppliers[0], archivedAt: "2026-09-03T00:00:00.000Z" }] });
+
+    restoreSupplier("supplier-1");
+
+    const restored = loadLocalWorkbenchData().suppliers[0];
+    expect(restored.archivedAt).toBeUndefined();
+    expect(restored.orderRecords).toEqual([]);
+  });
+
   it("updates a local item", () => {
     saveLocalWorkbenchData(sampleData());
 
