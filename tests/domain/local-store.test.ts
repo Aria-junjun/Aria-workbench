@@ -30,6 +30,11 @@ import {
   loadDemandExplorations,
   saveDemandExploration,
   updateDemandExploration,
+  createDemandConfirmationDocumentRecord,
+  loadDemandConfirmationDocuments,
+  saveDemandConfirmationDocument,
+  updateDemandConfirmationDocument,
+  migrateLegacyDemandExploration,
   createSupplierDecisionTask,
   createSupplier,
   archiveSupplier,
@@ -80,6 +85,26 @@ describe("local-store operations", () => {
     expect(loadDemandExplorations()).toEqual([
       expect.objectContaining({ id: analysis.id, status: "completed", si: 0.71, dsi: -0.61 })
     ]);
+  });
+
+  it("saves and updates demand confirmation documents independently", () => {
+    const document = createDemandConfirmationDocumentRecord({ title: "产品需求确认", productName: "聊天工具" });
+
+    saveDemandConfirmationDocument(document);
+    updateDemandConfirmationDocument(document.id, { status: "completed", title: "产品需求确认 V2" });
+
+    expect(loadDemandConfirmationDocuments()).toEqual([
+      expect.objectContaining({ id: document.id, title: "产品需求确认 V2", status: "completed" })
+    ]);
+  });
+
+  it("migrates a legacy kano analysis into a document with one demand item", () => {
+    const analysis = createDemandExploration({ title: "旧分析", userType: "用户", scenario: "场景", problem: "问题", goal: "目标", feature: "稳定" });
+    const migrated = migrateLegacyDemandExploration(analysis);
+
+    expect(migrated.id).toBe(`legacy-${analysis.id}`);
+    expect(migrated.demandItems).toHaveLength(1);
+    expect(migrated.demandItems[0].subFeature).toBe("稳定");
   });
   it("creates an active supplier with empty history buckets", () => {
     saveLocalWorkbenchData(sampleData());

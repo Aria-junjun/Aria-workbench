@@ -54,6 +54,12 @@ import {
   type KanoDemandAnalysis
 } from "./demand-exploration";
 import {
+  addDemandItem,
+  appendDemandResponse,
+  createDemandConfirmationDocument,
+  type DemandConfirmationDocument
+} from "./demand-confirmation";
+import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
   parseBookPackage,
@@ -479,6 +485,7 @@ export type LocalWorkbenchData = {
   decisionCases: DecisionCase[];
   researchReports: ResearchReport[];
   demandExplorations?: KanoDemandAnalysis[];
+  demandConfirmationDocuments?: DemandConfirmationDocument[];
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
@@ -702,6 +709,60 @@ export function updateDemandExploration(id: string, patch: Partial<KanoDemandAna
     ? { ...item, ...patch, id: item.id, updatedAt: new Date().toISOString() }
     : item);
   saveLocalWorkbenchData({ ...current, demandExplorations: next });
+}
+
+export function createDemandConfirmationDocumentRecord(input: Parameters<typeof createDemandConfirmationDocument>[0]): DemandConfirmationDocument {
+  return createDemandConfirmationDocument(input);
+}
+
+export function migrateLegacyDemandExploration(analysis: KanoDemandAnalysis): DemandConfirmationDocument {
+  let document = createDemandConfirmationDocument({
+    title: analysis.title,
+    productName: analysis.productFamily ?? "",
+    productId: analysis.productId,
+    userType: analysis.userType,
+    scenario: analysis.scenario,
+    problem: analysis.problem,
+    goal: analysis.goal,
+  });
+  document = { ...document, id: `legacy-${analysis.id}`, createdAt: analysis.createdAt, updatedAt: analysis.updatedAt };
+  if (analysis.feature.trim()) {
+    document = addDemandItem(document, { sectionName: "未归类需求", subFeature: analysis.feature, needStatement: analysis.feature });
+    const itemId = document.demandItems[0].id;
+    document = {
+      ...document,
+      demandItems: document.demandItems.map((item) => item.id === itemId
+        ? { ...item, functionalQuestion: analysis.functionalQuestion, dysfunctionalQuestion: analysis.dysfunctionalQuestion }
+        : item)
+    };
+    for (const response of analysis.responses) document = appendDemandResponse(document, itemId, response);
+  }
+  return document;
+}
+
+export function loadDemandConfirmationDocuments(): DemandConfirmationDocument[] {
+  const data = loadLocalWorkbenchData();
+  const current = data.demandConfirmationDocuments ?? [];
+  const migrated = (data.demandExplorations ?? []).map(migrateLegacyDemandExploration);
+  const existingIds = new Set(current.map((document) => document.id));
+  return [...current, ...migrated.filter((document) => !existingIds.has(document.id))];
+}
+
+export function saveDemandConfirmationDocument(document: DemandConfirmationDocument) {
+  const current = loadLocalWorkbenchData();
+  const existing = current.demandConfirmationDocuments ?? [];
+  saveLocalWorkbenchData({
+    ...current,
+    demandConfirmationDocuments: [document, ...existing.filter((item) => item.id !== document.id)]
+  });
+}
+
+export function updateDemandConfirmationDocument(id: string, patch: Partial<DemandConfirmationDocument>) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.demandConfirmationDocuments ?? []).map((document) => document.id === id
+    ? { ...document, ...patch, id: document.id, updatedAt: new Date().toISOString() }
+    : document);
+  saveLocalWorkbenchData({ ...current, demandConfirmationDocuments: next });
 }
 
 export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
@@ -2444,6 +2505,7 @@ function emptyData(): LocalWorkbenchData {
     ,decisionCases: [],
     researchReports: [],
     demandExplorations: [],
+    demandConfirmationDocuments: [],
     skuMasters: [],
     skuImportBatches: [],
     monthlyInboundSnapshots: [],
@@ -2576,6 +2638,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     })),
     researchReports: data.researchReports ?? [],
     demandExplorations: Array.isArray(data.demandExplorations) ? data.demandExplorations : [],
+    demandConfirmationDocuments: Array.isArray(data.demandConfirmationDocuments) ? data.demandConfirmationDocuments : [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({
       ...item,
       status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const
