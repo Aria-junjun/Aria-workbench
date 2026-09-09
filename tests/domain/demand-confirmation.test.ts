@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import {
+  addDemandItem,
+  addDemandQuestion,
+  appendDemandResponse,
+  createDemandConfirmationDocument,
+  summarizeDemandDocument,
+} from "@/features/workbench/demand-confirmation";
+
+describe("demand confirmation document", () => {
+  it("supports multiple sections, items, and exploration questions", () => {
+    let document = createDemandConfirmationDocument({
+      title: "聊天工具需求确认",
+      productName: "聊天工具",
+      userType: "普通消费者",
+      scenario: "日常沟通",
+    });
+
+    document = addDemandItem(document, { sectionName: "聊天功能", subFeature: "文字聊天", needStatement: "消息发送后不丢失" });
+    document = addDemandItem(document, { sectionName: "聊天功能", subFeature: "视频聊天", needStatement: "通话过程稳定" });
+    const itemId = document.demandItems[0].id;
+    document = addDemandQuestion(document, itemId, { text: "谁在什么场景下遇到这个问题？", kind: "exploration" });
+    document = addDemandQuestion(document, itemId, { text: "当前如何解决？", kind: "exploration" });
+
+    expect(document.sections).toHaveLength(1);
+    expect(document.demandItems).toHaveLength(2);
+    expect(document.demandItems[0].questions).toHaveLength(2);
+    expect(document.demandItems[1].questions).toHaveLength(0);
+  });
+
+  it("keeps responses and scores isolated per demand item", () => {
+    let document = createDemandConfirmationDocument({ title: "需求确认", productName: "产品" });
+    document = addDemandItem(document, { sectionName: "板块 A", subFeature: "功能 A", needStatement: "需求 A" });
+    document = addDemandItem(document, { sectionName: "板块 B", subFeature: "功能 B", needStatement: "需求 B" });
+    const firstId = document.demandItems[0].id;
+    const secondId = document.demandItems[1].id;
+    document = appendDemandResponse(document, firstId, { functional: "like", dysfunctional: "dislike" });
+    document = appendDemandResponse(document, secondId, { functional: "must", dysfunctional: "dislike" });
+
+    expect(document.demandItems[0].responses).toHaveLength(1);
+    expect(document.demandItems[1].responses).toHaveLength(1);
+    expect(document.demandItems[0].counts.A).toBe(1);
+    expect(document.demandItems[1].counts.O).toBe(1);
+  });
+
+  it("summarizes document readiness without inventing scores", () => {
+    let document = createDemandConfirmationDocument({ title: "需求确认", productName: "产品" });
+    document = addDemandItem(document, { sectionName: "板块", subFeature: "功能 1", needStatement: "需求 1" });
+    document = addDemandItem(document, { sectionName: "板块", subFeature: "功能 2", needStatement: "需求 2" });
+    document = appendDemandResponse(document, document.demandItems[0].id, { functional: "like", dysfunctional: "dislike" });
+
+    const summary = summarizeDemandDocument(document);
+    expect(summary.demandItemCount).toBe(2);
+    expect(summary.scoredDemandItemCount).toBe(1);
+    expect(summary.comparableDemandItems).toHaveLength(1);
+    expect(summary.evidencePendingCount).toBe(2);
+  });
+});
