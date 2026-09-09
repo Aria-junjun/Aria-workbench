@@ -6,7 +6,7 @@ import {
 } from "@/features/workbench/demand-exploration";
 
 export type DemandDocumentStatus = "draft" | "in_progress" | "completed";
-export type DemandItemStatus = "pending" | "questions_ready" | "sampling" | "completed" | "needs_evidence";
+export type DemandItemStatus = "pending" | "questions_ready" | "sampling" | "completed" | "needs_evidence" | "archived";
 export type DemandQuestionKind = "exploration" | "functional" | "dysfunctional";
 
 export type DemandQuestion = {
@@ -166,7 +166,7 @@ export function appendDemandResponse(
 ): DemandConfirmationDocument {
   const timestamp = now();
   return updateDemandItem(document, demandItemId, (item) => {
-    const responses = [...item.responses, response];
+    const responses = [...item.responses, { ...response, id: response.id ?? makeId("demand-response"), deletedAt: undefined }];
     const counts = summarizeKanoResponses(responses);
     const scores = calculateKanoScores(counts);
     return {
@@ -178,6 +178,54 @@ export function appendDemandResponse(
       status: scores.si === null ? "sampling" : "completed",
       updatedAt: timestamp,
     };
+  });
+}
+
+export function editDemandItem(
+  document: DemandConfirmationDocument,
+  demandItemId: string,
+  patch: { subFeature?: string; needStatement?: string },
+): DemandConfirmationDocument {
+  return updateDemandItem(document, demandItemId, (item) => ({
+    ...item,
+    subFeature: patch.subFeature?.trim() || item.subFeature,
+    needStatement: patch.needStatement?.trim() || item.needStatement,
+    updatedAt: now(),
+  }));
+}
+
+export function archiveDemandItem(document: DemandConfirmationDocument, demandItemId: string): DemandConfirmationDocument {
+  return updateDemandItem(document, demandItemId, (item) => ({ ...item, status: "archived", updatedAt: now() }));
+}
+
+export function restoreDemandItem(document: DemandConfirmationDocument, demandItemId: string): DemandConfirmationDocument {
+  return updateDemandItem(document, demandItemId, (item) => ({ ...item, status: item.responses.length > 0 ? "completed" : "pending", updatedAt: now() }));
+}
+
+export function editDemandResponse(
+  document: DemandConfirmationDocument,
+  demandItemId: string,
+  responseIndex: number,
+  patch: Partial<Pick<KanoResponse, "functional" | "dysfunctional" | "respondentId" | "respondentRole" | "source" | "note">>,
+): DemandConfirmationDocument {
+  return updateResponseAndRecalculate(document, demandItemId, responseIndex, (response) => ({ ...response, ...patch, editedAt: now() }));
+}
+
+export function archiveDemandResponse(document: DemandConfirmationDocument, demandItemId: string, responseIndex: number): DemandConfirmationDocument {
+  return updateResponseAndRecalculate(document, demandItemId, responseIndex, (response) => ({ ...response, deletedAt: now() }));
+}
+
+function updateResponseAndRecalculate(
+  document: DemandConfirmationDocument,
+  demandItemId: string,
+  responseIndex: number,
+  update: (response: KanoResponse) => KanoResponse,
+): DemandConfirmationDocument {
+  return updateDemandItem(document, demandItemId, (item) => {
+    const responses = item.responses.map((response, index) => index === responseIndex ? update(response) : response);
+    const counts = summarizeKanoResponses(responses);
+    const scores = calculateKanoScores(counts);
+    return { ...item, responses, counts, si: scores.si, dsi: scores.dsi, status: item.status === "archived" ? "archived" : scores.si === null ? "sampling" : "completed", updatedAt: now() };
   });
 }
 
@@ -194,12 +242,13 @@ export function updateDemandItem(
 }
 
 export function summarizeDemandDocument(document: DemandConfirmationDocument): DemandDocumentSummary {
-  const comparableDemandItems = document.demandItems.filter((item) => item.si !== null && item.dsi !== null);
+  const activeDemandItems = document.demandItems.filter((item) => item.status !== "archived");
+  const comparableDemandItems = activeDemandItems.filter((item) => item.si !== null && item.dsi !== null);
   return {
-    demandItemCount: document.demandItems.length,
+    demandItemCount: activeDemandItems.length,
     scoredDemandItemCount: comparableDemandItems.length,
     comparableDemandItems,
-    evidencePendingCount: document.demandItems.filter((item) => item.evidence.length === 0).length,
-    completedDemandItemCount: document.demandItems.filter((item) => item.status === "completed").length,
+    evidencePendingCount: activeDemandItems.filter((item) => item.evidence.length === 0).length,
+    completedDemandItemCount: activeDemandItems.filter((item) => item.status === "completed").length,
   };
 }

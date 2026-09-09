@@ -3,7 +3,11 @@ import {
   addDemandItem,
   addDemandQuestion,
   appendDemandResponse,
+  archiveDemandItem,
+  archiveDemandResponse,
   createDemandConfirmationDocument,
+  editDemandItem,
+  editDemandResponse,
   summarizeDemandDocument,
 } from "@/features/workbench/demand-confirmation";
 
@@ -54,5 +58,21 @@ describe("demand confirmation document", () => {
     expect(summary.scoredDemandItemCount).toBe(1);
     expect(summary.comparableDemandItems).toHaveLength(1);
     expect(summary.evidencePendingCount).toBe(2);
+  });
+
+  it("edits items and archives responses without erasing history or scores", () => {
+    let document = createDemandConfirmationDocument({ title: "测试", productName: "白板贴" });
+    document = addDemandItem(document, { sectionName: "书写", subFeature: "擦除", needStatement: "原始描述" });
+    const itemId = document.demandItems[0].id;
+    document = editDemandItem(document, itemId, { subFeature: "内容擦除", needStatement: "擦除后继续使用" });
+    document = appendDemandResponse(document, itemId, { functional: "like", dysfunctional: "dislike" });
+    document = editDemandResponse(document, itemId, 0, { functional: "must" });
+    expect(document.demandItems[0].subFeature).toBe("内容擦除");
+    expect(document.demandItems[0].responses[0].editedAt).toBeTruthy();
+    document = archiveDemandResponse(document, itemId, 0);
+    expect(document.demandItems[0].responses[0].deletedAt).toBeTruthy();
+    expect(document.demandItems[0].si).toBeNull();
+    document = archiveDemandItem(document, itemId);
+    expect(document.demandItems[0].status).toBe("archived");
   });
 });

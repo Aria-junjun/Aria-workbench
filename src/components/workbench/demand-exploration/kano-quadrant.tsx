@@ -5,7 +5,7 @@ import { loadDemandConfirmationDocuments } from "@/features/workbench/local-stor
 
 export function KanoQuadrant({ documentId }: { documentId: string }) {
   const document = useMemo(() => loadDemandConfirmationDocuments().find((item) => item.id === documentId), [documentId]);
-  const scored = document?.demandItems.filter((item) => item.si !== null && item.dsi !== null) ?? [];
+  const scored = document?.demandItems.filter((item) => item.status !== "archived" && item.si !== null && item.dsi !== null) ?? [];
 
   if (scored.length < 2) {
     return <div className="rounded-2xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">暂无可比较需求，至少需要两个有有效 SI / DSI 的需求项。</div>;

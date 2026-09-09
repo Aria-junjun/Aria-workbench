@@ -3,6 +3,7 @@ export type KanoCategory = "A" | "O" | "M" | "I" | "R" | "Q";
 export type KanoAnswer = "like" | "must" | "neutral" | "accept" | "dislike";
 
 export type KanoResponse = {
+  id?: string;
   functional: KanoAnswer;
   dysfunctional: KanoAnswer;
   respondentId?: string;
@@ -10,6 +11,8 @@ export type KanoResponse = {
   answeredAt?: string;
   source?: string;
   note?: string;
+  deletedAt?: string;
+  editedAt?: string;
 };
 
 export type KanoCounts = Record<KanoCategory, number>;
@@ -61,6 +64,7 @@ export function classifyKanoResponse(functional: KanoAnswer, dysfunctional: Kano
 export function summarizeKanoResponses(responses: KanoResponse[]): KanoCounts {
   const counts: KanoCounts = { A: 0, O: 0, M: 0, I: 0, R: 0, Q: 0 };
   for (const response of responses) {
+    if (response.deletedAt) continue;
     if (!answers.includes(response.functional) || !answers.includes(response.dysfunctional)) continue;
     counts[classifyKanoResponse(response.functional, response.dysfunctional)] += 1;
   }
