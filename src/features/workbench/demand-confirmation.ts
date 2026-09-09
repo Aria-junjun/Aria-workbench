@@ -5,7 +5,7 @@ import {
   type KanoResponse,
 } from "@/features/workbench/demand-exploration";
 
-export type DemandDocumentStatus = "draft" | "in_progress" | "completed";
+export type DemandDocumentStatus = "draft" | "in_progress" | "completed" | "archived";
 export type DemandItemStatus = "pending" | "questions_ready" | "sampling" | "completed" | "needs_evidence" | "archived";
 export type DemandQuestionKind = "exploration" | "functional" | "dysfunctional";
 
@@ -107,6 +107,20 @@ export function createDemandConfirmationDocument(input: {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
+}
+
+export function archiveDemandConfirmationDocument(document: DemandConfirmationDocument): DemandConfirmationDocument {
+  return { ...document, status: "archived", updatedAt: now() };
+}
+
+export function restoreDemandConfirmationDocument(document: DemandConfirmationDocument): DemandConfirmationDocument {
+  const activeItems = document.demandItems.filter((item) => item.status !== "archived");
+  const status: DemandDocumentStatus = activeItems.length === 0
+    ? "draft"
+    : activeItems.every((item) => item.status === "completed")
+      ? "completed"
+      : "in_progress";
+  return { ...document, status, updatedAt: now() };
 }
 
 export function addDemandItem(
