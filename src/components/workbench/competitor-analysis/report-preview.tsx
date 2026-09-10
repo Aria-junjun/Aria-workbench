@@ -1,0 +1,6 @@
+import { buildCompetitorAnalysisReport, type CompetitorAnalysisProject } from "@/features/workbench/competitor-analysis";
+
+export function ReportPreview({ project }: { project: CompetitorAnalysisProject }) {
+  const report = buildCompetitorAnalysisReport(project);
+  return <section className="space-y-3 rounded-2xl border border-line bg-surface p-6 shadow-card"><div><h2 className="font-display text-xl font-bold text-ink">竞品分析报告预览</h2><p className="mt-1 text-sm text-muted">报告会保留事实、推断、证据和分析限制，方便继续编辑或导出。</p></div>{report.sections.map((section) => <article key={section.key} className="rounded-xl border border-line bg-paper p-4"><h3 className="font-semibold text-ink">{section.title}</h3><p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted">{section.content || "尚未填写"}</p>{section.evidenceIds.length > 0 && <p className="mt-2 text-xs text-action">已关联 {section.evidenceIds.length} 条证据</p>}</article>)}<div className="rounded-xl border border-warning/30 bg-warning/5 p-4"><h3 className="font-semibold text-ink">分析限制</h3>{report.limitations.map((item) => <p key={item} className="mt-1 text-xs leading-5 text-muted">{item}</p>)}</div><p className="sr-only">执行摘要、分析限制</p></section>;
+}

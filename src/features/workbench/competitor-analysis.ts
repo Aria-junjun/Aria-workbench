@@ -123,6 +123,19 @@ export function updateFiveLayerAnalysis(project: CompetitorAnalysisProject, comp
   return { ...project, layerAnalyses: { ...project.layerAnalyses, [competitorId]: { ...current, [layer]: next } }, updatedAt: now() };
 }
 
+export function addCompetitorStageRecord(project: CompetitorAnalysisProject, input: Pick<CompetitorStageRecord, "competitorId" | "stage" | "versionOrPeriod" | "change"> & Partial<Omit<CompetitorStageRecord, "id" | "competitorId" | "stage" | "versionOrPeriod" | "change">>): CompetitorAnalysisProject {
+  const record: CompetitorStageRecord = { id: id("stage-record"), competitorId: input.competitorId, stage: input.stage, stageGoal: input.stageGoal ?? "", versionOrPeriod: input.versionOrPeriod, change: input.change, reason: input.reason ?? "", borrow: input.borrow ?? "", avoidCopying: input.avoidCopying ?? "", evidenceIds: input.evidenceIds ?? [] };
+  return { ...project, stageRecords: [...project.stageRecords, record], status: "in_progress", updatedAt: now() };
+}
+
+export function addProductComparison(project: CompetitorAnalysisProject, input: Omit<ProductComparison, "id">): CompetitorAnalysisProject {
+  return { ...project, comparisons: [...project.comparisons, { ...input, id: id("comparison") }], status: "in_progress", updatedAt: now() };
+}
+
+export function addCompetitorStrategy(project: CompetitorAnalysisProject, input: Omit<CompetitorStrategy, "id">): CompetitorAnalysisProject {
+  return { ...project, strategies: [...project.strategies, { ...input, id: id("strategy") }], status: "in_progress", updatedAt: now() };
+}
+
 export function archiveCompetitorAnalysisProject(project: CompetitorAnalysisProject): CompetitorAnalysisProject { return { ...project, status: "archived", updatedAt: now() }; }
 export function restoreCompetitorAnalysisProject(project: CompetitorAnalysisProject): CompetitorAnalysisProject { return { ...project, status: project.competitors.length > 0 ? "in_progress" : "draft", updatedAt: now() }; }
 

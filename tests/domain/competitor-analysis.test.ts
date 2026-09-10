@@ -6,6 +6,9 @@ import {
   createCompetitorAnalysisProject,
   restoreCompetitorAnalysisProject,
   updateFiveLayerAnalysis,
+  addCompetitorStageRecord,
+  addProductComparison,
+  addCompetitorStrategy,
   type CompetitorAnalysisProject,
 } from "@/features/workbench/competitor-analysis";
 
@@ -71,5 +74,16 @@ describe("competitor analysis domain", () => {
       "summary", "scope", "competitors", "five_layers", "stages", "self_state", "strategy", "evidence", "limitations",
     ]);
     expect(result.limitations.length).toBeGreaterThan(0);
+  });
+
+  it("stores stages, product comparisons, and traceable strategies", () => {
+    const withCompetitor = addCompetitorProfile(project(), { name: "Notion", relation: "reference" });
+    const competitorId = withCompetitor.competitors[0].id;
+    const withStage = addCompetitorStageRecord(withCompetitor, { competitorId, stage: "扩展期", versionOrPeriod: "2024", change: "增加团队工作流能力", evidenceIds: ["evidence-3"] });
+    const withComparison = addProductComparison(withStage, { competitorId, layer: "structure", competitorPractice: "模块之间可以互相引用", ourState: "目前需要手动搬运", differenceType: "incomplete", evidenceIds: ["evidence-3"], act: true, reason: "影响跨模块闭环" });
+    const result = addCompetitorStrategy(withComparison, { type: "differentiate", title: "让分析结论进入产品进程", problem: "分析与执行断开", basis: "结构层对比", goal: "减少重复录入", solution: "增加需求到产品进程的引用", expectedValue: "提高闭环效率", effort: "中", priority: "高", nextAction: "先设计引用字段", validation: "完成一次真实项目串联", evidenceIds: ["evidence-3"] });
+    expect(result.stageRecords).toHaveLength(1);
+    expect(result.comparisons[0].differenceType).toBe("incomplete");
+    expect(result.strategies[0].type).toBe("differentiate");
   });
 });
