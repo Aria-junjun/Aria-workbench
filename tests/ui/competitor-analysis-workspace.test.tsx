@@ -20,7 +20,7 @@ describe("竞品分析项目工作区", () => {
     expect(evidence).toContain("采集日期");
     expect(evidence).toContain("事实 / 推断 / 待验证 / 策略建议");
     expect(layers).toContain("不要只记录“竞品长什么样”");
-    expect(layers).toContain("对白板贴的启发");
+    expect(layers).toContain("对产品的启发");
     expect(stages).toContain("不要把竞品成熟款的最终形态直接搬到白板贴");
     expect(selfState).toContain("白板贴现状");
     expect(strategy).toContain("白板贴为什么现在做");
