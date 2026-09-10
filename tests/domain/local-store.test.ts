@@ -34,6 +34,8 @@ import {
   loadDemandConfirmationDocuments,
   saveDemandConfirmationDocument,
   updateDemandConfirmationDocument,
+  loadCompetitorAnalysisProjects,
+  saveCompetitorAnalysisProject,
   migrateLegacyDemandExploration,
   createSupplierDecisionTask,
   createSupplier,
@@ -55,6 +57,7 @@ import {
 } from "@/features/workbench/product-import-store";
 import type { ProductKnowledgeV2 } from "@/features/workbench/product-knowledge";
 import type { KanoDemandAnalysis } from "@/features/workbench/demand-exploration";
+import { createCompetitorAnalysisProject } from "@/features/workbench/competitor-analysis";
 
 const storage = new Map<string, string>();
 
@@ -95,6 +98,24 @@ describe("local-store operations", () => {
 
     expect(loadDemandConfirmationDocuments()).toEqual([
       expect.objectContaining({ id: document.id, title: "产品需求确认 V2", status: "completed" })
+    ]);
+  });
+
+  it("persists competitor analysis projects in the workbench snapshot", () => {
+    const project = createCompetitorAnalysisProject({
+      title: "工作台竞品分析",
+      productName: "个人商业工作台",
+      targetUsers: "产品经理",
+      analysisTheme: "需求到决策",
+      decisionQuestion: "先做什么？",
+      expectedAction: "形成计划",
+      productStage: "验证期",
+    });
+
+    saveCompetitorAnalysisProject(project);
+
+    expect(loadCompetitorAnalysisProjects()).toEqual([
+      expect.objectContaining({ id: project.id, productName: "个人商业工作台" }),
     ]);
   });
 

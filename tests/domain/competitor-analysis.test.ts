@@ -1,0 +1,75 @@
+import { describe, expect, it } from "vitest";
+import {
+  addCompetitorProfile,
+  archiveCompetitorAnalysisProject,
+  buildCompetitorAnalysisReport,
+  createCompetitorAnalysisProject,
+  restoreCompetitorAnalysisProject,
+  updateFiveLayerAnalysis,
+  type CompetitorAnalysisProject,
+} from "@/features/workbench/competitor-analysis";
+
+function project(): CompetitorAnalysisProject {
+  return createCompetitorAnalysisProject({
+    title: "白板贴工作台竞品分析",
+    productName: "个人商业工作台",
+    targetUsers: "产品经理和业务负责人",
+    analysisTheme: "产品工作台如何支持从需求到决策",
+    decisionQuestion: "下一阶段优先补齐哪些产品能力？",
+    expectedAction: "形成工作台版本优化计划",
+    productStage: "验证期",
+  });
+}
+
+describe("competitor analysis domain", () => {
+  it("creates a guided project without prefilled example data", () => {
+    const result = project();
+    expect(result.title).toBe("白板贴工作台竞品分析");
+    expect(result.competitors).toEqual([]);
+    expect(result.evidence).toEqual([]);
+    expect(result.status).toBe("draft");
+  });
+
+  it("adds a competitor and stores its relation and evidence references", () => {
+    const result = addCompetitorProfile(project(), {
+      name: "Notion",
+      users: "知识工作者",
+      scenarios: "项目和知识协作",
+      problem: "把分散信息组织成可协作的工作区",
+      relation: "reference",
+      selectionReason: "参考工作区结构和知识组织方式",
+      evidenceIds: ["evidence-1"],
+    });
+    expect(result.competitors).toHaveLength(1);
+    expect(result.competitors[0].relation).toBe("reference");
+    expect(result.status).toBe("in_progress");
+  });
+
+  it("updates one five-layer record without turning examples into user data", () => {
+    const withCompetitor = addCompetitorProfile(project(), { name: "Notion", relation: "reference" });
+    const competitorId = withCompetitor.competitors[0].id;
+    const result = updateFiveLayerAnalysis(withCompetitor, competitorId, "strategy", {
+      observation: "提供灵活的知识工作区",
+      evidenceIds: ["evidence-2"],
+      implication: "用户可以按自己的方式组织信息",
+      inspiration: "工作台需要支持自定义产品工作流",
+      tag: "inference",
+    });
+    expect(result.layerAnalyses[competitorId].strategy.observation).toBe("提供灵活的知识工作区");
+    expect(result.layerAnalyses[competitorId].strategy.tag).toBe("inference");
+  });
+
+  it("archives and restores the project while preserving its history", () => {
+    const archived = archiveCompetitorAnalysisProject(project());
+    expect(archived.status).toBe("archived");
+    expect(restoreCompetitorAnalysisProject(archived).status).toBe("draft");
+  });
+
+  it("builds traceable report sections and flags unverified content", () => {
+    const result = buildCompetitorAnalysisReport(project());
+    expect(result.sections.map((section) => section.key)).toEqual([
+      "summary", "scope", "competitors", "five_layers", "stages", "self_state", "strategy", "evidence", "limitations",
+    ]);
+    expect(result.limitations.length).toBeGreaterThan(0);
+  });
+});
