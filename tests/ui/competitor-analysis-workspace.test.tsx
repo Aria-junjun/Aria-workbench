@@ -6,6 +6,10 @@ describe("竞品分析项目工作区", () => {
     const workspace = readFileSync("src/components/workbench/competitor-analysis/analysis-workspace.tsx", "utf8");
     const navigation = readFileSync("src/components/workbench/competitor-analysis/step-navigation.tsx", "utf8");
     const evidence = readFileSync("src/components/workbench/competitor-analysis/evidence-panel.tsx", "utf8");
+    const layers = readFileSync("src/components/workbench/competitor-analysis/five-layer-step.tsx", "utf8");
+    const stages = readFileSync("src/components/workbench/competitor-analysis/stage-step.tsx", "utf8");
+    const selfState = readFileSync("src/components/workbench/competitor-analysis/self-state-step.tsx", "utf8");
+    const strategy = readFileSync("src/components/workbench/competitor-analysis/strategy-step.tsx", "utf8");
     expect(navigation).toContain("goal");
     expect(navigation).toContain("competitors");
     expect(navigation).toContain("layers");
@@ -15,5 +19,10 @@ describe("竞品分析项目工作区", () => {
     expect(workspace).toContain("证据完整度");
     expect(evidence).toContain("采集日期");
     expect(evidence).toContain("事实 / 推断 / 待验证 / 策略建议");
+    expect(layers).toContain("不要只记录“竞品长什么样”");
+    expect(layers).toContain("对白板贴的启发");
+    expect(stages).toContain("不要把竞品成熟款的最终形态直接搬到白板贴");
+    expect(selfState).toContain("白板贴现状");
+    expect(strategy).toContain("白板贴为什么现在做");
   });
 });

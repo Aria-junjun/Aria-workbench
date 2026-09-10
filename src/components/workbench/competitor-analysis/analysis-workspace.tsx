@@ -13,7 +13,7 @@ import { StepNavigation, type AnalysisStepKey } from "./step-navigation";
 import { StrategyStep } from "./strategy-step";
 
 const titles: Record<AnalysisStepKey, string> = { goal: "分析目标", competitors: "竞品确认", layers: "五层拆解", stages: "阶段与版本", self_state: "我们的产品状态", strategy_report: "策略与报告" };
-const descriptions: Record<AnalysisStepKey, string> = { goal: "先明确这次分析要支持什么决策。", competitors: "竞品不是越多越好，先说明为什么选择它。", layers: "从产品内核到页面表现逐层观察，不把界面当成全部。", stages: "把竞品放回发展阶段中理解，避免照搬最终形态。", self_state: "将竞品做法与我们的实际状态放在同一维度比较。", strategy_report: "把观察和差距转成有依据的产品取舍。" };
+const descriptions: Record<AnalysisStepKey, string> = { goal: "先明确白板贴这次要解决的用户问题和产品决策。", competitors: "围绕白板贴的 C 端使用场景，说明为什么选择这个竞品或替代方案。", layers: "从白板贴的产品内核到详情页表现逐层观察，不把页面好看当成全部。", stages: "把竞品放回面向消费者的发展阶段中理解，避免把成熟款直接照搬到白板贴。", self_state: "将竞品的书写、擦除、安装和重复使用体验与白板贴现状逐项比较。", strategy_report: "把销售、反馈和竞品观察转成白板贴的产品取舍。" };
 
 export function AnalysisWorkspace({ projectId }: { projectId: string }) {
   const initial = useMemo(() => loadCompetitorAnalysisProjects().find((project) => project.id === projectId), [projectId]);

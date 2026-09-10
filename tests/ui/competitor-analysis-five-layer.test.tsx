@@ -14,7 +14,7 @@ describe("竞品确认与五层拆解", () => {
     expect(layers).toContain("框架层");
     expect(layers).toContain("表现层");
     expect(layers).toContain("观察事实");
-    expect(layers).toContain("对我们的启发");
+    expect(layers).toContain("对白板贴的启发");
     expect(layers).toContain("白板贴");
   });
 });
