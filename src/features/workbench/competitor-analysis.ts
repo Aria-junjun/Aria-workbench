@@ -102,6 +102,27 @@ export type CompetitorAnalysisProject = {
 export type CompetitorReportSection = { key: string; title: string; content: string; evidenceIds: string[] };
 export type CompetitorAnalysisReport = { sections: CompetitorReportSection[]; limitations: string[] };
 
+const whiteboardCaseMaterials = [
+  {
+    sourceName: "白板贴内部经营记录",
+    sourceType: "内部产品记录",
+    collectedAt: "2026-07-20",
+    reference: "产品判断记录，需回到销售明细复核",
+    statement: "记录中提到：白板贴日常出货量约100单；拼多多平台曾出现日销约500单的高峰，当前天猫平台约100单。",
+    note: "原记录未标明统计周期、平台口径和SKU范围，先作为待核验销售证据，不能直接当作最终销量结论。",
+    tag: "unverified" as EvidenceTag,
+  },
+  {
+    sourceName: "白板贴内部经营判断",
+    sourceType: "内部分析记录",
+    collectedAt: "2026-07-20",
+    reference: "产品判断记录，非用户原话",
+    statement: "已有判断认为白板贴属于价格竞争较明显的通用产品，教育场景和真实使用内容可能是差异化方向。",
+    note: "这是内部推断，不等于用户反馈；需要补充评价、退货、客服记录或访谈原话。",
+    tag: "inference" as EvidenceTag,
+  },
+];
+
 function id(prefix: string): string { return `${prefix}-${crypto.randomUUID()}`; }
 function now(): string { return new Date().toISOString(); }
 function emptyLayerRecord(): FiveLayerRecord { return { observation: "", evidenceIds: [], implication: "", inspiration: "", tag: "fact", updatedAt: now() }; }
@@ -110,6 +131,12 @@ function emptyLayers(): FiveLayerAnalysis { return { strategy: emptyLayerRecord(
 export function createCompetitorAnalysisProject(input: Omit<CompetitorAnalysisProject, "id" | "competitors" | "evidence" | "layerAnalyses" | "stageRecords" | "comparisons" | "strategies" | "status" | "createdAt" | "updatedAt">): CompetitorAnalysisProject {
   const timestamp = now();
   return { ...input, id: id("competitor-project"), competitors: [], evidence: [], layerAnalyses: {}, stageRecords: [], comparisons: [], strategies: [], status: "draft", createdAt: timestamp, updatedAt: timestamp };
+}
+
+export function createWhiteboardCompetitorAnalysisProject(input: Omit<CompetitorAnalysisProject, "id" | "productName" | "competitors" | "evidence" | "layerAnalyses" | "stageRecords" | "comparisons" | "strategies" | "status" | "createdAt" | "updatedAt">): CompetitorAnalysisProject {
+  const project = createCompetitorAnalysisProject({ ...input, productName: "白板贴" });
+  const evidence = whiteboardCaseMaterials.map((item) => ({ ...item, id: id("evidence") }));
+  return { ...project, evidence };
 }
 
 export function addCompetitorProfile(project: CompetitorAnalysisProject, input: Partial<Omit<CompetitorProfile, "id">> & Pick<CompetitorProfile, "name">): CompetitorAnalysisProject {

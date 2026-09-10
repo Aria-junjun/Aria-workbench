@@ -4,6 +4,7 @@ import {
   archiveCompetitorAnalysisProject,
   buildCompetitorAnalysisReport,
   createCompetitorAnalysisProject,
+  createWhiteboardCompetitorAnalysisProject,
   restoreCompetitorAnalysisProject,
   updateFiveLayerAnalysis,
   addCompetitorStageRecord,
@@ -25,6 +26,21 @@ function project(): CompetitorAnalysisProject {
 }
 
 describe("competitor analysis domain", () => {
+  it("creates the whiteboard sticker case with traceable starter materials", () => {
+    const result = createWhiteboardCompetitorAnalysisProject({
+      title: "白板贴竞品分析",
+      targetUsers: "家庭用户、教师和培训场景使用者",
+      analysisTheme: "白板贴的书写、擦除和重复使用体验",
+      decisionQuestion: "白板贴下一步应优先改善什么？",
+      expectedAction: "形成产品优化优先级和验证计划",
+      productStage: "销售验证期",
+    });
+    expect(result.productName).toBe("白板贴");
+    expect(result.evidence.length).toBeGreaterThan(0);
+    expect(result.evidence.some((item) => item.sourceName.includes("白板贴内部经营记录"))).toBe(true);
+    expect(result.evidence.some((item) => item.tag === "unverified")).toBe(true);
+  });
+
   it("creates a guided project without prefilled example data", () => {
     const result = project();
     expect(result.title).toBe("白板贴工作台竞品分析");
