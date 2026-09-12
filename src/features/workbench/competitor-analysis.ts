@@ -144,6 +144,16 @@ export function addCompetitorProfile(project: CompetitorAnalysisProject, input: 
   return { ...project, competitors: [...project.competitors, competitor], status: "in_progress", updatedAt: now() };
 }
 
+export function updateCompetitorProfile(project: CompetitorAnalysisProject, competitorId: string, patch: Partial<Omit<CompetitorProfile, "id" | "evidenceIds">>): CompetitorAnalysisProject {
+  return {
+    ...project,
+    competitors: project.competitors.map((competitor) => competitor.id === competitorId
+      ? { ...competitor, ...patch, name: patch.name?.trim() ?? competitor.name, selectionReason: patch.selectionReason?.trim() ?? competitor.selectionReason }
+      : competitor),
+    updatedAt: now(),
+  };
+}
+
 export function updateFiveLayerAnalysis(project: CompetitorAnalysisProject, competitorId: string, layer: FiveLayerKey, patch: Partial<Omit<FiveLayerRecord, "updatedAt">>): CompetitorAnalysisProject {
   const current = project.layerAnalyses[competitorId] ?? emptyLayers();
   const next: FiveLayerRecord = { ...current[layer], ...patch, updatedAt: now() };

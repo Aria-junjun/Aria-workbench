@@ -6,6 +6,7 @@ import {
   createCompetitorAnalysisProject,
   createWhiteboardCompetitorAnalysisProject,
   restoreCompetitorAnalysisProject,
+  updateCompetitorProfile,
   updateFiveLayerAnalysis,
   addCompetitorStageRecord,
   addProductComparison,
@@ -62,6 +63,13 @@ describe("competitor analysis domain", () => {
     expect(result.competitors).toHaveLength(1);
     expect(result.competitors[0].relation).toBe("reference");
     expect(result.status).toBe("in_progress");
+  });
+
+  it("updates the saved competitor profile without replacing its id", () => {
+    const withCompetitor = addCompetitorProfile(project(), { name: "传统白板", users: "教师", relation: "substitute" });
+    const savedId = withCompetitor.competitors[0].id;
+    const result = updateCompetitorProfile(withCompetitor, savedId, { users: "家庭用户和教师", scenarios: "会议结束后继续擦除和复用", selectionReason: "验证重复使用场景" });
+    expect(result.competitors[0]).toEqual(expect.objectContaining({ id: savedId, name: "传统白板", users: "家庭用户和教师", scenarios: "会议结束后继续擦除和复用" }));
   });
 
   it("updates one five-layer record without turning examples into user data", () => {

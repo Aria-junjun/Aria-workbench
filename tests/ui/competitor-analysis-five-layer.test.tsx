@@ -8,6 +8,8 @@ describe("竞品确认与五层拆解", () => {
     expect(competitor).toContain("直接竞品");
     expect(competitor).toContain("参考产品");
     expect(competitor).toContain("为什么选择它");
+    expect(competitor).toContain("编辑资料");
+    expect(competitor).toContain("保存修改");
     expect(layers).toContain("战略层");
     expect(layers).toContain("范围层");
     expect(layers).toContain("结构层");
