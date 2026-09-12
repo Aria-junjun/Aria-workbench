@@ -7,7 +7,7 @@ describe("竞品分析入口", () => {
     const home = readFileSync("src/components/workbench/competitor-analysis/analysis-home.tsx", "utf8");
     const intake = readFileSync("src/components/workbench/competitor-analysis/analysis-intake-form.tsx", "utf8");
     expect(shell).toContain("竞品分析");
-    expect(home).toContain("新建白板贴分析");
+    expect(home).toContain("新建竞品分析");
     expect(home).toContain("已归档项目");
     expect(intake).toContain("白板贴");
     expect(intake).toContain("C 端产品");
