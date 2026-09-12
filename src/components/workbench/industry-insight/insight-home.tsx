@@ -1,43 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { updateIndustryInsightProject } from "@/features/workbench/industry-insight";
 import { loadIndustryInsightProjects, saveIndustryInsightProject } from "@/features/workbench/local-store";
-import { useState } from "react";
 
 export function InsightHome() {
   const [projects, setProjects] = useState(() => loadIndustryInsightProjects());
   const active = projects.filter((project) => project.status !== "archived");
   const archived = projects.filter((project) => project.status === "archived");
   const refresh = () => setProjects(loadIndustryInsightProjects());
-  const archive = (id: string) => {
-    const project = projects.find((item) => item.id === id);
-    if (!project || !window.confirm("归档后历史记录仍会保留，确认归档吗？")) return;
-    saveIndustryInsightProject(updateIndustryInsightProject(project, { status: "archived" }));
-    refresh();
-  };
-  const restore = (id: string) => {
-    const project = projects.find((item) => item.id === id);
-    if (!project) return;
-    saveIndustryInsightProject(updateIndustryInsightProject(project, { status: "draft" }));
-    refresh();
-  };
-  return <div className="space-y-8">
-    <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-action">Market Context</p><h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-ink">行业洞察</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted">从规模、趋势、阶段和产业链出发，形成可复核的行业判断与待验证机会。</p></div>
-      <Link href="/industry-insight/new" className="rounded-xl bg-action px-4 py-2.5 text-sm font-semibold text-white shadow-glow transition hover:bg-action-strong">新建行业洞察</Link>
-    </header>
-    <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-      <div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold text-ink">行业洞察项目</h2><p className="mt-1 text-sm text-muted">六步可以独立保存；报告会保留事实、判断、证据和信息缺口。</p></div><span className="rounded-full bg-action-soft px-3 py-1 text-xs font-semibold text-action">六步工作区</span></div>
-      {active.length === 0 ? <div className="mt-5 rounded-xl border border-dashed border-line bg-paper p-8 text-center text-sm text-muted">还没有行业洞察项目。先明确一个需要支持的决策问题。</div> : <div className="mt-5 grid gap-3 md:grid-cols-2">{active.map((project) => <ProjectCard key={project.id} project={project} onArchive={archive} />)}</div>}
-      {archived.length > 0 && <div className="mt-6 border-t border-line pt-5"><h3 className="font-semibold text-ink">已归档项目</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{archived.map((project) => <ProjectCard key={project.id} project={project} archived onRestore={restore} />)}</div></div>}
-    </section>
-    <section className="grid gap-3 md:grid-cols-3"><Guide title="先定边界" text="先说明研究对象、场景、地域、时间口径和排除范围。" /><Guide title="再看四维" text="规模、趋势、市场占比与此消彼长分别记录事实和判断。" /><Guide title="最后做决策" text="把机会、风险、证据缺口转成可执行的下一步。" /></section>
-  </div>;
+  const archive = (id: string) => { const project = projects.find((item) => item.id === id); if (!project || !window.confirm("归档后历史记录仍会保留，确认归档吗？")) return; saveIndustryInsightProject(updateIndustryInsightProject(project, { status: "archived" })); refresh(); };
+  const restore = (id: string) => { const project = projects.find((item) => item.id === id); if (!project) return; saveIndustryInsightProject(updateIndustryInsightProject(project, { status: "draft" })); refresh(); };
+  return <div className="space-y-8"><header className="flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-action">Market Context</p><h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-ink">行业洞察</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted">用台账查看行业研究进度、阶段判断和机会结论。</p></div><Link href="/industry-insight/new" className="rounded-xl bg-action px-4 py-2.5 text-sm font-semibold text-white shadow-glow">新建行业洞察</Link></header><Ledger title="行业洞察项目" description="六步可以独立保存；报告会保留事实、判断、证据和信息缺口。" empty={active.length === 0 ? "还没有行业洞察项目。先明确一个需要支持的决策问题。" : undefined}><table className="w-full min-w-[1050px] text-left text-sm"><thead><TableHeader /></thead><tbody>{active.map((project) => <ProjectRow key={project.id} project={project} onArchive={archive} />)}</tbody></table></Ledger>{archived.length > 0 && <Ledger title="已归档项目" description="历史记录保留，可恢复。"><table className="w-full min-w-[1050px] text-left text-sm"><thead><TableHeader /></thead><tbody>{archived.map((project) => <ProjectRow key={project.id} project={project} archived onRestore={restore} />)}</tbody></table></Ledger>}</div>;
 }
 
-function ProjectCard({ project, archived = false, onArchive, onRestore }: { project: ReturnType<typeof loadIndustryInsightProjects>[number]; archived?: boolean; onArchive?: (id: string) => void; onRestore?: (id: string) => void }) {
-  return <div className="rounded-xl border border-line bg-paper p-5 transition hover:border-action/50 hover:bg-action-soft/20"><div className="flex items-start justify-between gap-3"><Link href={`/industry-insight/${project.id}`} className="min-w-0 flex-1"><h3 className="font-semibold text-ink">{project.title || "未命名行业洞察"}</h3></Link><div className="flex gap-3 text-xs"><span className="text-muted">{archived ? "已归档" : project.status === "completed" ? "已完成" : "进行中"}</span>{archived ? <button type="button" className="font-semibold text-action" onClick={() => onRestore?.(project.id)}>恢复项目</button> : <button type="button" className="text-muted hover:text-danger" onClick={() => onArchive?.(project.id)}>归档项目</button>}</div></div><Link href={`/industry-insight/${project.id}`}><p className="mt-2 text-sm text-muted">{project.productName || "未关联产品"} · {project.evidence.length} 条证据</p><p className="mt-4 text-xs text-muted">决策问题：{project.decisionQuestion || "尚未填写"}</p></Link></div>;
-}
-
-function Guide({ title, text }: { title: string; text: string }) { return <div className="rounded-xl border border-line bg-surface p-5"><h3 className="font-semibold text-ink">{title}</h3><p className="mt-2 text-sm leading-6 text-muted">{text}</p></div>; }
+function Ledger({ title, description, empty, children }: { title: string; description: string; empty?: string; children: React.ReactNode }) { return <section className="rounded-2xl border border-line bg-surface p-5 shadow-card"><div className="mb-4 flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold text-ink">{title}</h2><p className="mt-1 text-sm text-muted">{description}</p></div><div className="flex items-center gap-3"><span className="rounded-full bg-action-soft px-3 py-1 text-xs font-semibold text-action">台账</span><span className="text-xs text-muted">六步工作区</span></div></div>{empty ? <div className="rounded-xl border border-dashed border-line bg-paper p-8 text-center text-sm text-muted">{empty}</div> : <div className="overflow-x-auto">{children}</div>}</section>; }
+function TableHeader() { return <tr className="border-b border-line text-xs text-muted"><th className="px-3 py-3 font-semibold">项目</th><th className="px-3 py-3 font-semibold">产品</th><th className="px-3 py-3 font-semibold">研究边界</th><th className="px-3 py-3 font-semibold">六步进度</th><th className="px-3 py-3 font-semibold">阶段/证据</th><th className="px-3 py-3 font-semibold">机会与下一步</th><th className="px-3 py-3 font-semibold">操作</th></tr>; }
+function ProjectRow({ project, archived = false, onArchive, onRestore }: { project: ReturnType<typeof loadIndustryInsightProjects>[number]; archived?: boolean; onArchive?: (id: string) => void; onRestore?: (id: string) => void }) { const completed = Object.values(project.steps).filter((step) => step === "completed").length; const boundary = project.boundary.object || "边界未填写"; const result = project.conclusion.opportunity || project.conclusion.nextAction || "尚未形成结论"; return <tr className="border-b border-line/70 last:border-0 hover:bg-paper-warm/50"><td className="px-3 py-4"><Link href={`/industry-insight/${project.id}`} className="font-semibold text-ink hover:text-action">{project.title || "未命名行业洞察"}</Link></td><td className="px-3 py-4 text-muted">{project.productName || "N/A"}</td><td className="max-w-[190px] px-3 py-4 text-muted">{boundary}</td><td className="px-3 py-4 text-muted">{completed}/6 步已完成</td><td className="px-3 py-4 text-muted">{project.stage.currentStage === "unclear" ? "暂不判断" : project.stage.currentStage} · {project.evidence.length} 条证据</td><td className="max-w-[250px] px-3 py-4 text-muted">{result}</td><td className="px-3 py-4">{archived ? <button type="button" onClick={() => onRestore?.(project.id)} className="text-xs font-semibold text-action">恢复</button> : <button type="button" onClick={() => onArchive?.(project.id)} className="text-xs text-muted hover:text-danger">归档</button>}</td></tr>; }
