@@ -60,6 +60,7 @@ import {
   type DemandConfirmationDocument
 } from "./demand-confirmation";
 import type { CompetitorAnalysisProject } from "./competitor-analysis";
+import type { IndustryInsightProject } from "./industry-insight";
 import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
@@ -488,6 +489,7 @@ export type LocalWorkbenchData = {
   demandExplorations?: KanoDemandAnalysis[];
   demandConfirmationDocuments?: DemandConfirmationDocument[];
   competitorAnalysisProjects?: CompetitorAnalysisProject[];
+  industryInsightProjects?: IndustryInsightProject[];
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
@@ -786,6 +788,33 @@ export function updateCompetitorAnalysisProject(id: string, patch: Partial<Compe
     ? { ...project, ...patch, id: project.id, updatedAt: new Date().toISOString() }
     : project);
   saveLocalWorkbenchData({ ...current, competitorAnalysisProjects: next });
+}
+
+export function loadIndustryInsightProjects(): IndustryInsightProject[] {
+  return loadLocalWorkbenchData().industryInsightProjects ?? [];
+}
+
+export function saveIndustryInsightProject(project: IndustryInsightProject) {
+  const current = loadLocalWorkbenchData();
+  const existing = current.industryInsightProjects ?? [];
+  saveLocalWorkbenchData({
+    ...current,
+    industryInsightProjects: [project, ...existing.filter((item) => item.id !== project.id)],
+  });
+}
+
+export function updateIndustryInsightProjectRecord(id: string, patch: Partial<IndustryInsightProject>) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.industryInsightProjects ?? []).map((project) => project.id === id
+    ? { ...project, ...patch, id: project.id, updatedAt: new Date().toISOString() }
+    : project);
+  saveLocalWorkbenchData({ ...current, industryInsightProjects: next });
+}
+
+export function archiveIndustryInsightProject(id: string, archived: boolean) {
+  updateIndustryInsightProjectRecord(id, archived
+    ? { status: "archived", archivedAt: new Date().toISOString() }
+    : { status: "draft", archivedAt: undefined });
 }
 
 export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
@@ -2530,6 +2559,7 @@ function emptyData(): LocalWorkbenchData {
     demandExplorations: [],
     demandConfirmationDocuments: [],
     competitorAnalysisProjects: [],
+    industryInsightProjects: [],
     skuMasters: [],
     skuImportBatches: [],
     monthlyInboundSnapshots: [],
@@ -2664,6 +2694,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     demandExplorations: Array.isArray(data.demandExplorations) ? data.demandExplorations : [],
     demandConfirmationDocuments: Array.isArray(data.demandConfirmationDocuments) ? data.demandConfirmationDocuments : [],
     competitorAnalysisProjects: Array.isArray(data.competitorAnalysisProjects) ? data.competitorAnalysisProjects : [],
+    industryInsightProjects: Array.isArray(data.industryInsightProjects) ? data.industryInsightProjects : [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({
       ...item,
       status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const

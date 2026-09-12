@@ -15,8 +15,9 @@ import {
   Settings,
   ShieldCheck,
   LogOut,
-  Search
-  ,GitCompare
+  Search,
+  GitCompare,
+  TrendingUp
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import Image from "next/image";
@@ -39,6 +40,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/demand-exploration", label: "需求探索", icon: Search },
       { href: "/competitor-analysis", label: "竞品分析", icon: GitCompare },
+      { href: "/industry-insight", label: "行业洞察", icon: TrendingUp },
       { href: "/tasks", label: "待办提醒", icon: CheckSquare },
       { href: "/products", label: "产品进程", icon: Lightbulb },
       { href: "/product-master", label: "入仓产品", icon: Package },
