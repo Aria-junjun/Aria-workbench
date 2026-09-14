@@ -54,6 +54,7 @@ describe("product decomposition domain", () => {
       fact: "擦除后能看到之前写过的痕迹",
       judgment: "会影响下一次使用",
       evidence: "实际测试",
+      gap: "还没有不同笔迹和擦除次数的对比",
     });
     const causeId = withCause.causeNodes[0].id;
     const first = addProductDecompositionSolution(withCause, {
@@ -76,5 +77,7 @@ describe("product decomposition domain", () => {
     expect(report.sections.find((section) => section.key === "solutions")?.content).toContain("擦除后残留");
     expect(report.sections.find((section) => section.key === "solutions")?.content).toContain("验证不同擦拭工具");
     expect(report.sections.find((section) => section.key === "solutions")?.content).toContain("优化表面涂层");
+    expect(report.sections.find((section) => section.key === "causes")?.content).toContain("信息缺口");
+    expect(report.sections.find((section) => section.key === "causes")?.content).toContain("不同笔迹和擦除次数");
   });
 });

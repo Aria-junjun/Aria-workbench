@@ -19,7 +19,9 @@ describe("product decomposition workspace", () => {
     expect(causes).toContain("鱼骨");
     expect(solutions).toContain("分类由执行人确认，系统不替代判断");
     expect(solutions).toContain("原因上下文");
+    expect(solutions).toContain("信息缺口");
     expect(actions).toContain("链路");
+    expect(actions).toContain("来自信息缺口");
     expect(domain).toContain("未开始");
     expect(navigation).not.toContain("战略层");
   });
