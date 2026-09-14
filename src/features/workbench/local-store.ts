@@ -61,6 +61,7 @@ import {
 } from "./demand-confirmation";
 import type { CompetitorAnalysisProject } from "./competitor-analysis";
 import type { IndustryInsightProject } from "./industry-insight";
+import type { ProductDecompositionProject } from "./product-decomposition";
 import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
@@ -490,6 +491,7 @@ export type LocalWorkbenchData = {
   demandConfirmationDocuments?: DemandConfirmationDocument[];
   competitorAnalysisProjects?: CompetitorAnalysisProject[];
   industryInsightProjects?: IndustryInsightProject[];
+  productDecompositionProjects?: ProductDecompositionProject[];
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
@@ -809,6 +811,33 @@ export function updateIndustryInsightProjectRecord(id: string, patch: Partial<In
     ? { ...project, ...patch, id: project.id, updatedAt: new Date().toISOString() }
     : project);
   saveLocalWorkbenchData({ ...current, industryInsightProjects: next });
+}
+
+export function loadProductDecompositionProjects(): ProductDecompositionProject[] {
+  return loadLocalWorkbenchData().productDecompositionProjects ?? [];
+}
+
+export function saveProductDecompositionProject(project: ProductDecompositionProject) {
+  const current = loadLocalWorkbenchData();
+  const existing = current.productDecompositionProjects ?? [];
+  saveLocalWorkbenchData({
+    ...current,
+    productDecompositionProjects: [project, ...existing.filter((item) => item.id !== project.id)],
+  });
+}
+
+export function updateProductDecompositionProjectRecord(id: string, patch: Partial<ProductDecompositionProject>) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.productDecompositionProjects ?? []).map((project) => project.id === id
+    ? { ...project, ...patch, id: project.id, updatedAt: new Date().toISOString() }
+    : project);
+  saveLocalWorkbenchData({ ...current, productDecompositionProjects: next });
+}
+
+export function archiveProductDecompositionProject(id: string, archived: boolean) {
+  updateProductDecompositionProjectRecord(id, archived
+    ? { status: "archived", archivedAt: new Date().toISOString() }
+    : { status: "draft", archivedAt: undefined });
 }
 
 export function archiveIndustryInsightProject(id: string, archived: boolean) {
@@ -2560,6 +2589,7 @@ function emptyData(): LocalWorkbenchData {
     demandConfirmationDocuments: [],
     competitorAnalysisProjects: [],
     industryInsightProjects: [],
+    productDecompositionProjects: [],
     skuMasters: [],
     skuImportBatches: [],
     monthlyInboundSnapshots: [],
@@ -2695,6 +2725,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     demandConfirmationDocuments: Array.isArray(data.demandConfirmationDocuments) ? data.demandConfirmationDocuments : [],
     competitorAnalysisProjects: Array.isArray(data.competitorAnalysisProjects) ? data.competitorAnalysisProjects : [],
     industryInsightProjects: Array.isArray(data.industryInsightProjects) ? data.industryInsightProjects : [],
+    productDecompositionProjects: Array.isArray(data.productDecompositionProjects) ? data.productDecompositionProjects : [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({
       ...item,
       status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const
