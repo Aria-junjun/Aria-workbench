@@ -179,7 +179,9 @@ export type ProductDecompositionReport = {
 
 export function buildProductDecompositionReport(project: ProductDecompositionProject): ProductDecompositionReport {
   const causeText = project.causeNodes.map((cause) => `${cause.title}：事实 ${cause.fact || "暂无"}；判断 ${cause.judgment || "暂无"}；证据 ${cause.evidence || "暂无"}`).join("\n") || "尚未形成记录";
-  const solutionText = [...project.solutions].sort((a, b) => a.priority - b.priority).map((solution) => `${solution.priority}. ${solution.title}｜${PRODUCT_DECOMPOSITION_KANO_LABELS[solution.kano]}｜${solution.description || "暂无描述"}`).join("\n") || "尚未形成记录";
+  const solutionGroups = project.causeNodes.map((cause) => ({ cause, solutions: project.solutions.filter((solution) => solution.causeNodeId === cause.id).sort((a, b) => a.priority - b.priority) })).filter((group) => group.solutions.length > 0);
+  const unlinkedSolutions = project.solutions.filter((solution) => !solution.causeNodeId).sort((a, b) => a.priority - b.priority);
+  const solutionText = [...solutionGroups.map((group) => `原因：${group.cause.title}\n${group.solutions.map((solution) => `  ${solution.priority}. ${solution.title}｜${PRODUCT_DECOMPOSITION_KANO_LABELS[solution.kano]}｜${solution.description || "暂无描述"}`).join("\n")}`), unlinkedSolutions.length > 0 ? `暂未关联原因\n${unlinkedSolutions.map((solution) => `  ${solution.priority}. ${solution.title}｜${PRODUCT_DECOMPOSITION_KANO_LABELS[solution.kano]}｜${solution.description || "暂无描述"}`).join("\n")}` : ""].filter(Boolean).join("\n\n") || "尚未形成记录";
   const actionText = project.actionItems.map((action) => `${action.title}：${action.deliverable || "暂无交付成果"}（${PRODUCT_DECOMPOSITION_ACTION_STATUS_LABELS[action.status]}）`).join("\n") || "尚未形成记录";
   return {
     title: project.title,

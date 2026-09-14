@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addProductDecompositionCause,
   addProductDecompositionSolution,
+  buildProductDecompositionReport,
   createProductDecompositionProject,
   getProductDecompositionCompleteness,
 } from "@/features/workbench/product-decomposition";
@@ -42,5 +43,38 @@ describe("product decomposition domain", () => {
 
     expect(withSolution.solutions[0].causeNodeId).toBe(causeId);
     expect(withSolution.solutions[0].kano).toBe("unclassified");
+  });
+
+  it("supports multiple solutions for one cause and groups them in the report", () => {
+    const project = createProductDecompositionProject({ title: "测试拆解", centralQuestion: "测试问题" });
+    const withCause = addProductDecompositionCause(project, {
+      title: "擦除后残留",
+      parentId: undefined,
+      level: "major",
+      fact: "擦除后能看到之前写过的痕迹",
+      judgment: "会影响下一次使用",
+      evidence: "实际测试",
+    });
+    const causeId = withCause.causeNodes[0].id;
+    const first = addProductDecompositionSolution(withCause, {
+      causeNodeId: causeId,
+      title: "验证不同擦拭工具",
+      description: "比较擦除效果",
+      kano: "performance",
+      priority: 1,
+    });
+    const second = addProductDecompositionSolution(first, {
+      causeNodeId: causeId,
+      title: "优化表面涂层",
+      description: "验证材料改善方向",
+      kano: "must_be",
+      priority: 2,
+    });
+
+    const report = buildProductDecompositionReport(second);
+    expect(second.solutions.filter((solution) => solution.causeNodeId === causeId)).toHaveLength(2);
+    expect(report.sections.find((section) => section.key === "solutions")?.content).toContain("擦除后残留");
+    expect(report.sections.find((section) => section.key === "solutions")?.content).toContain("验证不同擦拭工具");
+    expect(report.sections.find((section) => section.key === "solutions")?.content).toContain("优化表面涂层");
   });
 });
