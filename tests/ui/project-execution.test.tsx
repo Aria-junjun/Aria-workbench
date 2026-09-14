@@ -12,5 +12,11 @@ describe("project execution UI", () => {
     expect(domain).toContain("干系人分析");
     expect(domain).toContain("风险与复盘");
     expect(domain).toContain("sourceDecompositionProjectId");
+    expect(workspace).toContain("本项目负责事项");
+    expect(workspace).toContain("沟通目的");
+    expect(workspace).toContain("影响力");
+    expect(workspace).toContain("项目范围不是产品全部范围");
+    expect(workspace).toContain("擦除后不能明显看到上一次书写痕迹");
+    expect(workspace).toContain("决策人");
   });
 });
