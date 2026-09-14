@@ -1,0 +1,3 @@
+import Link from "next/link";
+import { ProjectExecutionIntakeForm } from "@/components/workbench/project-execution/project-execution-intake-form";
+export default function NewProjectExecutionPage() { return <div className="mx-auto max-w-4xl space-y-6"><Link href="/project-execution" className="text-sm text-muted hover:text-action">← 返回项目推进</Link><div><p className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-action">Project Execution</p><h1 className="mt-2 font-display text-3xl font-bold text-ink">新建项目推进</h1><p className="mt-2 text-sm leading-6 text-muted">先定义项目，再进入干系人、约束、计划和风险管理。</p></div><ProjectExecutionIntakeForm /></div>; }

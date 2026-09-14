@@ -1,0 +1,6 @@
+"use client";
+import { useEffect, useState } from "react";
+import { loadProjectExecutionProjects } from "@/features/workbench/local-store";
+import type { ProjectExecutionProject } from "@/features/workbench/project-execution";
+import { ProjectExecutionWorkspace } from "@/components/workbench/project-execution/project-execution-workspace";
+export default function ProjectExecutionDetailPage({ params }: { params: { projectId: string } }) { const [project, setProject] = useState<ProjectExecutionProject>(); useEffect(() => setProject(loadProjectExecutionProjects().find((item) => item.id === params.projectId)), [params.projectId]); return project ? <ProjectExecutionWorkspace initialProject={project} /> : <p className="text-sm text-muted">正在加载项目…</p>; }

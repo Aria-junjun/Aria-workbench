@@ -62,6 +62,7 @@ import {
 import type { CompetitorAnalysisProject } from "./competitor-analysis";
 import type { IndustryInsightProject } from "./industry-insight";
 import type { ProductDecompositionProject } from "./product-decomposition";
+import type { ProjectExecutionProject } from "./project-execution";
 import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
@@ -492,6 +493,7 @@ export type LocalWorkbenchData = {
   competitorAnalysisProjects?: CompetitorAnalysisProject[];
   industryInsightProjects?: IndustryInsightProject[];
   productDecompositionProjects?: ProductDecompositionProject[];
+  projectExecutionProjects?: ProjectExecutionProject[];
   /** 首次导入先进入待确认区，确认后才参与报价关联。 */
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
@@ -838,6 +840,24 @@ export function archiveProductDecompositionProject(id: string, archived: boolean
   updateProductDecompositionProjectRecord(id, archived
     ? { status: "archived", archivedAt: new Date().toISOString() }
     : { status: "draft", archivedAt: undefined });
+}
+
+export function loadProjectExecutionProjects(): ProjectExecutionProject[] {
+  return loadLocalWorkbenchData().projectExecutionProjects ?? [];
+}
+
+export function saveProjectExecutionProject(project: ProjectExecutionProject) {
+  const current = loadLocalWorkbenchData();
+  const existing = current.projectExecutionProjects ?? [];
+  saveLocalWorkbenchData({ ...current, projectExecutionProjects: [project, ...existing.filter((item) => item.id !== project.id)] });
+}
+
+export function archiveProjectExecutionProject(id: string, archived: boolean) {
+  const current = loadLocalWorkbenchData();
+  const next = (current.projectExecutionProjects ?? []).map((project) => project.id === id
+    ? { ...project, status: archived ? "archived" as const : "draft" as const, archivedAt: archived ? new Date().toISOString() : undefined, updatedAt: new Date().toISOString() }
+    : project);
+  saveLocalWorkbenchData({ ...current, projectExecutionProjects: next });
 }
 
 export function archiveIndustryInsightProject(id: string, archived: boolean) {
@@ -2590,6 +2610,7 @@ function emptyData(): LocalWorkbenchData {
     competitorAnalysisProjects: [],
     industryInsightProjects: [],
     productDecompositionProjects: [],
+    projectExecutionProjects: [],
     skuMasters: [],
     skuImportBatches: [],
     monthlyInboundSnapshots: [],
@@ -2726,6 +2747,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     competitorAnalysisProjects: Array.isArray(data.competitorAnalysisProjects) ? data.competitorAnalysisProjects : [],
     industryInsightProjects: Array.isArray(data.industryInsightProjects) ? data.industryInsightProjects : [],
     productDecompositionProjects: Array.isArray(data.productDecompositionProjects) ? data.productDecompositionProjects : [],
+    projectExecutionProjects: Array.isArray(data.projectExecutionProjects) ? data.projectExecutionProjects : [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({
       ...item,
       status: item.status === "archived" ? "archived" as const : item.status === "ready" ? "ready" as const : "needs_spec" as const
