@@ -16,12 +16,27 @@ describe("industry insight external GPT bridge UI", () => {
     expect(workspace).toContain("InsightBridgePanel");
   });
 
-  it("keeps imported content in drafts and warnings without applying formal fields", () => {
+  it("exposes four review actions and applies only accepted or edited drafts", () => {
     const panel = readFileSync("src/components/workbench/industry-insight/insight-bridge-panel.tsx", "utf8");
 
     expect(panel).toContain("aiDrafts");
     expect(panel).toContain("warnings");
     expect(panel).toContain("status: \"draft\"");
-    expect(panel).not.toContain("applyIndustryInsightDraft");
+    expect(panel).toContain("采用");
+    expect(panel).toContain("修改后采用");
+    expect(panel).toContain("待验证");
+    expect(panel).toContain("暂不采用");
+    expect(panel).toContain("editedValue");
+    expect(panel).toContain("applyIndustryInsightDraft");
+    expect(panel).toContain("accepted");
+    expect(panel).toContain("needs_verification");
+    expect(panel).toContain("rejected");
+  });
+
+  it("shows the review count while keeping the formal report read-only", () => {
+    const report = readFileSync("src/components/workbench/industry-insight/insight-report.tsx", "utf8");
+    expect(report).toContain("未审核");
+    expect(report).toContain("needs_verification");
+    expect(report).toContain("正式报告只读取已确认字段");
   });
 });

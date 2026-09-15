@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import type { IndustryInsightProject } from "@/features/workbench/industry-insight";
-import { buildIndustryInsightResearchPrompt, parseIndustryInsightMarkdown, type IndustryInsightImportResult } from "@/features/workbench/industry-insight-bridge";
-import { saveIndustryInsightProject } from "@/features/workbench/local-store";
+import { applyIndustryInsightDraft, buildIndustryInsightResearchPrompt, parseIndustryInsightMarkdown, type IndustryInsightDraftField, type IndustryInsightDraftStatus, type IndustryInsightImportResult } from "@/features/workbench/industry-insight-bridge";
 
 export function InsightBridgePanel({ project, onSave }: { project: IndustryInsightProject; onSave: (next: IndustryInsightProject) => void }) {
   const [prompt, setPrompt] = useState(() => buildIndustryInsightResearchPrompt(project));
   const [input, setInput] = useState("");
   const [result, setResult] = useState<IndustryInsightImportResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editedValue, setEditedValue] = useState("");
 
   const refreshPrompt = () => setPrompt(buildIndustryInsightResearchPrompt(project));
   const copyPrompt = async () => {
@@ -26,7 +27,13 @@ export function InsightBridgePanel({ project, onSave }: { project: IndustryInsig
     const drafts = next.drafts.map((draft) => ({ ...draft, status: "draft" as const }));
     const merged = { ...project, aiDrafts: [...project.aiDrafts, ...drafts] };
     onSave(merged);
-    saveIndustryInsightProject(merged);
+  };
+  const review = (draft: IndustryInsightDraftField, status: IndustryInsightDraftStatus) => {
+    const nextDraft = { ...draft, status, ...(status === "edited" ? { editedValue } : {}) };
+    const nextProject = { ...project, aiDrafts: project.aiDrafts.map((item) => item.id === draft.id ? nextDraft : item) };
+    onSave(status === "accepted" || status === "edited" ? applyIndustryInsightDraft(nextProject, nextDraft) : nextProject);
+    setEditingId(null);
+    setEditedValue("");
   };
 
   return <section className="rounded-2xl border border-line bg-surface p-5 shadow-card" aria-label="外部 GPT 桥接">
@@ -70,7 +77,12 @@ export function InsightBridgePanel({ project, onSave }: { project: IndustryInsig
         <p className="text-sm font-semibold text-ink">识别失败内容</p>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-muted">{result.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul>
       </div>}
-      {result.drafts.length > 0 && <div className="mt-3 space-y-2">{result.drafts.map((draft) => <div key={draft.id} className="rounded-lg border border-line bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-ink">{draft.fieldPath}</span><span className="rounded-full bg-paper-warm px-2 py-1 text-[11px] font-semibold text-muted">待审核 · draft</span></div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">{draft.value}</p></div>)}</div>}
+      {result.drafts.length > 0 && <div className="mt-3 space-y-2">{result.drafts.map((draft) => <DraftCard key={draft.id} draft={project.aiDrafts.find((item) => item.id === draft.id) ?? draft} editingId={editingId} editedValue={editedValue} onStartEdit={(item) => { setEditingId(item.id); setEditedValue(item.value); }} onEdit={setEditedValue} onReview={review} />)}</div>}
     </div>}
+    {project.aiDrafts.length > 0 && !result && <div className="mt-5 space-y-2">{project.aiDrafts.map((draft) => <DraftCard key={draft.id} draft={draft} editingId={editingId} editedValue={editedValue} onStartEdit={(item) => { setEditingId(item.id); setEditedValue(item.value); }} onEdit={setEditedValue} onReview={review} />)}</div>}
   </section>;
+}
+
+function DraftCard({ draft, editingId, editedValue, onStartEdit, onEdit, onReview }: { draft: IndustryInsightDraftField; editingId: string | null; editedValue: string; onStartEdit: (draft: IndustryInsightDraftField) => void; onEdit: (value: string) => void; onReview: (draft: IndustryInsightDraftField, status: IndustryInsightDraftStatus) => void }) {
+  return <div className="rounded-lg border border-line bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-semibold text-ink">{draft.fieldPath}</span><span className="rounded-full bg-paper-warm px-2 py-1 text-[11px] font-semibold text-muted">{draft.status}</span></div>{editingId === draft.id ? <textarea value={editedValue} onChange={(event) => onEdit(event.target.value)} className="mt-2 min-h-20 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm" /> : <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">{draft.value}</p>}<div className="mt-3 flex flex-wrap gap-2 text-xs"><button type="button" onClick={() => onReview(draft, "accepted")} className="rounded-lg bg-action px-2.5 py-1.5 font-semibold text-white">采用</button><button type="button" onClick={() => editingId === draft.id ? onReview(draft, "edited") : onStartEdit(draft)} className="rounded-lg border border-line px-2.5 py-1.5 font-semibold text-action">修改后采用</button><button type="button" onClick={() => onReview(draft, "needs_verification")} className="rounded-lg border border-line px-2.5 py-1.5 font-semibold text-muted">待验证</button><button type="button" onClick={() => onReview(draft, "rejected")} className="rounded-lg border border-line px-2.5 py-1.5 font-semibold text-muted">暂不采用</button></div></div>;
 }

@@ -5,6 +5,7 @@ import {
   getIndustryInsightCompleteness,
   updateIndustryInsightProject,
 } from "@/features/workbench/industry-insight";
+import { getIndustryInsightDraftReviewCounts } from "@/components/workbench/industry-insight/insight-report";
 
 describe("industry insight domain", () => {
   it("creates an empty six-step project without prefilled case data", () => {
@@ -39,5 +40,20 @@ describe("industry insight domain", () => {
     const restored = updateIndustryInsightProject(archived, { status: "draft" });
     expect(restored.id).toBe(original.id);
     expect(restored.status).toBe("draft");
+  });
+
+  it("counts unreviewed and needs-verification drafts without changing formal report data", () => {
+    const project = createIndustryInsightProject({ title: "测试" });
+    const withDrafts = {
+      ...project,
+      aiDrafts: [
+        { id: "draft-1", fieldPath: "decisionQuestion", value: "待审", status: "draft" as const, sourceRefs: [], importedAt: "2026-09-15" },
+        { id: "draft-2", fieldPath: "expectedAction", value: "需核验", status: "needs_verification" as const, sourceRefs: [], importedAt: "2026-09-15" },
+        { id: "draft-3", fieldPath: "boundary.object", value: "已采用", status: "accepted" as const, sourceRefs: [], importedAt: "2026-09-15" },
+      ],
+    };
+
+    expect(getIndustryInsightDraftReviewCounts(withDrafts)).toEqual({ unreviewed: 2, needsVerification: 1 });
+    expect(buildIndustryInsightReport(withDrafts).sections[0].content).toBe("｜｜｜");
   });
 });
