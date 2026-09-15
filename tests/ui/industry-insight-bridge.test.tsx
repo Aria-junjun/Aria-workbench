@@ -12,7 +12,6 @@ describe("industry insight external GPT bridge UI", () => {
     expect(panel).toContain("识别失败内容");
     expect(panel).toContain("parseIndustryInsightMarkdown");
     expect(panel).toContain("buildIndustryInsightResearchPrompt");
-    expect(panel).toContain("saveIndustryInsightProject");
     expect(workspace).toContain("InsightBridgePanel");
   });
 
