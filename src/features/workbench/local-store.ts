@@ -2745,7 +2745,10 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     demandExplorations: Array.isArray(data.demandExplorations) ? data.demandExplorations : [],
     demandConfirmationDocuments: Array.isArray(data.demandConfirmationDocuments) ? data.demandConfirmationDocuments : [],
     competitorAnalysisProjects: Array.isArray(data.competitorAnalysisProjects) ? data.competitorAnalysisProjects : [],
-    industryInsightProjects: Array.isArray(data.industryInsightProjects) ? data.industryInsightProjects : [],
+    industryInsightProjects: Array.isArray(data.industryInsightProjects) ? data.industryInsightProjects.map((project) => ({
+      ...project,
+      aiDrafts: Array.isArray(project.aiDrafts) ? project.aiDrafts : [],
+    })) : [],
     productDecompositionProjects: Array.isArray(data.productDecompositionProjects) ? data.productDecompositionProjects : [],
     projectExecutionProjects: Array.isArray(data.projectExecutionProjects) ? data.projectExecutionProjects : [],
     skuMasters: Array.isArray(data.skuMasters) ? data.skuMasters.map((item) => ({

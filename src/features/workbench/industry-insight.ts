@@ -100,6 +100,7 @@ export type IndustryInsightProject = {
   chainNodes: IndustryChainNode[];
   conclusion: IndustryInsightConclusion;
   evidence: IndustryEvidence[];
+  aiDrafts: import("./industry-insight-bridge").IndustryInsightDraftField[];
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -126,6 +127,7 @@ export function createIndustryInsightProject(input: { title: string; productName
     chainNodes: [],
     conclusion: { opportunity: "", risks: "", unverifiedQuestions: "", nextModule: "none", nextAction: "" },
     evidence: [],
+    aiDrafts: [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
