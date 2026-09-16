@@ -1,6 +1,7 @@
 import type {
   IndustryDimensionKey,
   IndustryEvidenceTag,
+  IndustryChainLayer,
   IndustryInsightProject,
   IndustryStage,
 } from "@/features/workbench/industry-insight";
@@ -221,6 +222,31 @@ function setFormalField(project: IndustryInsightProject, fieldPath: string, valu
     if (parts[1] === "currentStage") next.stage.currentStage = value as IndustryStage;
     else if (parts[1] === "milestones") next.stage.milestones = value.split(/\n|、/).map((item) => item.trim()).filter(Boolean);
     else (next.stage as unknown as Record<string, string>)[parts[1]] = value;
+  } else if (parts[0] === "chainNodes[]" && parts[1]) {
+    const layerLabels: Array<[string, IndustryChainLayer]> = [["上游", "upstream"], ["中游", "midstream"], ["下游", "downstream"], ["支持", "support"]];
+    if (parts[1] === "layer") {
+      const layers: IndustryChainLayer[] = layerLabels.filter(([label]) => value.includes(label)).map(([, layer]) => layer);
+      const selectedLayers: IndustryChainLayer[] = layers.length > 0 ? layers : ["downstream"];
+      next.chainNodes = selectedLayers.map((layer, index) => ({
+        id: `chain-ai-${Date.now()}-${index}`,
+        layer,
+        role: "",
+        participants: "",
+        valueFlow: "",
+        productRelation: "",
+        evidenceIds: [],
+      }));
+    } else {
+      if (next.chainNodes.length === 0) next.chainNodes.push({ id: `chain-ai-${Date.now()}`, layer: "downstream", role: "", participants: "", valueFlow: "", productRelation: "", evidenceIds: [] });
+      const field = parts[1] as "role" | "participants" | "valueFlow";
+      const entries = value.split(/\n|；|;/).map((item) => item.trim()).filter(Boolean);
+      for (const node of next.chainNodes) {
+        const layerLabel = layerLabels.find(([, layer]) => layer === node.layer)?.[0];
+        const entry = entries.find((item) => layerLabel && item.startsWith(`${layerLabel}：`))?.replace(`${layerLabel}：`, "");
+        if (entry) node[field] = entry;
+      }
+      if (entries.every((item) => !layerLabels.some(([label]) => item.startsWith(`${label}：`)))) next.chainNodes[0][field] = value;
+    }
   } else if (parts[0] === "conclusion" && parts[1] in next.conclusion) {
     if (parts[1] === "nextModule") next.conclusion.nextModule = value as IndustryInsightProject["conclusion"]["nextModule"];
     else (next.conclusion as unknown as Record<string, string>)[parts[1]] = value;

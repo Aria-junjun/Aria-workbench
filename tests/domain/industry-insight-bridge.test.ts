@@ -134,6 +134,21 @@ chainNodes[].valueFlow（产业链 / 参与者与价值流·价值流）：
     expect(applyIndustryInsightDraft(project, draft).decisionQuestion).toBe("新的决策问题");
   });
 
+  it("writes accepted chain layer drafts into formal chain nodes", () => {
+    const project = createIndustryInsightProject({ title: "产业链测试" });
+    const draft = {
+      id: "chain-draft-1",
+      fieldPath: "chainNodes[].layer",
+      value: "上游；中游；下游；支持",
+      status: "accepted" as const,
+      sourceRefs: [],
+      importedAt: "2026-09-16T00:00:00.000Z",
+    };
+
+    const next = applyIndustryInsightDraft(project, draft);
+    expect(next.chainNodes.map((node) => node.layer)).toEqual(["upstream", "midstream", "downstream", "support"]);
+  });
+
   it("does not apply an unreviewed draft to a formal field", () => {
     const project = createIndustryInsightProject({ title: "测试" });
     const draft = {
