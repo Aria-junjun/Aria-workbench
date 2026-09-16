@@ -17,5 +17,6 @@ describe("竞品分析策略与报告", () => {
     expect(strategy).toContain("暂不做");
     expect(report).toContain("执行摘要");
     expect(report).toContain("分析限制");
+    expect(report).toContain("中立研究摘要");
   });
 });

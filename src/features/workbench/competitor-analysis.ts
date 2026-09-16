@@ -4,6 +4,7 @@ export type EvidenceTag = "fact" | "inference" | "unverified" | "strategy";
 export type FiveLayerKey = "strategy" | "scope" | "structure" | "framework" | "presentation";
 export type DifferenceType = "missing" | "incomplete" | "replaceable" | "available" | "differentiation" | "not_applicable";
 export type StrategyType = "follow" | "borrow" | "differentiate" | "defer";
+import type { NeutralResearchSummary, ResearchInput } from "./research-context";
 
 export type CompetitorEvidence = {
   id: string;
@@ -88,6 +89,8 @@ export type CompetitorAnalysisProject = {
   decisionQuestion: string;
   expectedAction: string;
   productStage: string;
+  researchInput?: ResearchInput;
+  neutralSummary?: NeutralResearchSummary;
   competitors: CompetitorProfile[];
   evidence: CompetitorEvidence[];
   layerAnalyses: Record<string, FiveLayerAnalysis>;

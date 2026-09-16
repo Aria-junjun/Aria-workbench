@@ -4,6 +4,7 @@ export type IndustryDimensionKey = "scale" | "trend" | "share_shift" | "substitu
 export type IndustryStage = "emerging" | "exploring" | "growth" | "expansion" | "bubble" | "mature" | "unclear";
 export type IndustryStepKey = "purpose" | "boundary" | "dimensions" | "stage" | "chain" | "conclusion";
 export type IndustryChainLayer = "upstream" | "midstream" | "downstream" | "support";
+import type { NeutralResearchSummary, ResearchInput } from "./research-context";
 
 export const INDUSTRY_DIMENSIONS: Array<{ key: IndustryDimensionKey; label: string; question: string }> = [
   { key: "scale", label: "行业规模", question: "这个市场现在有多大，规模口径是什么？" },
@@ -92,6 +93,8 @@ export type IndustryInsightProject = {
   analysisTheme: string;
   decisionQuestion: string;
   expectedAction: string;
+  researchInput?: ResearchInput;
+  neutralSummary?: NeutralResearchSummary;
   status: IndustryInsightStatus;
   steps: Record<IndustryStepKey, IndustryInsightStatus>;
   boundary: IndustryInsightBoundary;
@@ -109,7 +112,7 @@ export type IndustryInsightProject = {
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-export function createIndustryInsightProject(input: { title: string; productName?: string; targetUsers?: string; analysisTheme?: string; decisionQuestion?: string; expectedAction?: string }): IndustryInsightProject {
+export function createIndustryInsightProject(input: { title: string; productName?: string; targetUsers?: string; analysisTheme?: string; decisionQuestion?: string; expectedAction?: string; researchInput?: ResearchInput }): IndustryInsightProject {
   const timestamp = now();
   return {
     id: id("industry-insight"),
@@ -119,6 +122,8 @@ export function createIndustryInsightProject(input: { title: string; productName
     analysisTheme: input.analysisTheme?.trim() ?? "",
     decisionQuestion: input.decisionQuestion?.trim() ?? "",
     expectedAction: input.expectedAction?.trim() ?? "",
+    researchInput: input.researchInput,
+    neutralSummary: undefined,
     status: "draft",
     steps: { purpose: "draft", boundary: "draft", dimensions: "draft", stage: "draft", chain: "draft", conclusion: "draft" },
     boundary: { object: "", scenarios: "", region: "", timeRange: "", exclusions: "" },

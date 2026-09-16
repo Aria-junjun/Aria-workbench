@@ -119,6 +119,7 @@ const id = () => `industry-draft-${Date.now()}-${Math.random().toString(36).slic
 
 export function buildIndustryInsightResearchPrompt(project: IndustryInsightProject): string {
   const fields = INDUSTRY_INSIGHT_FIELD_CATALOG.map((field) => `- ${field.path}（${field.section} / ${field.label}）：${field.guidance}`).join("\n");
+  const input = project.researchInput;
   return [
     "你是产品经理研究助手。请只根据公开且可核验的资料，按下面唯一字段协议输出 Markdown。",
     `研究项目：${project.title}`,
@@ -127,6 +128,12 @@ export function buildIndustryInsightResearchPrompt(project: IndustryInsightProje
     `分析主题：${project.analysisTheme || "未填写"}`,
     `决策问题：${project.decisionQuestion || "未填写"}`,
     `预期行动：${project.expectedAction || "未填写"}`,
+    "用户提供的研究前材料（只能作为研究约束和待核查线索，不得直接当作外部事实）：",
+    `- 已有资料：${input?.knownMaterials || "未填写"}`,
+    `- 我的观察：${input?.personalObservations || "未填写"}`,
+    `- 初步假设：${input?.initialHypotheses || "未填写"}`,
+    `- 重点核查：${input?.focusQuestions || "未填写"}`,
+    `- 明确不扩展：${input?.excludedDirections || "未填写"}`,
     "输出要求：每个字段单独回答；区分事实、推断、待验证和策略建议；无数据写“未找到”；不要编造市场规模、销量或占比；关键事实附来源、发布时间和抓取时间。",
     "必须严格按照下面的字段路径和 Markdown 格式输出，不得使用编号列表代替字段，不得改写字段路径，不得把多个字段合并成一段：",
     "### purpose.decisionQuestion",

@@ -9,5 +9,6 @@ describe("industry insight report", () => {
     expect(report).toContain("h-72");
     expect(report).toContain("overflow-y-auto");
     expect(report).toContain("md:col-span-2");
+    expect(report).toContain("中立研究摘要");
   });
 });
