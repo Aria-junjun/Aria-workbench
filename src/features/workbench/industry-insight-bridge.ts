@@ -65,6 +65,25 @@ const formalPathAliases: Record<string, string> = {
   decisionQuestion: "purpose.decisionQuestion",
   expectedAction: "purpose.expectedAction",
 };
+
+const draftStatusLabels: Record<IndustryInsightDraftStatus, string> = {
+  draft: "待审核",
+  accepted: "已采用",
+  edited: "修改后采用",
+  needs_verification: "待验证",
+  rejected: "暂不采用",
+};
+
+export function getIndustryInsightFieldDisplay(fieldPath: string): string {
+  const canonicalPath = formalPathAliases[fieldPath] ?? fieldPath.replace(/\\_/g, "_");
+  const field = fieldByPath.get(canonicalPath);
+  return field ? `${field.section} · ${field.label.replace(/·/g, " · ")}` : "无法归类的字段";
+}
+
+export function getIndustryInsightDraftStatusDisplay(status: IndustryInsightDraftStatus): string {
+  return draftStatusLabels[status];
+}
+
 const sectionNames = new Set(INDUSTRY_INSIGHT_FIELD_CATALOG.map((field) => field.section));
 const labelAliases: Record<string, string> = {
   决策问题: "purpose.decisionQuestion",
@@ -145,11 +164,12 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
   };
 
   const resolveFieldPath = (heading: string) => {
-    const pathHeading = heading.match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]?$/)?.[1];
+    const normalizedHeading = heading.replace(/\\_/g, "_");
+    const pathHeading = normalizedHeading.match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]?$/)?.[1];
     if (pathHeading && (fieldByPath.has(pathHeading) || formalPathAliases[pathHeading])) {
       return formalPathAliases[pathHeading] ?? pathHeading;
     }
-    const alias = labelAliases[heading];
+    const alias = labelAliases[normalizedHeading];
     const normalized = alias && dimension && ["fact", "judgment", "evidence", "tag"].includes(alias)
       ? `dimensions.${dimension}.${alias}`
       : alias;
@@ -161,11 +181,11 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
   for (const rawLine of lines) {
     const line = rawLine.trim();
     const heading = line.match(/^#{2,3}\s+(.+?)\s*$/)?.[1]?.trim();
-    const pathLine = line.match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]\s*$/)?.[1];
+    const pathLine = line.replace(/\\_/g, "_").match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]\s*$/)?.[1];
     if (!heading && pathLine) {
       flush();
       fieldPath = resolveFieldPath(line);
-      if (!fieldPath) warnings.push(`未识别字段路径：${pathLine}`);
+      if (!fieldPath) warnings.push("未识别字段：当前内容无法归类，请使用任务包中的固定字段。");
       continue;
     }
     if (heading) {
@@ -174,10 +194,10 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
         section = heading;
         dimension = dimensionLabels[heading];
         fieldPath = undefined;
-        if (!sectionNames.has(section)) warnings.push(`未识别板块标题：${heading}`);
+        if (!sectionNames.has(section)) warnings.push("未识别板块：请使用研究目的、行业边界、四维分析、阶段判断、产业链或结论与下一步。");
       } else {
         fieldPath = resolveFieldPath(heading);
-        if (!fieldPath && !sectionNames.has(heading)) warnings.push(`未识别字段标题：${heading}`);
+        if (!fieldPath && !sectionNames.has(heading)) warnings.push("未识别字段：当前内容无法归类，请使用任务包中的固定字段。");
       }
       continue;
     }

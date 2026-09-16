@@ -3,6 +3,7 @@ import { createIndustryInsightProject } from "@/features/workbench/industry-insi
 import {
   applyIndustryInsightDraft,
   buildIndustryInsightResearchPrompt,
+  getIndustryInsightFieldDisplay,
   parseIndustryInsightMarkdown,
 } from "@/features/workbench/industry-insight-bridge";
 
@@ -54,7 +55,7 @@ describe("industry insight external GPT bridge", () => {
         status: "draft",
       }),
     ]));
-    expect(result.warnings.join(" ")).toContain("额外结论");
+    expect(result.warnings.join(" ")).toContain("未识别板块");
   });
 
   it("parses field-path labels returned by external GPT", () => {
@@ -69,6 +70,27 @@ purpose.decisionQuestion（研究目的 / 决策问题）：
         expect.objectContaining({ fieldPath: "purpose.decisionQuestion", status: "draft" }),
     ]));
     expect(result.drafts[0]?.value).toContain("事实：");
+  });
+
+  it("parses markdown-escaped field paths and keeps their Chinese field meaning", () => {
+    const result = parseIndustryInsightMarkdown(`
+dimensions.share\\_shift.fact：
+事实：市场占比数据尚未完整。
+`);
+
+    expect(result.warnings).toHaveLength(0);
+    expect(result.drafts[0]).toEqual(expect.objectContaining({
+      fieldPath: "dimensions.share_shift.fact",
+      status: "draft",
+    }));
+    expect(getIndustryInsightFieldDisplay("dimensions.share_shift.fact")).toBe("四维分析 · 市场占比 · 观察事实");
+  });
+
+  it("describes unknown fields in Chinese without exposing a raw path", () => {
+    const result = parseIndustryInsightMarkdown("unknown\\_field：\n这是一段无法归类的内容。");
+
+    expect(result.warnings.join(" ")).toContain("无法归类");
+    expect(result.warnings.join(" ")).not.toContain("unknown_field");
   });
 
   it("warns instead of silently dropping non-empty unrecognized content", () => {
