@@ -24,6 +24,8 @@ describe("industry insight external GPT bridge", () => {
     expect(prompt).toContain("chainNodes[].participants");
     expect(prompt).toContain("chainNodes[].valueFlow");
     expect(prompt).toContain("conclusion.nextAction");
+    expect(prompt).toContain("### purpose.decisionQuestion");
+    expect(prompt).toContain("不得使用编号列表代替字段");
     expect(prompt).not.toContain("研究背景");
     expect(prompt).not.toContain("成功标准");
     expect(prompt).not.toContain("stage.milestones");
@@ -53,6 +55,26 @@ describe("industry insight external GPT bridge", () => {
       }),
     ]));
     expect(result.warnings.join(" ")).toContain("额外结论");
+  });
+
+  it("parses field-path labels returned by external GPT", () => {
+    const result = parseIndustryInsightMarkdown(`
+purpose.decisionQuestion（研究目的 / 决策问题）：
+事实：公开资料显示用户关注擦除留痕。
+推断：材料性能可能是关键因素。
+待验证：需要进一步测试。
+策略建议：先建立统一测试矩阵。
+`);
+    expect(result.drafts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ fieldPath: "purpose.decisionQuestion", status: "draft" }),
+    ]));
+    expect(result.drafts[0]?.value).toContain("事实：");
+  });
+
+  it("warns instead of silently dropping non-empty unrecognized content", () => {
+    const result = parseIndustryInsightMarkdown("这是一段没有字段标题的研究内容。");
+    expect(result.drafts).toHaveLength(0);
+    expect(result.warnings.join(" ")).toContain("未识别");
   });
 
   it("applies only an accepted draft to an existing formal field", () => {

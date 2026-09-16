@@ -108,6 +108,18 @@ export function buildIndustryInsightResearchPrompt(project: IndustryInsightProje
     `决策问题：${project.decisionQuestion || "未填写"}`,
     `预期行动：${project.expectedAction || "未填写"}`,
     "输出要求：每个字段单独回答；区分事实、推断、待验证和策略建议；无数据写“未找到”；不要编造市场规模、销量或占比；关键事实附来源、发布时间和抓取时间。",
+    "必须严格按照下面的字段路径和 Markdown 格式输出，不得使用编号列表代替字段，不得改写字段路径，不得把多个字段合并成一段：",
+    "### purpose.decisionQuestion",
+    "事实：",
+    "推断：",
+    "待验证：",
+    "策略建议：",
+    "### purpose.expectedAction",
+    "事实：",
+    "推断：",
+    "待验证：",
+    "策略建议：",
+    "其余字段也必须使用同样的 `### 字段路径` 标题；没有内容时填写“未找到”。",
     "只能使用以下字段路径，不得创建其他字段：",
     fields,
   ].join("\n");
@@ -121,6 +133,7 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
   let dimension: IndustryDimensionKey | undefined;
   let fieldPath: string | undefined;
   let buffer: string[] = [];
+  let unrecognized: string[] = [];
 
   const flush = () => {
     const value = buffer.join("\n").trim();
@@ -131,9 +144,30 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
     buffer = [];
   };
 
+  const resolveFieldPath = (heading: string) => {
+    const pathHeading = heading.match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]?$/)?.[1];
+    if (pathHeading && (fieldByPath.has(pathHeading) || formalPathAliases[pathHeading])) {
+      return formalPathAliases[pathHeading] ?? pathHeading;
+    }
+    const alias = labelAliases[heading];
+    const normalized = alias && dimension && ["fact", "judgment", "evidence", "tag"].includes(alias)
+      ? `dimensions.${dimension}.${alias}`
+      : alias;
+    return normalized && fieldByPath.has(normalized)
+      ? Object.entries(formalPathAliases).find(([, canonical]) => canonical === normalized)?.[0] ?? normalized
+      : undefined;
+  };
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     const heading = line.match(/^#{2,3}\s+(.+?)\s*$/)?.[1]?.trim();
+    const pathLine = line.match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]\s*$/)?.[1];
+    if (!heading && pathLine) {
+      flush();
+      fieldPath = resolveFieldPath(line);
+      if (!fieldPath) warnings.push(`未识别字段路径：${pathLine}`);
+      continue;
+    }
     if (heading) {
       flush();
       if (line.startsWith("## ")) {
@@ -142,20 +176,16 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
         fieldPath = undefined;
         if (!sectionNames.has(section)) warnings.push(`未识别板块标题：${heading}`);
       } else {
-        const alias = labelAliases[heading];
-        const normalized = alias && dimension && ["fact", "judgment", "evidence", "tag"].includes(alias)
-          ? `dimensions.${dimension}.${alias}`
-          : alias;
-        fieldPath = normalized && fieldByPath.has(normalized)
-          ? Object.entries(formalPathAliases).find(([, canonical]) => canonical === normalized)?.[0] ?? normalized
-          : undefined;
+        fieldPath = resolveFieldPath(heading);
         if (!fieldPath && !sectionNames.has(heading)) warnings.push(`未识别字段标题：${heading}`);
       }
       continue;
     }
     if (fieldPath) buffer.push(rawLine);
+    else if (line) unrecognized.push(line);
   }
   flush();
+  if (unrecognized.length > 0) warnings.push(`未识别内容：${unrecognized.slice(0, 3).join(" / ")}${unrecognized.length > 3 ? " …" : ""}`);
   return { drafts, warnings };
 }
 
