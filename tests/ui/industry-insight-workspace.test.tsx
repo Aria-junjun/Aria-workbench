@@ -8,6 +8,7 @@ describe("industry insight workspace", () => {
     expect(nav).toContain("INDUSTRY_STEP_LABELS");
     expect(workspace).toContain('useState<IndustryStepKey>("purpose")');
     expect(workspace).toContain("保存本步");
+    expect(workspace).toContain("保存研究前输入");
     const report = readFileSync("src/components/workbench/industry-insight/insight-report.tsx", "utf8");
     expect(report).toContain("限制说明");
   });
