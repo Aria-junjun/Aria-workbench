@@ -30,6 +30,8 @@ describe("industry insight external GPT bridge UI", () => {
     expect(panel).toContain("accepted");
     expect(panel).toContain("needs_verification");
     expect(panel).toContain("rejected");
+    expect(panel).toContain("aria-expanded");
+    expect(panel).toContain("已采用或暂不采用的内容默认收起");
   });
 
   it("shows the review count while keeping the formal report read-only", () => {

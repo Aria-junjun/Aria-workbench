@@ -6,5 +6,7 @@ describe("industry insight report", () => {
     const report = readFileSync("src/components/workbench/industry-insight/insight-report.tsx", "utf8");
     expect(report).toContain("报告仍有信息缺口");
     expect(report).toContain("限制说明");
+    expect(report).toContain("h-72");
+    expect(report).toContain("overflow-y-auto");
   });
 });
