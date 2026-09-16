@@ -8,5 +8,6 @@ describe("industry insight report", () => {
     expect(report).toContain("限制说明");
     expect(report).toContain("h-72");
     expect(report).toContain("overflow-y-auto");
+    expect(report).toContain("md:col-span-2");
   });
 });
