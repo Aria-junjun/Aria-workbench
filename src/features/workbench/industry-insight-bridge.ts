@@ -165,7 +165,7 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
 
   const resolveFieldPath = (heading: string) => {
     const normalizedHeading = heading.replace(/\\_/g, "_");
-    const pathHeading = normalizedHeading.match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]?$/)?.[1];
+    const pathHeading = normalizedHeading.match(/^([A-Za-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]?$/)?.[1];
     if (pathHeading && (fieldByPath.has(pathHeading) || formalPathAliases[pathHeading])) {
       return formalPathAliases[pathHeading] ?? pathHeading;
     }
@@ -181,7 +181,7 @@ export function parseIndustryInsightMarkdown(input: string): IndustryInsightImpo
   for (const rawLine of lines) {
     const line = rawLine.trim();
     const heading = line.match(/^#{2,3}\s+(.+?)\s*$/)?.[1]?.trim();
-    const pathLine = line.replace(/\\_/g, "_").match(/^([a-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]\s*$/)?.[1];
+    const pathLine = line.replace(/\\_/g, "_").match(/^([A-Za-z]+(?:\.[A-Za-z_]+|\[\])+(?:\.[A-Za-z_]+)?)(?:（[^）]*）)?\s*[:：]\s*$/)?.[1];
     if (!heading && pathLine) {
       flush();
       fieldPath = resolveFieldPath(line);

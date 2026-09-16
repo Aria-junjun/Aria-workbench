@@ -86,6 +86,27 @@ dimensions.share\\_shift.fact：
     expect(getIndustryInsightFieldDisplay("dimensions.share_shift.fact")).toBe("四维分析 · 市场占比 · 观察事实");
   });
 
+  it("parses camelCase chain node field paths from the external GPT output", () => {
+    const result = parseIndustryInsightMarkdown(`
+chainNodes[].layer（产业链 / 层级）：
+上游；中游；下游；支持。
+chainNodes[].role（产业链 / 角色）：
+上游：材料供应商；中游：品牌商；下游：家庭用户。
+chainNodes[].participants（产业链 / 参与者与价值流）：
+上游提供材料，中游加工， 下游使用。
+chainNodes[].valueFlow（产业链 / 参与者与价值流·价值流）：
+材料供应商 → 品牌商 → 用户。
+`);
+
+    expect(result.warnings).toHaveLength(0);
+    expect(result.drafts.map((draft) => draft.fieldPath)).toEqual([
+      "chainNodes[].layer",
+      "chainNodes[].role",
+      "chainNodes[].participants",
+      "chainNodes[].valueFlow",
+    ]);
+  });
+
   it("describes unknown fields in Chinese without exposing a raw path", () => {
     const result = parseIndustryInsightMarkdown("unknown\\_field：\n这是一段无法归类的内容。");
 
