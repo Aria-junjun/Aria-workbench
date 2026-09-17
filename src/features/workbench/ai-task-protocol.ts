@@ -60,15 +60,49 @@ export function parseAiTaskDraft(text: string, task: AiTaskPackage): AiTaskDraft
   const allowed = new Set(task.allowedFields.map((field) => field.path));
   const recognizedFields: Record<string, string> = {};
   const unrecognizedLines: string[] = [];
+  let currentPath: string | undefined;
+  let currentContent: string[] = [];
+
+  const flush = () => {
+    if (currentPath) {
+      recognizedFields[currentPath] = currentContent.join("\n").trim();
+    }
+    currentPath = undefined;
+    currentContent = [];
+  };
+
+  const findFieldHeading = (line: string) => {
+    for (const path of allowed) {
+      const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = line.match(new RegExp(`^#{0,6}\\s*${escapedPath}(?:\\s*(?:（[^）]*）|\\([^)]*\\)))?\\s*(?:[：:]\\s*(.*))?$`));
+      if (match) return { path, inlineContent: match[1]?.trim() ?? "" };
+    }
+    return undefined;
+  };
+
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const match = line.match(/^(?:[-*]\s*)?([^：:]+)\s*[：:]\s*(.+)$/);
-    if (!match || !allowed.has(match[1].trim())) {
+    const heading = findFieldHeading(line);
+    if (heading) {
+      flush();
+      currentPath = heading.path;
+      if (heading.inlineContent) currentContent.push(heading.inlineContent);
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(line)) {
+      flush();
       unrecognizedLines.push(line);
       continue;
     }
-    recognizedFields[match[1].trim()] = match[2].trim();
+    if (currentPath && /^(?:[-*]\s*)?[A-Za-z][\w.-]*\s*[：:]/.test(line)) {
+      flush();
+      unrecognizedLines.push(line);
+      continue;
+    }
+    if (currentPath) currentContent.push(line);
+    else unrecognizedLines.push(line);
   }
+  flush();
   return { id: `ai-draft-${crypto.randomUUID()}`, importedAt: new Date().toISOString(), rawText: text, recognizedFields, unrecognizedLines, status: "draft" };
 }
