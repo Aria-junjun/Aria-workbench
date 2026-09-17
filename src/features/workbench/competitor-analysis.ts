@@ -84,6 +84,7 @@ export type CompetitorAnalysisProject = {
   id: string;
   title: string;
   productName: string;
+  opportunityProductId?: string;
   targetUsers: string;
   analysisTheme: string;
   decisionQuestion: string;

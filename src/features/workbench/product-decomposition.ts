@@ -77,6 +77,7 @@ export type ProductDecompositionProject = {
   id: string;
   title: string;
   linkedProductId?: string;
+  opportunityProductId?: string;
   targetUsers: string;
   scenario: string;
   centralQuestion: string;

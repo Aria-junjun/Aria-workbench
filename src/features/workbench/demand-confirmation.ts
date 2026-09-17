@@ -52,6 +52,7 @@ export type DemandConfirmationDocument = {
   title: string;
   productName: string;
   productId?: string;
+  opportunityProductId?: string;
   userType: string;
   scenario: string;
   problem: string;

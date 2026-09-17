@@ -58,7 +58,12 @@ git commit -m "feat: add shared external AI task protocol"
 
 **Files:**
 - Create: `src/features/workbench/research-ai-task-packages.ts`
+- Create: `src/components/workbench/external-ai-task-panel.tsx`
+- Modify: `src/components/workbench/demand-exploration/document-workspace.tsx`
+- Modify: `src/components/workbench/competitor-analysis/analysis-workspace.tsx`
+- Modify: `src/components/workbench/product-decomposition/decomposition-workspace.tsx`
 - Test: `tests/domain/research-ai-task-packages.test.ts`
+- Test: `tests/ui/external-ai-task-panel.test.tsx`
 
 **Interfaces:**
 - Produces `buildDemandExplorationTaskPackage(input)`。
@@ -92,6 +97,10 @@ Expected: PASS。
 git add tests/domain/research-ai-task-packages.test.ts src/features/workbench/research-ai-task-packages.ts
 git commit -m "feat: add research module AI task packages"
 ```
+
+- [ ] **Step 6: Expose the task packages in the three workspaces**
+
+Render `ExternalAiTaskPanel` with the corresponding builder output in each existing workspace. The panel only copies a read-only prompt and explicitly states that the result must be reviewed before formal records change; it does not implement AI result import yet.
 
 ### Task 3: 为研究项目预留可选机会产品关联
 
