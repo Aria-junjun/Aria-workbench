@@ -22,6 +22,15 @@ export type AiTaskDraft = {
   status: "draft";
 };
 
+export function createAiTaskDraftRevision(draft: AiTaskDraft, recognizedFields: Record<string, string>): AiTaskDraft {
+  return {
+    ...draft,
+    id: `ai-draft-${crypto.randomUUID()}`,
+    importedAt: new Date().toISOString(),
+    recognizedFields: { ...recognizedFields },
+  };
+}
+
 const moduleLabels: Record<AiTaskModule, string> = {
   "industry-insight": "行业洞察",
   "demand-exploration": "需求探索",

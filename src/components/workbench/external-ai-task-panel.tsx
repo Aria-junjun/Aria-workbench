@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { parseAiTaskDraft, type AiTaskDraft, type AiTaskPackage } from "@/features/workbench/ai-task-protocol";
+import React, { useState } from "react";
+import { createAiTaskDraftRevision, parseAiTaskDraft, type AiTaskDraft, type AiTaskPackage } from "@/features/workbench/ai-task-protocol";
 
 export function ExternalAiTaskPanel({ task, onSaveDraft, savedDrafts = [] }: { task: AiTaskPackage; onSaveDraft?: (draft: AiTaskDraft) => void; savedDrafts?: AiTaskDraft[] }) {
   const [copied, setCopied] = useState(false);
@@ -24,12 +24,12 @@ export function ExternalAiTaskPanel({ task, onSaveDraft, savedDrafts = [] }: { t
   }
   function confirmDraft() {
     if (!draft) return;
-    onSaveDraft?.(draft);
+    onSaveDraft?.(createAiTaskDraftRevision(draft, draft.recognizedFields));
     setSaved(true);
   }
   function saveEdits() {
     if (!draft) return;
-    const next = { ...draft, recognizedFields: { ...editedFields } };
+    const next = createAiTaskDraftRevision(draft, editedFields);
     setDraft(next);
     onSaveDraft?.(next);
     setEditing(false);

@@ -1,123 +1,60 @@
-import { describe, expect, it, vi } from "vitest";
-import type { ReactElement, ReactNode } from "react";
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, it } from "vitest";
+import React from "react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { AiTaskDraft } from "@/features/workbench/ai-task-protocol";
+import { ExternalAiTaskPanel } from "@/components/workbench/external-ai-task-panel";
 
-const stateSlots: unknown[] = [];
-let stateCursor = 0;
+type Props = Parameters<typeof ExternalAiTaskPanel>[0];
 
-vi.mock("react", async () => {
-  const actual = await vi.importActual<typeof import("react")>("react");
-  globalThis.React = actual;
-  return {
-    ...actual,
-    useState: <T,>(initial: T) => {
-      const slot = stateCursor++;
-      if (!(slot in stateSlots)) stateSlots[slot] = initial;
-      return [stateSlots[slot] as T, (next: T | ((current: T) => T)) => {
-        stateSlots[slot] = typeof next === "function" ? (next as (current: T) => T)(stateSlots[slot] as T) : next;
-      }] as const;
-    },
-  };
-});
-
-const { ExternalAiTaskPanel } = await import("@/components/workbench/external-ai-task-panel");
-
-type TaskProps = Parameters<typeof ExternalAiTaskPanel>[0];
-type TestElement = ReactElement<{ children?: ReactNode; [key: string]: any }>;
-
-function renderPanel(props: TaskProps): TestElement {
-  stateCursor = 0;
-  return ExternalAiTaskPanel(props) as TestElement;
-}
-
-function walk(node: ReactNode, visit: (element: TestElement) => void): void {
-  if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    node.forEach((child) => walk(child, visit));
-    return;
-  }
-  const element = node as TestElement;
-  if (typeof element.type === "string") {
-    visit(element);
-  }
-  walk(element.props.children, visit);
-}
-
-function findByText(root: TestElement, text: string): TestElement {
-  let found: TestElement | undefined;
-  walk(root, (element) => {
-    if (!found && textContent(element.props.children) === text) found = element;
-  });
-  if (!found) throw new Error(`未找到文本：${text}`);
-  return found;
-}
-
-function findTextContaining(root: TestElement, text: string): TestElement {
-  let found: TestElement | undefined;
-  walk(root, (element) => {
-    if (!found && textContent(element.props.children).includes(text)) found = element;
-  });
-  if (!found) throw new Error(`未找到包含文本：${text}`);
-  return found;
-}
-
-function textContent(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(textContent).join("");
-  if (!node || typeof node !== "object") return "";
-  return textContent((node as TestElement).props.children);
-}
-
-function findByLabel(root: TestElement, label: string): TestElement {
-  let found: TestElement | undefined;
-  walk(root, (element) => {
-    if (!found && element.props["aria-label"] === label) found = element;
-  });
-  if (!found) throw new Error(`未找到控件：${label}`);
-  return found;
-}
-
-const task: TaskProps["task"] = {
+const task: Props["task"] = {
   module: "competitor-analysis",
   projectId: "project-1",
   prompt: "任务包",
   allowedFields: [{ path: "summary", label: "分析结论", guidance: "" }],
 };
 
+afterEach(cleanup);
+
 describe("外部 GPT 任务包面板", () => {
-  it("通过真实交互持久化修改稿、确认稿，并保留历史和原始内容", () => {
-    stateSlots.length = 0;
-    const savedDrafts: TaskProps["savedDrafts"] = [];
-    const onSaveDraft = vi.fn((draft: AiTaskDraft) => savedDrafts.push(draft));
-    const props = { task, onSaveDraft, savedDrafts };
-    let panel = renderPanel(props);
+  it("通过真实 DOM 事件保存独立编辑稿和确认稿，并在重载后恢复历史", () => {
+    const persistedDrafts: AiTaskDraft[] = [];
+    const formalRecord = { summary: "正式结论" };
+    const saveDraft = (draft: AiTaskDraft) => {
+      persistedDrafts.push(JSON.parse(JSON.stringify(draft)) as AiTaskDraft);
+    };
+    const { unmount } = render(<ExternalAiTaskPanel task={task} onSaveDraft={saveDraft} savedDrafts={[]} />);
 
-    findByLabel(panel, "AI 初稿导入内容").props.onChange({ target: { value: "summary：原始结论\nunknown.field：保留" } });
-    panel = renderPanel(props);
-    findByText(panel, "导入识别").props.onClick();
-    panel = renderPanel(props);
-    expect(findByText(panel, "原始 AI 初稿")).toBeDefined();
-    expect(findTextContaining(panel, "未识别内容：")).toBeDefined();
+    fireEvent.change(screen.getByLabelText("AI 初稿导入内容"), {
+      target: { value: "summary：原始结论\nunknown.field：保留" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "导入识别" }));
+    expect(screen.getByText("原始 AI 初稿")).toBeTruthy();
+    expect(screen.getByText("未识别内容：unknown.field：保留")).toBeTruthy();
 
-    findByText(panel, "修改").props.onClick();
-    panel = renderPanel(props);
-    findByLabel(panel, "修改分析结论").props.onChange({ target: { value: "人工修改结论" } });
-    panel = renderPanel(props);
-    findByText(panel, "保存修改").props.onClick();
-    expect(onSaveDraft).toHaveBeenCalledTimes(1);
-    expect(onSaveDraft.mock.calls[0][0]).toMatchObject({
-      rawText: "summary：原始结论\nunknown.field：保留",
+    fireEvent.click(screen.getByRole("button", { name: "修改" }));
+    fireEvent.change(screen.getByLabelText("修改分析结论"), { target: { value: "人工修改结论" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
+
+    expect(persistedDrafts).toHaveLength(1);
+    expect(persistedDrafts[0]).toMatchObject({
       recognizedFields: { summary: "人工修改结论" },
+      rawText: "summary：原始结论\nunknown.field：保留",
       unrecognizedLines: ["unknown.field：保留"],
     });
 
-    panel = renderPanel({ ...props, savedDrafts });
-    expect(findByText(panel, "历史 AI 初稿（1）")).toBeDefined();
-    findByText(panel, "确认保存 AI 初稿").props.onClick();
-    expect(onSaveDraft).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "确认保存 AI 初稿" }));
+    expect(persistedDrafts).toHaveLength(2);
+    expect(persistedDrafts[0].id).not.toBe(persistedDrafts[1].id);
+    expect(formalRecord).toEqual({ summary: "正式结论" });
 
-    panel = renderPanel({ ...props, savedDrafts });
-    expect(findByText(panel, "历史 AI 初稿（2）")).toBeDefined();
-    expect(findByText(panel, "原始 AI 初稿")).toBeDefined();
+    unmount();
+    render(<ExternalAiTaskPanel task={task} onSaveDraft={saveDraft} savedDrafts={persistedDrafts} />);
+
+    expect(screen.getByText("历史 AI 初稿（2）")).toBeTruthy();
+    expect(screen.getAllByText("人工修改结论")).toHaveLength(2);
+    expect(persistedDrafts.every((draft) => draft.rawText.includes("unknown.field：保留"))).toBe(true);
+    expect(persistedDrafts.every((draft) => draft.unrecognizedLines.includes("unknown.field：保留"))).toBe(true);
   });
 });

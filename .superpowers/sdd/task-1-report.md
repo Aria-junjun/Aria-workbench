@@ -46,3 +46,25 @@ Task 1 已完成。外部 AI 结果继续作为独立初稿处理：导入识别
 
 - `npx vitest run tests/domain/ai-task-protocol.test.ts tests/ui/external-ai-task-panel.test.tsx`：2 个测试文件通过，5 个测试通过，0 失败。
 - `npx tsc --noEmit`：退出码 0，无类型错误。
+
+## 第二轮复核处理结果
+
+第二轮复核要求使用现有 RTL `render` 入口驱动真实组件，并补充可恢复历史与不同记录 ID。已完成业务代码方向修复：编辑保存和确认保存分别通过 `createAiTaskDraftRevision()` 生成新的稳定持久化 ID，三个工作区仍只追加 `aiDrafts`，不写入正式字段。
+
+但本轮无法形成可提交的通过结果，状态为 BLOCKED。项目未安装 `jsdom`、`happy-dom` 或其他 DOM 实现；当前 Vitest 环境为 `node`。使用 RTL `render` 加测试内 DOM shim 后，React 受控 textarea 的真实事件无法稳定触发组件状态更新，且 shim 类型不满足 RTL `fireEvent` 的 DOM 类型要求。
+
+阻塞证据：
+
+- `npx vitest run tests/domain/ai-task-protocol.test.ts tests/ui/external-ai-task-panel.test.tsx`：协议测试 4 个通过，UI 测试失败，导入后未出现“原始 AI 初稿”。
+- `npx tsc --noEmit`：测试 shim 的 `TestElement` 不满足 RTL `fireEvent` 所需的 `Element` 类型，退出码非 0。
+
+因此本轮没有创建新提交；工作区中的未提交修复不应被视为已验收代码。解除阻塞需要允许在 Task 1 范围之外补充 DOM 测试依赖，或提供项目现成的 DOM 测试环境后重新运行真实 RTL 交互测试。
+
+## 最终解阻记录
+
+已解除第二轮复核的测试环境阻塞。
+
+- 在开发依赖中加入 `jsdom`，并只通过 `tests/ui/external-ai-task-panel.test.tsx` 的 `@vitest-environment jsdom` 注释启用它；其余测试继续使用现有 `node` 环境。
+- 删除测试内手写 DOM shim，改用 `@testing-library/react` 的真实 `render` 与 `fireEvent` 驱动输入、导入、修改、保存修改和确认保存。
+- 用例现在将保存回调的结果序列化后卸载并重新渲染面板，验证两条历史记录可恢复、ID 不同，且两条记录都保留原文与未识别内容；正式字段快照保持不变。
+- 验证：`npx vitest run tests/domain/ai-task-protocol.test.ts tests/ui/external-ai-task-panel.test.tsx` 通过（2 个文件、5 个测试、0 失败）；`npx tsc --noEmit` 通过（退出码 0）。
