@@ -63,6 +63,7 @@ import type { CompetitorAnalysisProject } from "./competitor-analysis";
 import type { IndustryInsightProject } from "./industry-insight";
 import type { ProductDecompositionProject } from "./product-decomposition";
 import type { ProjectExecutionProject } from "./project-execution";
+import type { EvidenceReference } from "./evidence-references";
 import {
   canonicalizeKnowledgeListItem,
   normalizeKnowledgeListItem,
@@ -488,6 +489,7 @@ export type LocalWorkbenchData = {
   knowledgeApplications: LocalKnowledgeApplication[];
   decisionCases: DecisionCase[];
   researchReports: ResearchReport[];
+  evidenceReferences?: EvidenceReference[];
   demandExplorations?: KanoDemandAnalysis[];
   demandConfirmationDocuments?: DemandConfirmationDocument[];
   competitorAnalysisProjects?: CompetitorAnalysisProject[];
@@ -2742,6 +2744,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
       tags: Array.isArray(card.tags) ? card.tags : []
     })),
     researchReports: data.researchReports ?? [],
+    evidenceReferences: Array.isArray(data.evidenceReferences) ? data.evidenceReferences : [],
     demandExplorations: Array.isArray(data.demandExplorations) ? data.demandExplorations : [],
     demandConfirmationDocuments: Array.isArray(data.demandConfirmationDocuments) ? data.demandConfirmationDocuments : [],
     competitorAnalysisProjects: Array.isArray(data.competitorAnalysisProjects) ? data.competitorAnalysisProjects : [],
