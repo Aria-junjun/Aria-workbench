@@ -34,3 +34,15 @@ Task 1 已完成。外部 AI 结果继续作为独立初稿处理：导入识别
 - 自检确认没有把 AI 初稿字段合并到任何正式业务字段，也没有改变协议字段名或解析函数签名。
 - Vitest 输出包含 Vite CJS API 弃用提示；该提示来自现有测试工具链，不影响测试结果，本 Task 未修改依赖配置。
 - 当前 UI 测试仍以源码契约为主，未新增浏览器交互测试；需求规定的验证命令仅要求该测试文件，类型检查和指定测试均已通过。
+
+## 复核修复记录
+
+独立复核指出两项缺口，已完成修复：
+
+1. `saveEdits()` 现在先创建复制了 `recognizedFields` 的编辑稿，再调用明确的 `onSaveDraft(next)` 保存回调。因此编辑稿会追加为可恢复历史记录；确认保存仍再次调用回调追加确认记录，任何路径都不合并正式研究字段。
+2. `tests/ui/external-ai-task-panel.test.tsx` 已改为驱动实际 `ExternalAiTaskPanel` 组件函数返回的 React 元素树，调用真实的输入变更、导入、修改、保存修改和确认处理器，并断言回调参数、历史数量、原始内容和未识别内容。测试不再读取源码或依赖源码字符串断言。
+
+本次复核修复验证：
+
+- `npx vitest run tests/domain/ai-task-protocol.test.ts tests/ui/external-ai-task-panel.test.tsx`：2 个测试文件通过，5 个测试通过，0 失败。
+- `npx tsc --noEmit`：退出码 0，无类型错误。

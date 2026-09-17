@@ -29,7 +29,9 @@ export function ExternalAiTaskPanel({ task, onSaveDraft, savedDrafts = [] }: { t
   }
   function saveEdits() {
     if (!draft) return;
-    setDraft({ ...draft, recognizedFields: editedFields });
+    const next = { ...draft, recognizedFields: { ...editedFields } };
+    setDraft(next);
+    onSaveDraft?.(next);
     setEditing(false);
     setSaved(false);
   }
