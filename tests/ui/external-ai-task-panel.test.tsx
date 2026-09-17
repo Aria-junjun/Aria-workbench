@@ -11,5 +11,7 @@ describe("外部 GPT 任务包面板", () => {
     expect(panel).toContain("task.allowedFields.find");
     expect(panel).toContain(">修改</button>");
     expect(panel).toContain(">保存修改</button>");
+    expect(panel).toContain("draft.rawText");
+    expect(panel).toContain("原始 AI 初稿");
   });
 });
