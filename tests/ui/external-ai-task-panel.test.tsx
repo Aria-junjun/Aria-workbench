@@ -7,5 +7,7 @@ describe("外部 GPT 任务包面板", () => {
     expect(panel).toContain("外部 GPT 任务包");
     expect(panel).toContain("复制任务包");
     expect(panel).toContain("不会直接覆盖正式记录");
+    expect(panel).toContain("确认保存 AI 初稿");
+    expect(panel).toContain("task.allowedFields.find");
   });
 });
