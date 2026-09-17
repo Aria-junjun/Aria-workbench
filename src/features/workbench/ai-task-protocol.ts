@@ -13,6 +13,15 @@ export type AiTaskPackage = {
   allowedFields: AiTaskField[];
 };
 
+export type AiTaskDraft = {
+  id: string;
+  importedAt: string;
+  rawText: string;
+  recognizedFields: Record<string, string>;
+  unrecognizedLines: string[];
+  status: "draft";
+};
+
 const moduleLabels: Record<AiTaskModule, string> = {
   "industry-insight": "行业洞察",
   "demand-exploration": "需求探索",
@@ -45,4 +54,21 @@ export function buildAiTaskPackage(input: {
     "请按字段逐项输出，内容不足的字段保留并写‘未找到’。",
   ].join("\n");
   return { module: input.module, projectId: input.projectId, prompt, allowedFields: uniqueFields };
+}
+
+export function parseAiTaskDraft(text: string, task: AiTaskPackage): AiTaskDraft {
+  const allowed = new Set(task.allowedFields.map((field) => field.path));
+  const recognizedFields: Record<string, string> = {};
+  const unrecognizedLines: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = line.match(/^(?:[-*]\s*)?([^：:]+)\s*[：:]\s*(.+)$/);
+    if (!match || !allowed.has(match[1].trim())) {
+      unrecognizedLines.push(line);
+      continue;
+    }
+    recognizedFields[match[1].trim()] = match[2].trim();
+  }
+  return { id: `ai-draft-${crypto.randomUUID()}`, importedAt: new Date().toISOString(), rawText: text, recognizedFields, unrecognizedLines, status: "draft" };
 }

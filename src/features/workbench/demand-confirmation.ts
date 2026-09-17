@@ -4,6 +4,7 @@ import {
   summarizeKanoResponses,
   type KanoResponse,
 } from "@/features/workbench/demand-exploration";
+import type { AiTaskDraft } from "./ai-task-protocol";
 
 export type DemandDocumentStatus = "draft" | "in_progress" | "completed" | "archived";
 export type DemandItemStatus = "pending" | "questions_ready" | "sampling" | "completed" | "needs_evidence" | "archived";
@@ -53,6 +54,7 @@ export type DemandConfirmationDocument = {
   productName: string;
   productId?: string;
   opportunityProductId?: string;
+  aiDrafts?: AiTaskDraft[];
   userType: string;
   scenario: string;
   problem: string;

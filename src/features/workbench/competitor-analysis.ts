@@ -5,6 +5,7 @@ export type FiveLayerKey = "strategy" | "scope" | "structure" | "framework" | "p
 export type DifferenceType = "missing" | "incomplete" | "replaceable" | "available" | "differentiation" | "not_applicable";
 export type StrategyType = "follow" | "borrow" | "differentiate" | "defer";
 import type { NeutralResearchSummary, ResearchInput } from "./research-context";
+import type { AiTaskDraft } from "./ai-task-protocol";
 
 export type CompetitorEvidence = {
   id: string;
@@ -85,6 +86,7 @@ export type CompetitorAnalysisProject = {
   title: string;
   productName: string;
   opportunityProductId?: string;
+  aiDrafts?: AiTaskDraft[];
   targetUsers: string;
   analysisTheme: string;
   decisionQuestion: string;

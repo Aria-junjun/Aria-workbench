@@ -1,4 +1,5 @@
 import { randomId } from "@/lib/random-id";
+import type { AiTaskDraft } from "./ai-task-protocol";
 
 export type ProductDecompositionStatus = "draft" | "in_progress" | "completed" | "archived";
 export type ProductDecompositionStepKey = "positioning" | "scope" | "causes" | "solutions" | "actions";
@@ -78,6 +79,7 @@ export type ProductDecompositionProject = {
   title: string;
   linkedProductId?: string;
   opportunityProductId?: string;
+  aiDrafts?: AiTaskDraft[];
   targetUsers: string;
   scenario: string;
   centralQuestion: string;
