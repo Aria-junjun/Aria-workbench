@@ -15,7 +15,12 @@ export function confirmWorkbenchEvidenceField(module: EvidenceReferenceModule, p
 }
 
 function sameSourceTarget(a: EvidenceReference, b: EvidenceReference) {
-  return a.targetModule === b.targetModule && a.targetProjectId === b.targetProjectId && a.sourceModule === b.sourceModule && a.sourceProjectId === b.sourceProjectId && a.sourceFieldPath === b.sourceFieldPath;
+  return a.targetModule === b.targetModule
+    && a.targetProjectId === b.targetProjectId
+    && (a.targetFieldPath ?? a.sourceFieldPath) === (b.targetFieldPath ?? b.sourceFieldPath)
+    && a.sourceModule === b.sourceModule
+    && a.sourceProjectId === b.sourceProjectId
+    && a.sourceFieldPath === b.sourceFieldPath;
 }
 
 /** Merge only the caller's changed rows into fresh data, never replace a stale collection. */

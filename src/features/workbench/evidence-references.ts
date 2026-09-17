@@ -8,6 +8,9 @@ export type EvidenceReference = {
   id: string;
   targetModule?: EvidenceReferenceModule;
   targetProjectId?: string;
+  /** Destination field for this copied evidence. Older saved references omit it. */
+  targetFieldPath?: string;
+  targetFieldLabel?: string;
   sourceModule: EvidenceReferenceModule;
   sourceProjectId: string;
   sourceProjectTitle: string;

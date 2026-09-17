@@ -8,7 +8,11 @@ export type EvidenceConflict = {
 };
 
 function targetFieldKey(reference: EvidenceReference): string {
-  return [reference.targetModule ?? "", reference.targetProjectId ?? "", reference.sourceFieldPath].join("\u0000");
+  return [
+    reference.targetModule ?? "",
+    reference.targetProjectId ?? "",
+    reference.targetFieldPath ?? reference.sourceFieldPath,
+  ].join("\u0000");
 }
 
 function conflictReason(references: EvidenceReference[]): EvidenceConflict["reason"] {
@@ -30,8 +34,10 @@ export function findEvidenceConflicts(references: EvidenceReference[]): Evidence
     const snapshots = new Set(group.map((reference) => reference.snapshot.trim()));
     if (snapshots.size < 2) return [];
     return [{
-      fieldPath: group[0].sourceFieldPath,
-      fieldLabel: group[0].sourceFieldLabel,
+      // Legacy copies had no destination field. Keep their former per-source grouping
+      // rather than merging unrelated historical data into a new target-field conflict.
+      fieldPath: group[0].targetFieldPath ?? group[0].sourceFieldPath,
+      fieldLabel: group[0].targetFieldLabel ?? group[0].sourceFieldLabel,
       references: group,
       reason: conflictReason(group),
     }];

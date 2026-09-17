@@ -39,7 +39,7 @@ export function WorkbenchEvidencePanel({ targetModule, targetProjectId }: { targ
       </article>)}</div>
     </details>}
     {error && <p role="alert" className="text-danger">{error}</p>}
-    <EvidenceReferencePicker targetModule={targetModule} targetProjectId={targetProjectId}
+    <EvidenceReferencePicker targetModule={targetModule} targetProjectId={targetProjectId} targetFieldPath="evidenceReferences" targetFieldLabel="引用证据"
       sourceProjects={targetModule === "industry-insight" ? sources.filter((project) => project.module === targetModule && project.projectId === targetProjectId) : sources}
       currentReferences={data.evidenceReferences ?? []}
       onReferencesChange={(next) => { saveEvidenceReferenceChanges(data.evidenceReferences ?? [], next); setData(loadLocalWorkbenchData()); }}

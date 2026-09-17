@@ -32,7 +32,7 @@ describe("统一证据引用选择器", () => {
     function PickerHarness() {
       const [references, setReferences] = React.useState<EvidenceReference[]>([]);
       const updateReferences = (next: EvidenceReference[]) => { setReferences(next); onReferencesChange(next); };
-      return <EvidenceReferencePicker targetModule="demand-exploration" targetProjectId="demand-1" currentReferences={references} onReferencesChange={updateReferences} sourceProjects={sourceProjects} />;
+      return <EvidenceReferencePicker targetModule="demand-exploration" targetProjectId="demand-1" targetFieldPath="evidenceReferences" targetFieldLabel="引用证据" currentReferences={references} onReferencesChange={updateReferences} sourceProjects={sourceProjects} />;
     }
 
     render(<PickerHarness />);
@@ -53,6 +53,8 @@ describe("统一证据引用选择器", () => {
     expect(added[0]).toMatchObject({
       targetModule: "demand-exploration",
       targetProjectId: "demand-1",
+      targetFieldPath: "evidenceReferences",
+      targetFieldLabel: "引用证据",
       sourceModule: "industry-insight",
       sourceProjectId: "industry-1",
       snapshot: "家庭办公场景增加",
@@ -69,7 +71,7 @@ describe("统一证据引用选择器", () => {
   it("明确标注快照并阻止重复引用同一来源字段", () => {
     function Harness() {
       const [references, setReferences] = React.useState<EvidenceReference[]>([]);
-      return <EvidenceReferencePicker targetModule="demand-exploration" targetProjectId="d" currentReferences={references} onReferencesChange={setReferences} sourceProjects={[{ module: "industry-insight", projectId: "i", projectTitle: "白板贴", fields: [{ path: "decisionQuestion", label: "决策问题", snapshot: "是否进入教育场景", status: "confirmed" }] }]} />;
+      return <EvidenceReferencePicker targetModule="demand-exploration" targetProjectId="d" targetFieldPath="evidenceReferences" targetFieldLabel="引用证据" currentReferences={references} onReferencesChange={setReferences} sourceProjects={[{ module: "industry-insight", projectId: "i", projectTitle: "白板贴", fields: [{ path: "decisionQuestion", label: "决策问题", snapshot: "是否进入教育场景", status: "confirmed" }] }]} />;
     }
     render(<Harness />);
     expect(screen.getByText("快照：")).toBeTruthy();

@@ -24,18 +24,25 @@ function reference(overrides: Partial<EvidenceReference> = {}): EvidenceReferenc
 
 describe("evidence conflicts", () => {
   it("groups distinct non-empty snapshots for one target field and preserves both sources", () => {
-    const first = reference();
+    const first = reference({
+      targetFieldPath: "conclusion.erase-performance",
+      targetFieldLabel: "擦除表现结论",
+    } as Partial<EvidenceReference>);
     const second = reference({
       id: "reference-2",
       sourceModule: "demand-exploration",
       sourceProjectId: "demand-1",
       sourceProjectTitle: "需求探索 B",
+      sourceFieldPath: "items.erase-observation",
+      sourceFieldLabel: "用户观察",
       snapshot: "事实：多数用户认为擦除后没有明显痕迹。",
-    });
+      targetFieldPath: "conclusion.erase-performance",
+      targetFieldLabel: "擦除表现结论",
+    } as Partial<EvidenceReference>);
 
     expect(findEvidenceConflicts([first, second])).toEqual([{
-      fieldPath: "evidence.erase-performance",
-      fieldLabel: "擦除表现证据",
+      fieldPath: "conclusion.erase-performance",
+      fieldLabel: "擦除表现结论",
       references: [first, second],
       reason: "fact-mismatch",
     }]);

@@ -21,6 +21,8 @@ const moduleLabels: Record<EvidenceReferenceModule, string> = {
 type EvidenceReferencePickerProps = {
   targetModule: EvidenceReferenceModule;
   targetProjectId: string;
+  targetFieldPath: string;
+  targetFieldLabel: string;
   currentReferences: EvidenceReference[];
   sourceProjects: EvidenceSourceProject[];
   onReferencesChange: (references: EvidenceReference[]) => void;
@@ -30,6 +32,8 @@ type EvidenceReferencePickerProps = {
 export function EvidenceReferencePicker({
   targetModule,
   targetProjectId,
+  targetFieldPath,
+  targetFieldLabel,
   currentReferences,
   sourceProjects,
   onReferencesChange,
@@ -38,7 +42,7 @@ export function EvidenceReferencePicker({
   const selectableFields = sourceProjects.flatMap((project) => project.fields
     .filter((field) => canReferenceEvidence(field.status) && isEvidenceReferenceDirectionAllowed(project.module, targetModule))
     .map((field) => ({ project, field })));
-  const targetReferences = currentReferences.filter((reference) => reference.targetModule === targetModule && reference.targetProjectId === targetProjectId);
+  const targetReferences = currentReferences.filter((reference) => reference.targetModule === targetModule && reference.targetProjectId === targetProjectId && (reference.targetFieldPath ?? reference.sourceFieldPath) === targetFieldPath);
   const isAdded = (project: EvidenceSourceProject, field: EvidenceSourceField) => targetReferences.some((reference) => reference.sourceModule === project.module && reference.sourceProjectId === project.projectId && reference.sourceFieldPath === field.path);
 
   function addReference(project: EvidenceSourceProject, field: EvidenceSourceField) {
@@ -46,6 +50,8 @@ export function EvidenceReferencePicker({
     onReferencesChange([...currentReferences, createEvidenceReference({
       targetModule,
       targetProjectId,
+      targetFieldPath,
+      targetFieldLabel,
       sourceModule: project.module,
       sourceProjectId: project.projectId,
       sourceProjectTitle: project.projectTitle,
