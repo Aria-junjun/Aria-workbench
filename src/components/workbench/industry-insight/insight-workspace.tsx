@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { INDUSTRY_DIMENSIONS, INDUSTRY_FIELD_EXAMPLES, type IndustryDimensionKey, type IndustryEvidenceTag, type IndustryInsightProject, type IndustryStepKey } from "@/features/workbench/industry-insight";
-import { loadIndustryInsightProjects, loadLocalWorkbenchData, saveIndustryInsightProject, saveLocalWorkbenchData } from "@/features/workbench/local-store";
+import { loadIndustryInsightProjects, saveIndustryInsightProject } from "@/features/workbench/local-store";
 import { InsightReport } from "./insight-report";
 import { InsightStepNav } from "./insight-step-nav";
 import { InsightBridgePanel } from "./insight-bridge-panel";
-import { EvidenceReferencePicker, confirmedEvidenceReferenceSources } from "../evidence-reference-picker";
+import { WorkbenchEvidencePanel } from "../workbench-evidence-panel";
 import { emptyNeutralResearchSummary, emptyResearchInput } from "@/features/workbench/research-context";
 import { ResearchInputFields } from "@/components/workbench/research-input-fields";
 
@@ -15,12 +15,9 @@ export function InsightWorkspace({ projectId }: { projectId: string }) {
   const initial = loadIndustryInsightProjects().find((item) => item.id === projectId);
   const [project, setProject] = useState<IndustryInsightProject | null>(initial ?? null);
   const [step, setStep] = useState<IndustryStepKey>("purpose");
-  const [evidenceReferences, setEvidenceReferences] = useState(() => loadLocalWorkbenchData().evidenceReferences ?? []);
   if (!project) return <div className="rounded-2xl border border-line bg-surface p-8 text-center text-muted">找不到这个行业洞察项目。<Link href="/industry-insight" className="ml-2 text-action">返回列表</Link></div>;
   const save = (next: IndustryInsightProject, nextStep?: IndustryStepKey) => { setProject(next); saveIndustryInsightProject(next); if (nextStep) setStep(nextStep); };
-  const saveEvidenceReferences = (next: typeof evidenceReferences) => { setEvidenceReferences(next); saveLocalWorkbenchData({ ...loadLocalWorkbenchData(), evidenceReferences: next }); };
-  const sourceProjects = confirmedEvidenceReferenceSources(evidenceReferences).filter((source) => source.module === "industry-insight" && source.projectId === project.id);
-  return <div className="space-y-6"><div><Link href="/industry-insight" className="text-sm text-muted hover:text-action">← 返回行业洞察</Link><div className="mt-5 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-action">Industry Insight</p><h1 className="mt-2 font-display text-3xl font-bold text-ink">{project.title}</h1><p className="mt-2 text-sm text-muted">{project.productName || "未关联产品"} · {project.decisionQuestion || "尚未填写决策问题"}</p></div><span className="rounded-full bg-action-soft px-3 py-1 text-xs font-semibold text-action">{project.status === "archived" ? "已归档" : "进行中"}</span></div></div><ResearchInputPanel project={project} onSave={save} /><InsightBridgePanel project={project} onSave={(next) => save(next)} /><EvidenceReferencePicker targetModule="industry-insight" targetProjectId={project.id} currentReferences={evidenceReferences} sourceProjects={sourceProjects} onReferencesChange={saveEvidenceReferences} sourceOnly /><InsightStepNav current={step} onChange={setStep} />{step === "purpose" && <PurposeStep project={project} onSave={save} />}{step === "boundary" && <BoundaryStep project={project} onSave={save} />}{step === "dimensions" && <DimensionsStep project={project} onSave={save} />}{step === "stage" && <StageStep project={project} onSave={save} />}{step === "chain" && <ChainStep project={project} onSave={save} />}{step === "conclusion" && <ConclusionStep project={project} onSave={save} />}<InsightReport project={project} /></div>;
+  return <div className="space-y-6"><div><Link href="/industry-insight" className="text-sm text-muted hover:text-action">← 返回行业洞察</Link><div className="mt-5 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-action">Industry Insight</p><h1 className="mt-2 font-display text-3xl font-bold text-ink">{project.title}</h1><p className="mt-2 text-sm text-muted">{project.productName || "未关联产品"} · {project.decisionQuestion || "尚未填写决策问题"}</p></div><span className="rounded-full bg-action-soft px-3 py-1 text-xs font-semibold text-action">{project.status === "archived" ? "已归档" : "进行中"}</span></div></div><ResearchInputPanel project={project} onSave={save} /><InsightBridgePanel project={project} onSave={(next) => save(next)} /><WorkbenchEvidencePanel targetModule="industry-insight" targetProjectId={project.id} /><InsightStepNav current={step} onChange={setStep} />{step === "purpose" && <PurposeStep project={project} onSave={save} />}{step === "boundary" && <BoundaryStep project={project} onSave={save} />}{step === "dimensions" && <DimensionsStep project={project} onSave={save} />}{step === "stage" && <StageStep project={project} onSave={save} />}{step === "chain" && <ChainStep project={project} onSave={save} />}{step === "conclusion" && <ConclusionStep project={project} onSave={save} />}<InsightReport project={project} /></div>;
 }
 
 function ResearchInputPanel({ project, onSave }: { project: IndustryInsightProject; onSave: (next: IndustryInsightProject) => void }) {
