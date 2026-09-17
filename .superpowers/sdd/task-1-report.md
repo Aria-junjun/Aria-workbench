@@ -68,3 +68,9 @@ Task 1 已完成。外部 AI 结果继续作为独立初稿处理：导入识别
 - 删除测试内手写 DOM shim，改用 `@testing-library/react` 的真实 `render` 与 `fireEvent` 驱动输入、导入、修改、保存修改和确认保存。
 - 用例现在将保存回调的结果序列化后卸载并重新渲染面板，验证两条历史记录可恢复、ID 不同，且两条记录都保留原文与未识别内容；正式字段快照保持不变。
 - 验证：`npx vitest run tests/domain/ai-task-protocol.test.ts tests/ui/external-ai-task-panel.test.tsx` 通过（2 个文件、5 个测试、0 失败）；`npx tsc --noEmit` 通过（退出码 0）。
+
+## 第三轮复核修复记录
+
+- 历史 AI 初稿不再只显示已识别字段；每条已保存记录会完整显示未识别内容和原始 AI 初稿。重新读取 `savedDrafts` 后，这两项仍直接显示在历史卡片中。
+- `tests/ui/external-ai-task-panel.test.tsx` 增加真实 localStorage 保存/重新读取回归：分别调用需求确认、竞品分析、产品拆解的保存和读取 API，确认每个重载对象保留 AI 初稿的 `rawText`、`unrecognizedLines` 与识别字段，并把移除 `aiDrafts` 后的完整正式字段快照与保存前逐一比对。
+- 验证：`npx vitest run tests/domain/ai-task-protocol.test.ts tests/ui/external-ai-task-panel.test.tsx` 通过（2 个文件、6 个测试、0 失败）；`npx tsc --noEmit` 通过（退出码 0）。测试环境对本地保存后的云端异步同步尝试会输出 URL 不可解析告警；本用例断言的 localStorage 保存/加载链路已完成，不依赖该代理请求。
