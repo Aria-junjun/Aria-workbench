@@ -6,6 +6,8 @@ export type EvidenceReferenceModule = "industry-insight" | "demand-exploration" 
 
 export type EvidenceReference = {
   id: string;
+  targetModule?: EvidenceReferenceModule;
+  targetProjectId?: string;
   sourceModule: EvidenceReferenceModule;
   sourceProjectId: string;
   sourceProjectTitle: string;
@@ -28,4 +30,12 @@ export function createEvidenceReference(
 
 export function canReferenceEvidence(status: EvidenceReferenceStatus): boolean {
   return status === "confirmed";
+}
+
+export function isEvidenceReferenceDirectionAllowed(
+  sourceModule: EvidenceReferenceModule,
+  targetModule: EvidenceReferenceModule,
+): boolean {
+  return (sourceModule === "industry-insight" && (targetModule === "demand-exploration" || targetModule === "competitor-analysis"))
+    || ((sourceModule === "demand-exploration" || sourceModule === "competitor-analysis") && targetModule === "product-decomposition");
 }

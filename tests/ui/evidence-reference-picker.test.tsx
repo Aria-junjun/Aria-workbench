@@ -1,0 +1,65 @@
+// @vitest-environment jsdom
+
+import { describe, expect, it, vi } from "vitest";
+import React from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { EvidenceReferencePicker } from "@/components/workbench/evidence-reference-picker";
+import type { EvidenceReference } from "@/features/workbench/evidence-references";
+
+describe("统一证据引用选择器", () => {
+  it("只展示允许方向中的已确认来源，并将可编辑副本加入目标而不触碰目标字段", () => {
+    const onReferencesChange = vi.fn();
+    const targetField = "需求文档原有问题";
+    const sourceProjects = [
+      {
+        module: "industry-insight" as const,
+        projectId: "industry-1",
+        projectTitle: "白板贴行业洞察",
+        fields: [
+          { path: "dimensions.trend.evidence", label: "趋势证据", snapshot: "家庭办公场景增加", status: "confirmed" as const },
+          { path: "conclusion.opportunity", label: "机会判断", snapshot: "AI 初稿", status: "ai-draft" as const },
+        ],
+      },
+      {
+        module: "competitor-analysis" as const,
+        projectId: "competitor-1",
+        projectTitle: "不应逆向引用的竞品项目",
+        fields: [{ path: "summary", label: "摘要", snapshot: "不应显示", status: "confirmed" as const }],
+      },
+    ];
+    function PickerHarness() {
+      const [references, setReferences] = React.useState<EvidenceReference[]>([]);
+      const updateReferences = (next: EvidenceReference[]) => { setReferences(next); onReferencesChange(next); };
+      return <EvidenceReferencePicker targetModule="demand-exploration" targetProjectId="demand-1" currentReferences={references} onReferencesChange={updateReferences} sourceProjects={sourceProjects} />;
+    }
+
+    render(<PickerHarness />);
+
+    expect(screen.getByText("行业洞察")).toBeTruthy();
+    expect(screen.getByText("白板贴行业洞察")).toBeTruthy();
+    expect(screen.getByText("趋势证据")).toBeTruthy();
+    expect(screen.getByText("家庭办公场景增加")).toBeTruthy();
+    expect(screen.queryByText("AI 初稿")).toBeNull();
+    expect(screen.queryByText("不应逆向引用的竞品项目")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "引用" }));
+
+    expect(targetField).toBe("需求文档原有问题");
+    expect(onReferencesChange).toHaveBeenCalledOnce();
+    const added = onReferencesChange.mock.calls[0][0] as EvidenceReference[];
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({
+      targetModule: "demand-exploration",
+      targetProjectId: "demand-1",
+      sourceModule: "industry-insight",
+      sourceProjectId: "industry-1",
+      snapshot: "家庭办公场景增加",
+      status: "confirmed",
+    });
+
+    fireEvent.change(screen.getByLabelText("引用副本：趋势证据"), { target: { value: "目标侧已补充说明" } });
+    const edited = onReferencesChange.mock.calls[1][0] as EvidenceReference[];
+    expect(edited[0].snapshot).toBe("目标侧已补充说明");
+    expect(screen.getByText("引用自：行业洞察 / 白板贴行业洞察 / 趋势证据")).toBeTruthy();
+  });
+});
