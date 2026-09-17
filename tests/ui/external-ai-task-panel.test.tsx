@@ -9,5 +9,7 @@ describe("外部 GPT 任务包面板", () => {
     expect(panel).toContain("不会直接覆盖正式记录");
     expect(panel).toContain("确认保存 AI 初稿");
     expect(panel).toContain("task.allowedFields.find");
+    expect(panel).toContain(">修改</button>");
+    expect(panel).toContain(">保存修改</button>");
   });
 });
