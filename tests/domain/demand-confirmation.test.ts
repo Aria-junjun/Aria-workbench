@@ -5,6 +5,7 @@ import {
   appendDemandResponse,
   archiveDemandItem,
   archiveDemandResponse,
+  restoreDemandConfirmationDocument,
   createDemandConfirmationDocument,
   editDemandItem,
   editDemandResponse,
@@ -74,5 +75,17 @@ describe("demand confirmation document", () => {
     expect(document.demandItems[0].si).toBeNull();
     document = archiveDemandItem(document, itemId);
     expect(document.demandItems[0].status).toBe("archived");
+  });
+
+  it("restores a document without removing demand data or AI draft history", () => {
+    const document = {
+      ...createDemandConfirmationDocument({ title: "历史文档", productName: "白板贴" }),
+      status: "archived" as const,
+      aiDrafts: [{ id: "draft-1", importedAt: "2026-09-17T00:00:00.000Z", rawText: "原始结果", recognizedFields: { "demand.problem": "问题" }, unrecognizedLines: [], status: "draft" as const }],
+    };
+    const restored = restoreDemandConfirmationDocument(document);
+    expect(restored.status).toBe("draft");
+    expect(restored.aiDrafts).toEqual(document.aiDrafts);
+    expect(restored.title).toBe("历史文档");
   });
 });
