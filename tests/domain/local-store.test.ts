@@ -42,7 +42,9 @@ import {
   archiveSupplier,
   restoreSupplier,
   updateLocalItem,
+  normalizeWorkbenchData,
   type LocalWorkbenchData,
+  mergeDemandRecords,
   type LocalSupplier
 } from "@/features/workbench/local-store";
 import { parseBookPackage } from "@/features/workbench/knowledge-library";
@@ -73,6 +75,64 @@ beforeEach(() => {
 });
 
 describe("local-store operations", () => {
+  it("normalizes missing supplier import routing collections for legacy snapshots", () => {
+    const normalized = normalizeWorkbenchData(sampleData());
+
+    expect(normalized.supplierAliasMappings).toEqual([]);
+    expect(normalized.dropshipProductRoutings).toEqual([]);
+  });
+
+  it("preserves supplier alias and product routing mappings through save, export and import", () => {
+    const data: LocalWorkbenchData = {
+      ...sampleData(),
+      supplierAliasMappings: [{
+        id: "alias-1",
+        platform: "1688",
+        sourceName: "新丰之星装饰材料",
+        normalizedSourceName: "新丰之星装饰材料",
+        supplierId: "supplier-1",
+        confirmedAt: "2026-09-23T08:00:00.000Z",
+      }],
+      dropshipProductRoutings: [{
+        id: "route-1",
+        platform: "1688",
+        productName: "静电吸附贴纸",
+        normalizedProductName: "静电吸附贴纸",
+        supplierId: "supplier-1",
+        businessMode: "dropship",
+        confirmedAt: "2026-09-23T08:00:00.000Z",
+      }],
+    };
+
+    saveLocalWorkbenchData(data);
+    expect(loadLocalWorkbenchData()).toMatchObject({
+      supplierAliasMappings: data.supplierAliasMappings,
+      dropshipProductRoutings: data.dropshipProductRoutings,
+    });
+
+    const backup = exportLocalWorkbenchData();
+    storage.clear();
+    importLocalWorkbenchData(backup);
+
+    expect(loadLocalWorkbenchData()).toMatchObject({
+      supplierAliasMappings: data.supplierAliasMappings,
+      dropshipProductRoutings: data.dropshipProductRoutings,
+    });
+  });
+
+  it("merges local supplier routing mappings with a cloud snapshot without dropping either side", () => {
+    const merged = mergeDemandRecords({
+      supplierAliasMappings: [{ id: "local-alias", platform: "1688", sourceName: "本地简称", normalizedSourceName: "本地简称", supplierId: "supplier-1", confirmedAt: "2026-09-23T08:00:00.000Z" }],
+      dropshipProductRoutings: [{ id: "local-route", platform: "1688", productName: "本地商品", normalizedProductName: "本地商品", supplierId: "supplier-1", businessMode: "dropship", confirmedAt: "2026-09-23T08:00:00.000Z" }],
+    }, {
+      supplierAliasMappings: [{ id: "cloud-alias", platform: "1688", sourceName: "云端简称", normalizedSourceName: "云端简称", supplierId: "supplier-1", confirmedAt: "2026-09-22T08:00:00.000Z" }],
+      dropshipProductRoutings: [{ id: "cloud-route", platform: "1688", productName: "云端商品", normalizedProductName: "云端商品", supplierId: "supplier-1", businessMode: "inbound", confirmedAt: "2026-09-22T08:00:00.000Z" }],
+    });
+
+    expect(merged.supplierAliasMappings?.map((item) => item.id).sort()).toEqual(["cloud-alias", "local-alias"]);
+    expect(merged.dropshipProductRoutings?.map((item) => item.id).sort()).toEqual(["cloud-route", "local-route"]);
+  });
+
   it("normalizes demand explorations for legacy snapshots", () => {
     saveLocalWorkbenchData(sampleData());
 
@@ -99,6 +159,22 @@ describe("local-store operations", () => {
     expect(loadDemandConfirmationDocuments()).toEqual([
       expect.objectContaining({ id: document.id, title: "产品需求确认 V2", status: "completed" })
     ]);
+  });
+
+  it("keeps newer local demand records when a stale cloud snapshot omits them", () => {
+    const local = {
+      demandConfirmationDocuments: [{ id: "demand-1", updatedAt: "2026-09-17T10:00:00.000Z", title: "本地最新" }],
+      demandExplorations: [{ id: "legacy-1", updatedAt: "2026-09-17T10:00:00.000Z", title: "旧需求" }],
+    } as Partial<LocalWorkbenchData>;
+    const cloud = {
+      demandConfirmationDocuments: [],
+      demandExplorations: [],
+    } as Partial<LocalWorkbenchData>;
+
+    const merged = mergeDemandRecords(local, cloud);
+
+    expect(merged.demandConfirmationDocuments).toEqual(local.demandConfirmationDocuments);
+    expect(merged.demandExplorations).toEqual(local.demandExplorations);
   });
 
   it("persists competitor analysis projects in the workbench snapshot", () => {

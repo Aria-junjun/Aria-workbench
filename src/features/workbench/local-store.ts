@@ -1,4 +1,5 @@
 import defaultData from "@/data/workbench-data.json";
+import { mergeLifecycleRecords } from './supplier-lifecycle';
 import { SupplierCapabilitySchema, type DraftExtraction } from "./schemas";
 import type { DecisionAnalysis, DecisionModelSection } from "./decision-analysis";
 import {
@@ -479,6 +480,12 @@ export type LocalSupplierOfferDecision = {
 };
 
 export type LocalWorkbenchData = {
+  supplierLifecycleRecords?: import('./supplier-lifecycle').LifecycleRecord[];
+  supplierBusinessRecords?: import('./supplier-business').SupplierBusinessRecord[];
+  pendingDropshipSuppliers?: import('./dropship-performance-import').PendingDropshipSupplier[];
+  dropshipProductPeriods?: import('./dropship-performance-import').DropshipProductPeriod[];
+  supplierAliasMappings?: import('./dropship-performance-import').SupplierAliasMapping[];
+  dropshipProductRoutings?: import('./dropship-performance-import').DropshipProductRouting[];
   suppliers: LocalSupplier[];
   communications: LocalCommunication[];
   offers: LocalOffer[];
@@ -518,6 +525,7 @@ type LocalItem<C extends LocalCollectionName> = LocalWorkbenchData[C][number];
 
 const storageKey = "personal-commercial-workbench";
 const pendingSyncKey = `${storageKey}:pending-sync`;
+const localRevisionKey = `${storageKey}:local-revision`;
 const PROXY_URL = "/api/supabase-proxy";
 export const SYNC_TIMEOUT_MS = 8000;
 
@@ -581,6 +589,7 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
         if (localStored) {
           try {
             const localData = JSON.parse(localStored) as Partial<LocalWorkbenchData>;
+            Object.assign(cloudData, mergeDemandRecords(localData, cloudData));
             const localProductMap = new Map((localData.products ?? []).map((p) => [p.id, p]));
             const cloudProducts = (cloudData as Partial<LocalWorkbenchData>).products ?? [];
             (cloudData as Partial<LocalWorkbenchData>).products = cloudProducts.map((p) => {
@@ -662,6 +671,27 @@ export function loadLocalWorkbenchData(): LocalWorkbenchData {
   } catch {
     return normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
   }
+}
+
+function newestById<T extends { id: string; updatedAt?: string }>(cloudRecords: T[] | undefined, localRecords: T[] | undefined): T[] {
+  const merged = new Map((cloudRecords ?? []).map((record) => [record.id, record]));
+  for (const localRecord of localRecords ?? []) {
+    const cloudRecord = merged.get(localRecord.id);
+    if (!cloudRecord || (localRecord.updatedAt ?? "") >= (cloudRecord.updatedAt ?? "")) merged.set(localRecord.id, localRecord);
+  }
+  return [...merged.values()];
+}
+
+export function mergeDemandRecords(localData: Partial<LocalWorkbenchData>, cloudData: Partial<LocalWorkbenchData>): Partial<LocalWorkbenchData> {
+  return {
+    ...cloudData,
+    supplierLifecycleRecords: mergeLifecycleRecords(cloudData.supplierLifecycleRecords, localData.supplierLifecycleRecords),
+    supplierBusinessRecords: newestById(cloudData.supplierBusinessRecords, localData.supplierBusinessRecords),
+    demandConfirmationDocuments: newestById(cloudData.demandConfirmationDocuments, localData.demandConfirmationDocuments),
+    demandExplorations: newestById(cloudData.demandExplorations, localData.demandExplorations),
+    supplierAliasMappings: newestById(cloudData.supplierAliasMappings, localData.supplierAliasMappings),
+    dropshipProductRoutings: newestById(cloudData.dropshipProductRoutings, localData.dropshipProductRoutings),
+  };
 }
 
 /** 从云端强制同步到本地（在页面关键入口调用以确保数据新鲜） */
@@ -752,12 +782,15 @@ export function migrateLegacyDemandExploration(analysis: KanoDemandAnalysis): De
   return document;
 }
 
-export function loadDemandConfirmationDocuments(): DemandConfirmationDocument[] {
-  const data = loadLocalWorkbenchData();
+export function loadDemandConfirmationDocumentsFromData(data: LocalWorkbenchData): DemandConfirmationDocument[] {
   const current = data.demandConfirmationDocuments ?? [];
   const migrated = (data.demandExplorations ?? []).map(migrateLegacyDemandExploration);
   const existingIds = new Set(current.map((document) => document.id));
   return [...current, ...migrated.filter((document) => !existingIds.has(document.id))];
+}
+
+export function loadDemandConfirmationDocuments(): DemandConfirmationDocument[] {
+  return loadDemandConfirmationDocumentsFromData(loadLocalWorkbenchData());
 }
 
 export function saveDemandConfirmationDocument(document: DemandConfirmationDocument) {
@@ -1080,6 +1113,7 @@ export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   const withEvaluations = recalcEvaluationsWithDeductions(normalized);
   const withTasks = ensureProductStageTasks(withEvaluations);
   window.localStorage.setItem(storageKey, JSON.stringify(withTasks));
+  window.localStorage.setItem(localRevisionKey, String(Date.now()));
   window.localStorage.setItem(pendingSyncKey, String(Date.now()));
 
   try {
@@ -1908,7 +1942,12 @@ export function mergeSuppliers(targetId: string, sourceId: string): LocalWorkben
     suppliers: updatedSuppliers,
     offers: updatedOffers,
     communications: updatedComms,
-    tasks: updatedTasks
+    tasks: updatedTasks,
+    supplierLifecycleRecords: data.supplierLifecycleRecords?.map(record => {
+      if (!record.supplierIds.includes(sourceId)) return record;
+      const { history, ...previous } = record;
+      return { ...record, supplierIds: [...new Set(record.supplierIds.map(id => id === sourceId ? targetId : id))], selectedSupplierIds: record.selectedSupplierIds?.map(id => id === sourceId ? targetId : id).filter((id, index, all) => all.indexOf(id) === index), revision: record.revision + 1, updatedAt: new Date().toISOString(), history: [previous, ...history] };
+    })
   };
 
   saveLocalWorkbenchData(result);
@@ -2624,6 +2663,8 @@ function emptyData(): LocalWorkbenchData {
     supplierOfferDecisions: [],
     supplierOfferDecisionHistory: [],
     supplierDecisionRecords: [],
+    supplierAliasMappings: [],
+    dropshipProductRoutings: [],
   };
 }
 
@@ -2772,6 +2813,12 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],
     supplierOfferDecisionHistory: Array.isArray(data.supplierOfferDecisionHistory) ? data.supplierOfferDecisionHistory : [],
     supplierDecisionRecords: Array.isArray(data.supplierDecisionRecords) ? data.supplierDecisionRecords : [],
+    supplierLifecycleRecords: Array.isArray(data.supplierLifecycleRecords) ? data.supplierLifecycleRecords : [],
+    supplierBusinessRecords: Array.isArray(data.supplierBusinessRecords) ? data.supplierBusinessRecords : [],
+    pendingDropshipSuppliers: Array.isArray(data.pendingDropshipSuppliers) ? data.pendingDropshipSuppliers : [],
+    dropshipProductPeriods: Array.isArray(data.dropshipProductPeriods) ? data.dropshipProductPeriods : [],
+    supplierAliasMappings: Array.isArray(data.supplierAliasMappings) ? data.supplierAliasMappings : [],
+    dropshipProductRoutings: Array.isArray(data.dropshipProductRoutings) ? data.dropshipProductRoutings : [],
   };
 }
 
