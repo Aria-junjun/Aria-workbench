@@ -5,6 +5,85 @@ import { normalizeWorkbenchData } from '@/features/workbench/local-store';
 const meta = { periodStart: '2026-09-04', periodEnd: '2026-09-18', platform: '1688', fileName: '代发供应商履约表.xlsx' };
 
 describe('dropship performance workbook import', () => {
+  it('uses a saved alias to merge merchant and after-sales rows', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','江苏新丰之星膜材料有限公司','40单/¥555.5','100%','53.4H','14.3%','0%']] },
+      { name:'售后', rows:[['排行','商家名','售后量','售后率','支付订单量'],['1','新丰之星装饰材料','3','11.54%','26']] },
+    ], meta);
+    const supplier = { id:'jiangsu', name:'江苏新丰之星膜材料有限公司', categories:[], riskTags:[], createdAt:'' };
+    const alias = { id:'alias-xinfeng', platform:'1688', sourceName:'新丰之星装饰材料', normalizedSourceName:'新丰之星装饰材料', supplierId:'jiangsu', confirmedAt:'2026-09-23T08:00:00.000Z' };
+
+    const preview = buildDropshipImportPreview(parsed, [supplier], [], [alias], []);
+
+    expect(preview.suppliers).toHaveLength(1);
+    expect(preview.suppliers[0]).toMatchObject({ supplierId:'jiangsu', routingStatus:'alias' });
+    expect(preview.suppliers[0].merchant?.paidOrders).toBe(40);
+    expect(preview.suppliers[0].afterSales?.afterSalesCount).toBe(3);
+  });
+
+  it('reports source, effective, matched, pending and unrouted product counts', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','已建档供应商','30单/¥300','100%','30H','1%','0%'],['2','待建档供应商','20单/¥200','99%','40H','2%','0%']] },
+      { name:'售后', rows:[['排行','商家名','售后量','售后率','支付订单量'],['1','已建档供应商','1','1%','30']] },
+      { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','已归位商品','10单/¥100','100%','30H','1%','0%'],['2','未归位商品','5单/¥50','100%','30H','1%','0%']] },
+    ], meta);
+    const supplier = { id:'formal', name:'已建档供应商', categories:[], riskTags:[], createdAt:'' };
+    const routing = { id:'route-1', platform:'1688', productName:'已归位商品', normalizedProductName:'已归位商品', supplierId:'formal', businessMode:'dropship' as const, confirmedAt:'2026-09-23T08:00:00.000Z' };
+
+    const preview = buildDropshipImportPreview(parsed, [supplier], [], [], [routing]);
+
+    expect(preview.counts).toEqual({ sourceRows:5, effectiveRecords:4, matchedSuppliers:1, pendingSuppliers:1, unroutedProducts:1 });
+  });
+
+  it('routes a product to one supplier as dropship', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','商品甲','10单/¥100','100%','30H','1%','0%']] }], meta);
+    const supplier = { id:'supplier-a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const data = normalizeWorkbenchData({ suppliers:[supplier] });
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, [], [], []);
+    const decision = { products:{ 商品甲:{ supplierId:'supplier-a', businessMode:'dropship' as const } }, suppliers:{} };
+
+    const next = applyDropshipImport(data, preview, decision);
+
+    expect(next.dropshipProductPeriods?.[0]).toMatchObject({ supplierId:'supplier-a', businessMode:'dropship' });
+    expect(next.dropshipProductRoutings).toHaveLength(1);
+    expect(next.dropshipProductRoutings?.[0]).toMatchObject({ productName:'商品甲', supplierId:'supplier-a', businessMode:'dropship' });
+  });
+
+  it('blocks conflicting aliases and unrouted selected products', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','共同简称','10单/¥100','100%','30H','1%','0%']] },
+      { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','商品甲','10单/¥100','100%','30H','1%','0%']] },
+    ], meta);
+    const suppliers = [{ id:'a', name:'甲', categories:[], riskTags:[], createdAt:'' }, { id:'b', name:'乙', categories:[], riskTags:[], createdAt:'' }];
+    const aliases = [
+      { id:'one', platform:'1688', sourceName:'共同简称', normalizedSourceName:'共同简称', supplierId:'a', confirmedAt:'2026-09-23T08:00:00.000Z' },
+      { id:'two', platform:'1688', sourceName:'共同简称', normalizedSourceName:'共同简称', supplierId:'b', confirmedAt:'2026-09-23T09:00:00.000Z' },
+    ];
+    const preview = buildDropshipImportPreview(parsed, suppliers, [], aliases, []);
+    const data = normalizeWorkbenchData({ suppliers, supplierAliasMappings:aliases });
+
+    expect(preview.blockingIssues.some(issue => issue.includes('别名冲突'))).toBe(true);
+    expect(() => applyDropshipImport(data, preview, { suppliers:{}, products:{ 商品甲:{ selected:true, businessMode:'dropship' } } })).toThrow(/未选择供应商/);
+  });
+
+  it('re-imports the same period without duplicate records or mappings', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','供应商简称','10单/¥100','100%','30H','1%','0%']] },
+      { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','商品甲','10单/¥100','100%','30H','1%','0%']] },
+    ], meta);
+    const supplier = { id:'a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const data = normalizeWorkbenchData({ suppliers:[supplier] });
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, [], [], []);
+    const decisions = { suppliers:{ 供应商简称:'a' }, products:{ 商品甲:{ supplierId:'a', businessMode:'dropship' as const } } };
+
+    const once = applyDropshipImport(data, preview, decisions);
+    const twice = applyDropshipImport(once, buildDropshipImportPreview(parsed, once.suppliers, once.supplierBusinessRecords ?? [], once.supplierAliasMappings, once.dropshipProductRoutings), decisions);
+
+    expect(twice.supplierBusinessRecords?.filter(record => record.kind === 'dropship_period')).toHaveLength(1);
+    expect(twice.dropshipProductPeriods).toHaveLength(1);
+    expect(twice.supplierAliasMappings).toHaveLength(1);
+    expect(twice.dropshipProductRoutings).toHaveLength(1);
+  });
   it('recognizes merchant, product and after-sales sheets and merges annotation rows', () => {
     const result = parseDropshipWorkbook([
       { name: '任意商家页', rows: [

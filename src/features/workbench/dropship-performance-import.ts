@@ -43,7 +43,7 @@ export type ParsedDropshipWorkbook = DropshipImportMeta & {
 export type FilingBand = 'unknown' | 'insufficient' | 'eligible' | 'priority';
 export type SupplierImportPreviewRow = {
   sourceName: string; merchant?: DropshipMerchantRow; afterSales?: DropshipAfterSalesRow;
-  matchStatus: 'exact' | 'suggested' | 'unmatched'; supplierId?: string; suggestedSupplierId?: string;
+  matchStatus: 'exact' | 'suggested' | 'unmatched'; routingStatus: 'exact' | 'alias' | 'suggested' | 'unmatched'; supplierId?: string; suggestedSupplierId?: string;
   filingBand: FilingBand; businessKey?: string; willReplace: boolean;
 };
 export type PendingDropshipSupplier = {
@@ -54,8 +54,17 @@ export type PendingDropshipSupplier = {
   afterSalesCount?: number; afterSalesRate?: number; afterSalesRejectCount?: number; afterSalesRejectRate?: number; averageRefundSeconds?: number;
   lighthouseAfterSales?: number; lighthouseQuality?: number; lighthouseScore?: number;
 };
-export type DropshipProductPeriod = DropshipProductRow & DropshipImportMeta & { id: string; businessKey: string; supplierId?: string; importedAt: string };
-export type DropshipImportPreview = ParsedDropshipWorkbook & { suppliers: SupplierImportPreviewRow[]; products: Array<DropshipProductRow & { supplierId?: string }> };
+export type DropshipProductPeriod = DropshipProductRow & DropshipImportMeta & { id: string; businessKey: string; supplierId?: string; businessMode?: SupplierBusinessMode; importedAt: string };
+export type DropshipRoutingDecision = {
+  suppliers: Record<string, string>;
+  products: Record<string, { selected?: boolean; supplierId?: string; businessMode: SupplierBusinessMode }>;
+};
+export type DropshipImportPreview = ParsedDropshipWorkbook & {
+  suppliers: SupplierImportPreviewRow[];
+  products: Array<DropshipProductRow & { supplierId?: string; businessMode: SupplierBusinessMode }>;
+  counts: { sourceRows: number; effectiveRecords: number; matchedSuppliers: number; pendingSuppliers: number; unroutedProducts: number };
+  blockingIssues: string[];
+};
 
 const text = (value: unknown) => value == null ? '' : String(value).trim();
 const number = (value: unknown) => {
@@ -124,23 +133,65 @@ const normalizeName = (name: string) => name.toLowerCase().replace(/[\s（）()]
 const band = (orders?: number): FilingBand => orders == null ? 'unknown' : orders >= 100 ? 'priority' : orders >= 20 ? 'eligible' : 'insufficient';
 const sourceKey = (meta: DropshipImportMeta, supplierId: string) => [meta.platform,meta.periodStart,meta.periodEnd,supplierId].join('|');
 
-export function buildDropshipImportPreview(parsed: ParsedDropshipWorkbook, suppliers: LocalSupplier[], existingRecords: SupplierBusinessRecord[]): DropshipImportPreview {
+export function buildDropshipImportPreview(
+  parsed: ParsedDropshipWorkbook,
+  suppliers: LocalSupplier[],
+  existingRecords: SupplierBusinessRecord[],
+  aliasMappings: SupplierAliasMapping[] = [],
+  productRoutings: DropshipProductRouting[] = [],
+): DropshipImportPreview {
   const groups = new Map<string, { sourceName: string; merchant?: DropshipMerchantRow; afterSales?: DropshipAfterSalesRow }>();
-  for (const merchant of parsed.merchants) groups.set(normalizeName(merchant.supplierName), { sourceName: merchant.supplierName, merchant });
+  const blockingIssues: string[] = [];
+  const aliasesFor = (sourceName: string) => aliasMappings.filter(item => item.platform === parsed.platform && item.normalizedSourceName === normalizeName(sourceName));
+  const resolution = (sourceName: string) => {
+    const exact = suppliers.find(item => item.name.trim().toLowerCase() === sourceName.trim().toLowerCase());
+    if (exact) return { key:`supplier:${exact.id}`, supplierId:exact.id, status:'exact' as const };
+    const aliases = aliasesFor(sourceName);
+    const targets = [...new Set(aliases.map(item => item.supplierId))];
+    if (targets.length > 1) blockingIssues.push(`别名冲突：${sourceName}`);
+    if (targets.length === 1) return { key:`supplier:${targets[0]}`, supplierId:targets[0], status:'alias' as const };
+    const normalized = normalizeName(sourceName);
+    const suggested = suppliers.find(item => normalizeName(item.name) === normalized || normalizeName(item.name).includes(normalized) || normalized.includes(normalizeName(item.name)));
+    return { key:`source:${normalized}`, suggestedSupplierId:suggested?.id, status:suggested ? 'suggested' as const : 'unmatched' as const };
+  };
+  for (const merchant of parsed.merchants) {
+    const resolved = resolution(merchant.supplierName);
+    groups.set(resolved.key, { sourceName:merchant.supplierName, merchant });
+  }
   for (const afterSales of parsed.afterSales) {
-    const key = normalizeName(afterSales.supplierName); const current = groups.get(key);
-    groups.set(key, { sourceName: current?.sourceName || afterSales.supplierName, merchant: current?.merchant, afterSales });
+    const resolved = resolution(afterSales.supplierName); const current = groups.get(resolved.key);
+    groups.set(resolved.key, { sourceName: current?.sourceName || afterSales.supplierName, merchant: current?.merchant, afterSales });
   }
   const supplierRows = [...groups.values()].map(group => {
-    const normalized = normalizeName(group.sourceName);
-    const exact = suppliers.find(item => item.name.trim().toLowerCase() === group.sourceName.trim().toLowerCase());
-    const suggested = !exact ? suppliers.find(item => normalizeName(item.name) === normalized || normalizeName(item.name).includes(normalized) || normalized.includes(normalizeName(item.name))) : undefined;
-    const matchedId = exact?.id;
+    const names = [group.merchant?.supplierName, group.afterSales?.supplierName].filter((item): item is string => Boolean(item));
+    const resolutions = names.map(resolution);
+    const matched = resolutions.find(item => item.status === 'alias') ?? resolutions.find(item => item.supplierId);
+    const suggested = resolutions.find(item => item.suggestedSupplierId);
+    const matchedId = matched?.supplierId;
     const businessKey = matchedId ? sourceKey(parsed, matchedId) : undefined;
     const paidOrders = group.merchant?.paidOrders ?? group.afterSales?.paidOrders;
-    return { ...group, matchStatus: exact ? 'exact' as const : suggested ? 'suggested' as const : 'unmatched' as const, supplierId: matchedId, suggestedSupplierId: suggested?.id, filingBand: band(paidOrders), businessKey, willReplace: Boolean(businessKey && existingRecords.some(record => record.kind === 'dropship_period' && record.fields.sourceKey === businessKey)) };
+    const routingStatus = matched?.status ?? suggested?.status ?? 'unmatched';
+    const matchStatus = routingStatus === 'alias' ? 'exact' : routingStatus;
+    return { ...group, matchStatus, routingStatus, supplierId:matchedId, suggestedSupplierId:suggested?.suggestedSupplierId, filingBand:band(paidOrders), businessKey, willReplace:Boolean(businessKey && existingRecords.some(record => record.kind === 'dropship_period' && record.fields.sourceKey === businessKey)) };
   });
-  return { ...parsed, suppliers: supplierRows, products: parsed.products.map(product => ({ ...product })) };
+  const products = parsed.products.map(product => {
+    const routing = productRoutings.find(item => item.platform === parsed.platform && item.normalizedProductName === normalizeName(product.productName));
+    return { ...product, supplierId:routing?.supplierId, businessMode:routing?.businessMode ?? 'dropship' as const };
+  });
+  const matchedSuppliers = supplierRows.filter(row => Boolean(row.supplierId)).length;
+  return {
+    ...parsed,
+    suppliers:supplierRows,
+    products,
+    blockingIssues:[...new Set(blockingIssues)],
+    counts:{
+      sourceRows:parsed.merchants.length + parsed.afterSales.length + parsed.products.length,
+      effectiveRecords:supplierRows.length + products.length,
+      matchedSuppliers,
+      pendingSuppliers:supplierRows.length - matchedSuppliers,
+      unroutedProducts:products.filter(product => !product.supplierId).length,
+    },
+  };
 }
 
 const str = (value: unknown) => value == null ? '' : String(value);
@@ -167,15 +218,30 @@ function importedRecord(row: SupplierImportPreviewRow, supplierId: string, previ
   };
 }
 
-export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipImportPreview, decisions: Record<string,string>): LocalWorkbenchData {
+export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipImportPreview, decisions: DropshipRoutingDecision | Record<string,string>): LocalWorkbenchData {
+  const structured = 'suppliers' in decisions || 'products' in decisions;
+  const supplierDecisions = structured ? (decisions as DropshipRoutingDecision).suppliers ?? {} : decisions as Record<string,string>;
+  const productDecisions = structured ? (decisions as DropshipRoutingDecision).products ?? {} : {};
+  const validationIssues = [...preview.blockingIssues];
+  for (const [productName, decision] of Object.entries(productDecisions)) {
+    if (decision.selected && !decision.supplierId) validationIssues.push(`商品“${productName}”未选择供应商`);
+  }
+  if (validationIssues.length) throw new Error(validationIssues.join('；'));
   const existing = data.supplierBusinessRecords ?? []; const nextRecords = [...existing];
   const pending: PendingDropshipSupplier[] = [...(data.pendingDropshipSuppliers ?? [])];
+  const aliasMappings = [...(data.supplierAliasMappings ?? [])];
   for (const row of preview.suppliers) {
-    const supplierId = row.supplierId || decisions[row.sourceName];
+    const supplierId = row.supplierId || supplierDecisions[row.sourceName];
     if (supplierId) {
       const key = sourceKey(preview,supplierId); const old = nextRecords.find(record => record.kind === 'dropship_period' && record.fields.sourceKey === key);
       const record = importedRecord(row,supplierId,preview,old);
       const index = old ? nextRecords.indexOf(old) : -1; if (index >= 0) nextRecords[index] = record; else nextRecords.unshift(record);
+      for (const sourceName of [row.merchant?.supplierName, row.afterSales?.supplierName].filter((item): item is string => Boolean(item))) {
+        const normalizedSourceName = normalizeName(sourceName);
+        const mapping: SupplierAliasMapping = { id:`${preview.platform}|${normalizedSourceName}`, platform:preview.platform, sourceName, normalizedSourceName, supplierId, confirmedAt:new Date().toISOString() };
+        const mappingIndex = aliasMappings.findIndex(item => item.platform === preview.platform && item.normalizedSourceName === normalizedSourceName);
+        if (mappingIndex >= 0) aliasMappings[mappingIndex] = { ...aliasMappings[mappingIndex], ...mapping, id:aliasMappings[mappingIndex].id }; else aliasMappings.push(mapping);
+      }
     } else {
       const pendingKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizeName(row.sourceName)].join('|');
       const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders, gmv:row.merchant?.gmv, filingBand:row.filingBand, sourceFileName:preview.fileName, sourceReferences:sourceReferences(row,preview.fileName), createdAt:new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
@@ -183,12 +249,22 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
     }
   }
   const products = [...(data.dropshipProductPeriods ?? [])];
+  const productRoutings = [...(data.dropshipProductRoutings ?? [])];
   for (const row of preview.products) {
-    const businessKey = [preview.platform,preview.periodStart,preview.periodEnd,row.productName].join('|');
-    const item: DropshipProductPeriod = { ...row, periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, fileName:preview.fileName, id:businessKey, businessKey, importedAt:new Date().toISOString() };
+    const decision = productDecisions[row.productName];
+    const supplierId = decision?.supplierId ?? row.supplierId;
+    const businessMode = decision?.businessMode ?? row.businessMode;
+    const normalizedProductName = normalizeName(row.productName);
+    const businessKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizedProductName].join('|');
+    const item: DropshipProductPeriod = { ...row, supplierId, businessMode, periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, fileName:preview.fileName, id:businessKey, businessKey, importedAt:new Date().toISOString() };
     const index = products.findIndex(value => value.businessKey === businessKey); if (index >= 0) products[index] = item; else products.unshift(item);
+    if (supplierId) {
+      const mapping: DropshipProductRouting = { id:`${preview.platform}|${normalizedProductName}`, platform:preview.platform, productName:row.productName, normalizedProductName, supplierId, businessMode, confirmedAt:new Date().toISOString() };
+      const mappingIndex = productRoutings.findIndex(value => value.platform === preview.platform && value.normalizedProductName === normalizedProductName);
+      if (mappingIndex >= 0) productRoutings[mappingIndex] = { ...productRoutings[mappingIndex], ...mapping, id:productRoutings[mappingIndex].id }; else productRoutings.push(mapping);
+    }
   }
-  return { ...data, supplierBusinessRecords:nextRecords, pendingDropshipSuppliers:pending, dropshipProductPeriods:products };
+  return { ...data, supplierBusinessRecords:nextRecords, pendingDropshipSuppliers:pending, dropshipProductPeriods:products, supplierAliasMappings:aliasMappings, dropshipProductRoutings:productRoutings };
 }
 
 export function archiveSupplierProductRelationship(data: LocalWorkbenchData, relationshipId: string, effectiveTo: string): LocalWorkbenchData {
