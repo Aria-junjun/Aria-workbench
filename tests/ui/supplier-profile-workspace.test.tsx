@@ -9,6 +9,7 @@ import { newBusinessRecord } from '@/features/workbench/supplier-business';
 import { deriveSupplierBusinessModes } from '@/features/workbench/dropship-decision-loop';
 vi.mock('next/link', () => ({ default: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => <a {...props}>{children}</a> }));
 beforeEach(() => {
+  localStorage.clear();
   const data = normalizeWorkbenchData({ suppliers: [{ id:'a',name:'供应商甲',contactName:'张先生',categories:[],riskTags:[],createdAt:'' }, { id:'b',name:'供应商乙',categories:[],riskTags:[],createdAt:'' }], supplierBusinessRecords: [{ ...newBusinessRecord('sample','a'), id:'sample-a',title:'甲厂白板样',productScope:'白板' },{ ...newBusinessRecord('sample','b'),id:'sample-b',title:'乙厂白板样',productScope:'白板' }] });
   setWorkbenchSnapshot(data); localStorage.setItem('personal-commercial-workbench',JSON.stringify(data));
 });
@@ -55,4 +56,38 @@ it('derives inbound mode from an existing procurement fulfillment line', () => {
   const data = normalizeWorkbenchData({ suppliers: [{ id:'a',name:'入仓供应商',categories:[],riskTags:[],createdAt:'' }] });
   localStorage.setItem('procurement-workbench-v1', JSON.stringify([{id:'f1',section:'fulfillment',title:'入仓履约',productName:'商品',priority:'中',status:'pending',createdAt:'',fulfillment:{mode:'warehouse',orderNo:'PO-3',orderDate:'2026-09-23',owner:'采购',settlement:'现结',settlementTerms:'',sourcePlatform:'1688',originalOrderNo:'',importBatch:'',destination:'仓库',lines:[{lineId:'l1',supplierId:'a',supplierName:'入仓供应商',quantity:10}],events:[]}}]));
   expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['inbound']);
+});
+
+it('does not treat a generic active product relation as inbound evidence', () => {
+  const data = normalizeWorkbenchData({
+    suppliers: [{ id:'a',name:'代发供应商',categories:[],riskTags:[],createdAt:'' }],
+    dropshipProductRoutings: [{id:'route-1',platform:'1688',productName:'商品甲',normalizedProductName:'商品甲',supplierId:'a',businessMode:'dropship',confirmedAt:'2026-09-23'}],
+    productSupplierAssignments: [{id:'relation-1',productFamilyKey:'商品甲',supplierId:'a',role:'primary',effectiveFrom:'2026-09-23',status:'active',source:'manual'}],
+  });
+  expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['dropship']);
+});
+
+it('hides inbound performance payload for a dropship-only supplier', () => {
+  const data = normalizeWorkbenchData({
+    suppliers: [{ id:'a',name:'代发供应商',categories:[],riskTags:[],createdAt:'' }],
+    supplierBusinessRecords: [{id:'period',kind:'dropship_period',supplierIds:['a'],offerIds:[],productScope:'商品甲',status:'completed',title:'代发周期',owner:'',fields:{paidOrders:'30'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''}],
+  });
+  setWorkbenchSnapshot(data);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} performance={<div>入仓数量成本评分</div>} />);
+  fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
+  expect(screen.getByText('代发履约')).toBeTruthy();
+  expect(screen.queryByText('入仓履约')).toBeNull();
+  expect(screen.queryByText('入仓数量成本评分')).toBeNull();
+});
+
+it('renders inbound performance payload inside the inbound section', () => {
+  const data = normalizeWorkbenchData({
+    suppliers: [{ id:'a',name:'入仓供应商',categories:[],riskTags:[],createdAt:'' }],
+    supplierBusinessRecords: [{id:'purchase',kind:'purchase',supplierIds:['a'],offerIds:[],productScope:'商品乙',status:'completed',title:'入仓采购',owner:'',fields:{fulfillmentMode:'warehouse'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''}],
+  });
+  setWorkbenchSnapshot(data);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} performance={<div>入仓数量成本评分</div>} />);
+  fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
+  const inbound = screen.getByText('入仓履约').closest('section');
+  expect(inbound?.textContent).toContain('入仓数量成本评分');
 });

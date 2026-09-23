@@ -40,3 +40,26 @@
 ## Commit
 
 - Implementation SHA: `4948d6a`
+
+## Review follow-up
+
+### RED evidence
+
+- A dropship routing plus a generic active product relationship incorrectly produced `['dropship', 'inbound']`.
+- A dropship-only profile rendered the inbound-oriented performance payload.
+- An inbound profile rendered that payload outside the “入仓履约” section.
+
+### Fix
+
+- Generic product/SKU relationships no longer count as inbound evidence. Inbound now requires explicit inbound routing, warehouse/inbound purchase evidence, or warehouse procurement fulfillment.
+- The existing performance payload is classified as inbound-oriented and renders only inside “入仓履约” when inbound evidence exists.
+- Dropship period metrics remain isolated in “代发履约”; no mixed score was added.
+
+### GREEN evidence
+
+- Focused result: 2 files passed, 16 tests passed.
+- TypeScript: passed.
+
+### Historical baseline concern
+
+- The earlier Task 4 commit added files that were historically untracked in the supplied baseline, making that old diff broad. Per instruction, this follow-up does not rewrite, rebase, or reconstruct those files; it changes only the reviewed behavior and focused tests.

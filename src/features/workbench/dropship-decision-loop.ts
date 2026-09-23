@@ -27,8 +27,6 @@ export function deriveSupplierBusinessModes(data: LocalWorkbenchData, supplierId
     || routings.some(routing => routing.businessMode === 'dropship') || fulfillmentModes.includes('dropship');
   const hasInbound = records.some(record => record.kind === 'purchase' && record.fields.fulfillmentMode !== 'dropship')
     || routings.some(routing => routing.businessMode === 'inbound')
-    || (data.productSupplierAssignments ?? []).some(assignment => assignment.supplierId === supplierId && assignment.status === 'active')
-    || (data.skuSupplierAssignments ?? []).some(assignment => assignment.supplierId === supplierId && assignment.status === 'active')
     || fulfillmentModes.includes('warehouse');
   return [hasDropship && 'dropship', hasInbound && 'inbound'].filter(Boolean) as SupplierBusinessMode[];
 }
