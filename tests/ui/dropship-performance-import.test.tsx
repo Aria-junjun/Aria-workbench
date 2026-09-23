@@ -115,3 +115,20 @@ it('previews the same deduplicated counts that persistence saves when source row
   expect(saved.supplierAliasMappings).toHaveLength(expected.aliases);
   expect(saved.dropshipProductRoutings).toHaveLength(expected.products);
 });
+
+it('keeps the modal stable and blocks review when supplier routing has a blocking conflict', async () => {
+  const conflicted = loadLocalWorkbenchData();
+  conflicted.supplierAliasMappings = [...(conflicted.supplierAliasMappings ?? []),{id:'alias-conflict',platform:'1688',sourceName:'甲方店铺',normalizedSourceName:'甲方店铺',supplierId:'b',confirmedAt:'2026-09-23T09:00:00.000Z'}];
+  setWorkbenchSnapshot(conflicted);
+  localStorage.setItem('personal-commercial-workbench',JSON.stringify(conflicted));
+  const before = localStorage.getItem('personal-commercial-workbench');
+
+  await openAndUpload();
+  fireEvent.click(screen.getByRole('button',{name:'下一步：供应商归位'}));
+
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).toContain('别名冲突：甲方店铺');
+  expect(screen.queryByText('最终写入预览')).toBeNull();
+  expect(screen.getByRole('button',{name:'下一步：商品归位'}).hasAttribute('disabled')).toBe(true);
+  expect(localStorage.getItem('personal-commercial-workbench')).toBe(before);
+});
