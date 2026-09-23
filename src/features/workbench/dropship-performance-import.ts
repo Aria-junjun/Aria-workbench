@@ -43,6 +43,7 @@ export type ParsedDropshipWorkbook = DropshipImportMeta & {
 export type FilingBand = 'unknown' | 'insufficient' | 'eligible' | 'priority';
 export type SupplierImportPreviewRow = {
   sourceName: string; merchant?: DropshipMerchantRow; afterSales?: DropshipAfterSalesRow;
+  merchantRows?: DropshipMerchantRow[]; afterSalesRows?: DropshipAfterSalesRow[];
   matchStatus: 'exact' | 'suggested' | 'unmatched'; routingStatus: 'exact' | 'alias' | 'suggested' | 'unmatched'; supplierId?: string; suggestedSupplierId?: string;
   filingBand: FilingBand; businessKey?: string; willReplace: boolean;
 };
@@ -132,6 +133,40 @@ export function parseDropshipWorkbook(sheets: WorkbookSheet[], meta: DropshipImp
 const normalizeName = (name: string) => name.toLowerCase().replace(/[\s（）()]/g, '').replace(/(旗舰店|有限公司|有限责任公司|个体工商户)$/g, '');
 const band = (orders?: number): FilingBand => orders == null ? 'unknown' : orders >= 100 ? 'priority' : orders >= 20 ? 'eligible' : 'insufficient';
 const sourceKey = (meta: DropshipImportMeta, supplierId: string) => [meta.platform,meta.periodStart,meta.periodEnd,supplierId].join('|');
+const sum = <T>(rows: T[], read: (row: T) => number | undefined) => {
+  const values = rows.map(read).filter((item): item is number => item != null);
+  return values.length ? values.reduce((total,item) => total + item, 0) : undefined;
+};
+const weighted = <T>(rows: T[], read: (row: T) => number | undefined, weight: (row: T) => number | undefined) => {
+  const values = rows.map(row => ({ value:read(row), weight:weight(row) })).filter((item): item is { value:number; weight:number | undefined } => item.value != null);
+  if (!values.length) return undefined;
+  const weightedValues = values.filter(item => item.weight != null && item.weight > 0);
+  if (weightedValues.length === values.length) {
+    const totalWeight = weightedValues.reduce((total,item) => total + (item.weight ?? 0), 0);
+    return Math.round(weightedValues.reduce((total,item) => total + item.value * (item.weight ?? 0), 0) / totalWeight * 10000) / 10000;
+  }
+  return Math.round(values.reduce((total,item) => total + item.value, 0) / values.length * 10000) / 10000;
+};
+const aggregateMerchants = (rows: DropshipMerchantRow[]) => rows.length ? {
+  ...rows[0],
+  paidOrders:sum(rows,row => row.paidOrders), gmv:sum(rows,row => row.gmv),
+  pickup48Rate:weighted(rows,row => row.pickup48Rate,row => row.paidOrders),
+  paymentToSignHours:weighted(rows,row => row.paymentToSignHours,row => row.paidOrders),
+  paymentToSignChangeHours:weighted(rows,row => row.paymentToSignChangeHours,row => row.paidOrders),
+  refundRate:weighted(rows,row => row.refundRate,row => row.paidOrders),
+  rejectReturnRate:weighted(rows,row => row.rejectReturnRate,row => row.paidOrders),
+  response3mRate:weighted(rows,row => row.response3mRate,row => row.paidOrders),
+} : undefined;
+const aggregateAfterSales = (rows: DropshipAfterSalesRow[]) => rows.length ? {
+  ...rows[0],
+  afterSalesCount:sum(rows,row => row.afterSalesCount), afterSalesRejectCount:sum(rows,row => row.afterSalesRejectCount), paidOrders:sum(rows,row => row.paidOrders),
+  afterSalesRate:weighted(rows,row => row.afterSalesRate,row => row.paidOrders),
+  afterSalesRejectRate:weighted(rows,row => row.afterSalesRejectRate,row => row.paidOrders),
+  averageRefundSeconds:weighted(rows,row => row.averageRefundSeconds,row => row.afterSalesCount),
+  lighthouseAfterSales:weighted(rows,row => row.lighthouseAfterSales,row => row.paidOrders),
+  lighthouseQuality:weighted(rows,row => row.lighthouseQuality,row => row.paidOrders),
+  lighthouseService:weighted(rows,row => row.lighthouseService,row => row.paidOrders),
+} : undefined;
 
 export function buildDropshipImportPreview(
   parsed: ParsedDropshipWorkbook,
@@ -140,7 +175,7 @@ export function buildDropshipImportPreview(
   aliasMappings: SupplierAliasMapping[] = [],
   productRoutings: DropshipProductRouting[] = [],
 ): DropshipImportPreview {
-  const groups = new Map<string, { sourceName: string; merchant?: DropshipMerchantRow; afterSales?: DropshipAfterSalesRow }>();
+  const groups = new Map<string, { sourceName: string; merchantRows: DropshipMerchantRow[]; afterSalesRows: DropshipAfterSalesRow[] }>();
   const blockingIssues: string[] = [];
   const aliasesFor = (sourceName: string) => aliasMappings.filter(item => item.platform === parsed.platform && item.normalizedSourceName === normalizeName(sourceName));
   const resolution = (sourceName: string) => {
@@ -156,23 +191,26 @@ export function buildDropshipImportPreview(
   };
   for (const merchant of parsed.merchants) {
     const resolved = resolution(merchant.supplierName);
-    groups.set(resolved.key, { sourceName:merchant.supplierName, merchant });
+    const current = groups.get(resolved.key) ?? { sourceName:merchant.supplierName, merchantRows:[], afterSalesRows:[] };
+    current.merchantRows.push(merchant); groups.set(resolved.key,current);
   }
   for (const afterSales of parsed.afterSales) {
     const resolved = resolution(afterSales.supplierName); const current = groups.get(resolved.key);
-    groups.set(resolved.key, { sourceName: current?.sourceName || afterSales.supplierName, merchant: current?.merchant, afterSales });
+    const group = current ?? { sourceName:afterSales.supplierName, merchantRows:[], afterSalesRows:[] };
+    group.afterSalesRows.push(afterSales); groups.set(resolved.key,group);
   }
   const supplierRows = [...groups.values()].map(group => {
-    const names = [group.merchant?.supplierName, group.afterSales?.supplierName].filter((item): item is string => Boolean(item));
+    const merchant = aggregateMerchants(group.merchantRows); const afterSales = aggregateAfterSales(group.afterSalesRows);
+    const names = [...group.merchantRows.map(row => row.supplierName), ...group.afterSalesRows.map(row => row.supplierName)];
     const resolutions = names.map(resolution);
     const matched = resolutions.find(item => item.status === 'alias') ?? resolutions.find(item => item.supplierId);
     const suggested = resolutions.find(item => item.suggestedSupplierId);
     const matchedId = matched?.supplierId;
     const businessKey = matchedId ? sourceKey(parsed, matchedId) : undefined;
-    const paidOrders = group.merchant?.paidOrders ?? group.afterSales?.paidOrders;
+    const paidOrders = merchant?.paidOrders ?? afterSales?.paidOrders;
     const routingStatus = matched?.status ?? suggested?.status ?? 'unmatched';
     const matchStatus = routingStatus === 'alias' ? 'exact' : routingStatus;
-    return { ...group, matchStatus, routingStatus, supplierId:matchedId, suggestedSupplierId:suggested?.suggestedSupplierId, filingBand:band(paidOrders), businessKey, willReplace:Boolean(businessKey && existingRecords.some(record => record.kind === 'dropship_period' && record.fields.sourceKey === businessKey)) };
+    return { ...group, merchant, afterSales, matchStatus, routingStatus, supplierId:matchedId, suggestedSupplierId:suggested?.suggestedSupplierId, filingBand:band(paidOrders), businessKey, willReplace:Boolean(businessKey && existingRecords.some(record => record.kind === 'dropship_period' && record.fields.sourceKey === businessKey)) };
   });
   const products = parsed.products.map(product => {
     const routing = productRoutings.find(item => item.platform === parsed.platform && item.normalizedProductName === normalizeName(product.productName));
@@ -196,8 +234,8 @@ export function buildDropshipImportPreview(
 
 const str = (value: unknown) => value == null ? '' : String(value);
 const sourceReferences = (row: SupplierImportPreviewRow, fileName: string): ImportSourceReference[] => [
-  row.merchant && { fileName, sheetName:row.merchant.sourceSheetName, rowNumber:row.merchant.sourceRowNumber, sourceType:'merchant' as const },
-  row.afterSales && { fileName, sheetName:row.afterSales.sourceSheetName, rowNumber:row.afterSales.sourceRowNumber, sourceType:'afterSales' as const },
+  ...(row.merchantRows ?? (row.merchant ? [row.merchant] : [])).map(item => ({ fileName, sheetName:item.sourceSheetName, rowNumber:item.sourceRowNumber, sourceType:'merchant' as const })),
+  ...(row.afterSalesRows ?? (row.afterSales ? [row.afterSales] : [])).map(item => ({ fileName, sheetName:item.sourceSheetName, rowNumber:item.sourceRowNumber, sourceType:'afterSales' as const })),
 ].filter((item): item is ImportSourceReference => Boolean(item));
 const mergeSourceReferences = (existing: string | undefined, incoming: ImportSourceReference[]) => {
   let previous: ImportSourceReference[] = [];
@@ -211,11 +249,13 @@ function importedRecord(row: SupplierImportPreviewRow, supplierId: string, previ
   const candidate = { sourceKey:sourceKey(preview,supplierId), periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, dataSource:`${preview.fileName}；${[merchant?.sourceSheetName,afterSales?.sourceSheetName].filter(Boolean).join('、')}`, sourceReferences:JSON.stringify(references), paidOrders:str(merchant?.paidOrders ?? existing?.fields.paidOrders ?? afterSales?.paidOrders), gmv:str(merchant?.gmv ?? existing?.fields.gmv), pickup48Rate:str(merchant?.pickup48Rate), paymentToSignHours:str(merchant?.paymentToSignHours), paymentToSignChangeHours:str(merchant?.paymentToSignChangeHours), refundRate:str(merchant?.refundRate), rejectReturnRate:str(merchant?.rejectReturnRate), response3mRate:str(merchant?.response3mRate), afterSalesCount:str(afterSales?.afterSalesCount), afterSalesRate:str(afterSales?.afterSalesRate), rejectedAfterSalesCount:str(afterSales?.afterSalesRejectCount), rejectedAfterSalesRate:str(afterSales?.afterSalesRejectRate), averageRefundSeconds:str(afterSales?.averageRefundSeconds), lighthouseAfterSales:str(afterSales?.lighthouseAfterSales), lighthouseQuality:str(afterSales?.lighthouseQuality), lighthouseScore:str(afterSales?.lighthouseService), evidenceNote:'Excel批量导入' };
   const fields = { ...(existing?.fields ?? {}) };
   for (const [key,value] of Object.entries(candidate)) if (value !== '') fields[key] = value;
-  return {
+  const record: SupplierBusinessRecord = {
     id: existing?.id || crypto.randomUUID(), kind:'dropship_period', supplierIds:[supplierId], offerIds:[], productScope:'全店代发', status:'completed',
     title:`${preview.periodStart} 至 ${preview.periodEnd} · ${preview.platform}`, owner:'', attachmentIds:[], revision:(existing?.revision || 0) + 1, createdAt:existing?.createdAt || now, updatedAt:now,
     fields
   };
+  if (existing && JSON.stringify(existing.fields) === JSON.stringify(record.fields) && JSON.stringify(existing.supplierIds) === JSON.stringify(record.supplierIds)) return existing;
+  return record;
 }
 
 export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipImportPreview, decisions: DropshipRoutingDecision | Record<string,string>): LocalWorkbenchData {
@@ -240,28 +280,41 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
         const normalizedSourceName = normalizeName(sourceName);
         const mapping: SupplierAliasMapping = { id:`${preview.platform}|${normalizedSourceName}`, platform:preview.platform, sourceName, normalizedSourceName, supplierId, confirmedAt:new Date().toISOString() };
         const mappingIndex = aliasMappings.findIndex(item => item.platform === preview.platform && item.normalizedSourceName === normalizedSourceName);
-        if (mappingIndex >= 0) aliasMappings[mappingIndex] = { ...aliasMappings[mappingIndex], ...mapping, id:aliasMappings[mappingIndex].id }; else aliasMappings.push(mapping);
+        if (mappingIndex >= 0) {
+          const old = aliasMappings[mappingIndex];
+          if (old.supplierId !== supplierId || old.sourceName !== sourceName) aliasMappings[mappingIndex] = { ...old, ...mapping, id:old.id };
+        } else aliasMappings.push(mapping);
       }
     } else {
       const pendingKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizeName(row.sourceName)].join('|');
-      const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders, gmv:row.merchant?.gmv, filingBand:row.filingBand, sourceFileName:preview.fileName, sourceReferences:sourceReferences(row,preview.fileName), createdAt:new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
-      const index = pending.findIndex(value => value.id === pendingKey); if (index >= 0) pending[index] = item; else pending.unshift(item);
+      const index = pending.findIndex(value => value.id === pendingKey); const old = index >= 0 ? pending[index] : undefined;
+      const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders, gmv:row.merchant?.gmv, filingBand:row.filingBand, sourceFileName:preview.fileName, sourceReferences:sourceReferences(row,preview.fileName), createdAt:old?.createdAt ?? new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
+      if (index >= 0) pending[index] = JSON.stringify(old) === JSON.stringify(item) ? old! : item; else pending.unshift(item);
     }
   }
   const products = [...(data.dropshipProductPeriods ?? [])];
   const productRoutings = [...(data.dropshipProductRoutings ?? [])];
   for (const row of preview.products) {
     const decision = productDecisions[row.productName];
+    const isRouted = decision ? decision.selected !== false && Boolean(decision.supplierId) : Boolean(row.supplierId);
+    if (!isRouted) continue;
     const supplierId = decision?.supplierId ?? row.supplierId;
     const businessMode = decision?.businessMode ?? row.businessMode;
     const normalizedProductName = normalizeName(row.productName);
     const businessKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizedProductName].join('|');
     const item: DropshipProductPeriod = { ...row, supplierId, businessMode, periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, fileName:preview.fileName, id:businessKey, businessKey, importedAt:new Date().toISOString() };
-    const index = products.findIndex(value => value.businessKey === businessKey); if (index >= 0) products[index] = item; else products.unshift(item);
+    const index = products.findIndex(value => value.businessKey === businessKey);
+    if (index >= 0) {
+      const old = products[index]; const { importedAt:_oldImportedAt, ...oldComparable } = old; const { importedAt:_newImportedAt, ...newComparable } = item;
+      if (JSON.stringify(oldComparable) !== JSON.stringify(newComparable)) products[index] = item;
+    } else products.unshift(item);
     if (supplierId) {
       const mapping: DropshipProductRouting = { id:`${preview.platform}|${normalizedProductName}`, platform:preview.platform, productName:row.productName, normalizedProductName, supplierId, businessMode, confirmedAt:new Date().toISOString() };
       const mappingIndex = productRoutings.findIndex(value => value.platform === preview.platform && value.normalizedProductName === normalizedProductName);
-      if (mappingIndex >= 0) productRoutings[mappingIndex] = { ...productRoutings[mappingIndex], ...mapping, id:productRoutings[mappingIndex].id }; else productRoutings.push(mapping);
+      if (mappingIndex >= 0) {
+        const old = productRoutings[mappingIndex];
+        if (old.supplierId !== supplierId || old.businessMode !== businessMode || old.productName !== row.productName) productRoutings[mappingIndex] = { ...old, ...mapping, id:old.id };
+      } else productRoutings.push(mapping);
     }
   }
   return { ...data, supplierBusinessRecords:nextRecords, pendingDropshipSuppliers:pending, dropshipProductPeriods:products, supplierAliasMappings:aliasMappings, dropshipProductRoutings:productRoutings };

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyDropshipImport, archiveSupplierProductRelationship, buildDropshipImportPreview, parseDropshipWorkbook } from '@/features/workbench/dropship-performance-import';
 import { normalizeWorkbenchData } from '@/features/workbench/local-store';
 
@@ -76,13 +76,63 @@ describe('dropship performance workbook import', () => {
     const preview = buildDropshipImportPreview(parsed, data.suppliers, [], [], []);
     const decisions = { suppliers:{ 供应商简称:'a' }, products:{ 商品甲:{ supplierId:'a', businessMode:'dropship' as const } } };
 
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-23T08:00:00.000Z'));
     const once = applyDropshipImport(data, preview, decisions);
+    vi.setSystemTime(new Date('2026-09-23T09:00:00.000Z'));
     const twice = applyDropshipImport(once, buildDropshipImportPreview(parsed, once.suppliers, once.supplierBusinessRecords ?? [], once.supplierAliasMappings, once.dropshipProductRoutings), decisions);
+    vi.useRealTimers();
 
     expect(twice.supplierBusinessRecords?.filter(record => record.kind === 'dropship_period')).toHaveLength(1);
     expect(twice.dropshipProductPeriods).toHaveLength(1);
     expect(twice.supplierAliasMappings).toHaveLength(1);
     expect(twice.dropshipProductRoutings).toHaveLength(1);
+    expect(twice.supplierBusinessRecords).toEqual(once.supplierBusinessRecords);
+    expect(twice.dropshipProductPeriods).toEqual(once.dropshipProductPeriods);
+    expect(twice.supplierAliasMappings).toEqual(once.supplierAliasMappings);
+    expect(twice.dropshipProductRoutings).toEqual(once.dropshipProductRoutings);
+  });
+
+  it('aggregates every source row resolved to one supplier and retains every row reference', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[
+        ['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],
+        ['1','供应商甲','10单/¥100','90%','20H','2%','0%'],
+        ['2','甲方店铺','30单/¥600','100%','40H','4%','0%'],
+      ] },
+      { name:'售后', rows:[
+        ['排行','商家名','售后量','售后率','支付订单量'],
+        ['1','供应商甲','1','10%','10'],
+        ['2','甲方店铺','3','10%','30'],
+      ] },
+    ], meta);
+    const supplier = { id:'a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const alias = { id:'alias-a', platform:'1688', sourceName:'甲方店铺', normalizedSourceName:'甲方店铺', supplierId:'a', confirmedAt:'2026-09-23T08:00:00.000Z' };
+    const data = normalizeWorkbenchData({ suppliers:[supplier], supplierAliasMappings:[alias] });
+
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, [], data.supplierAliasMappings, []);
+    const next = applyDropshipImport(data, preview, { suppliers:{}, products:{} });
+    const record = next.supplierBusinessRecords?.[0];
+    const references = JSON.parse(record?.fields.sourceReferences || '[]');
+
+    expect(record?.fields).toMatchObject({ paidOrders:'40', gmv:'700', pickup48Rate:'97.5', paymentToSignHours:'35', refundRate:'3.5', afterSalesCount:'4', afterSalesRate:'10' });
+    expect(references).toEqual([
+      { fileName:meta.fileName, sheetName:'商家', rowNumber:2, sourceType:'merchant' },
+      { fileName:meta.fileName, sheetName:'商家', rowNumber:3, sourceType:'merchant' },
+      { fileName:meta.fileName, sheetName:'售后', rowNumber:2, sourceType:'afterSales' },
+      { fileName:meta.fileName, sheetName:'售后', rowNumber:3, sourceType:'afterSales' },
+    ]);
+  });
+
+  it('does not persist an explicitly unselected or unrouted product', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','取消商品','10单/¥100','100%','30H','1%','0%'],['2','未归位商品','5单/¥50','100%','30H','1%','0%']] }], meta);
+    const supplier = { id:'a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const data = normalizeWorkbenchData({ suppliers:[supplier] });
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, [], [], []);
+
+    const next = applyDropshipImport(data, preview, { suppliers:{}, products:{ 取消商品:{ selected:false, supplierId:'a', businessMode:'dropship' } } });
+
+    expect(next.dropshipProductPeriods).toEqual([]);
+    expect(next.dropshipProductRoutings).toEqual([]);
   });
   it('recognizes merchant, product and after-sales sheets and merges annotation rows', () => {
     const result = parseDropshipWorkbook([
@@ -188,7 +238,7 @@ describe('dropship performance workbook import', () => {
     expect(preview.suppliers[2]).toMatchObject({ matchStatus:'unmatched', filingBand:'insufficient' });
   });
 
-  it('does not assign product rows and replaces an existing period record by business key', () => {
+  it('does not assign or persist unrouted product rows and replaces an existing period record by business key', () => {
     const parsed = parseDropshipWorkbook([
       { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','供应商甲','100单/¥800','99%','30H','2%','0%']] },
       { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','商品甲','80单/¥600','98%','35H','3%','0%']] },
@@ -203,7 +253,7 @@ describe('dropship performance workbook import', () => {
     const periodRecords = next.supplierBusinessRecords!.filter(record => record.kind === 'dropship_period');
     expect(periodRecords).toHaveLength(1);
     expect(periodRecords[0].fields.paidOrders).toBe('100');
-    expect(next.dropshipProductPeriods).toHaveLength(1);
+    expect(next.dropshipProductPeriods).toHaveLength(0);
   });
 
   it('persists file, sheet and row provenance for formal and pending records across replacement', () => {
@@ -213,8 +263,11 @@ describe('dropship performance workbook import', () => {
     ], meta);
     const data = normalizeWorkbenchData({ suppliers:[{ id:'formal', name:'正式供应商', categories:[], riskTags:[], createdAt:'' }] });
     const preview = buildDropshipImportPreview(parsed, data.suppliers, []);
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-23T08:00:00.000Z'));
     const once = applyDropshipImport(data, preview, {});
+    vi.setSystemTime(new Date('2026-09-23T09:00:00.000Z'));
     const twice = applyDropshipImport(once, preview, {});
+    vi.useRealTimers();
     const record = twice.supplierBusinessRecords?.find(item => item.supplierIds.includes('formal'));
     const references = JSON.parse(record?.fields.sourceReferences || '[]');
 
@@ -222,7 +275,8 @@ describe('dropship performance workbook import', () => {
       { fileName:meta.fileName, sheetName:'商家服务', rowNumber:2, sourceType:'merchant' },
       { fileName:meta.fileName, sheetName:'售后服务', rowNumber:2, sourceType:'afterSales' },
     ]));
-    expect(record?.revision).toBe(2);
+    expect(record?.revision).toBe(1);
+    expect(twice.pendingDropshipSuppliers).toEqual(once.pendingDropshipSuppliers);
     expect(twice.pendingDropshipSuppliers?.find(item => item.sourceName === '待建档供应商')?.sourceReferences).toEqual([
       { fileName:meta.fileName, sheetName:'商家服务', rowNumber:3, sourceType:'merchant' },
     ]);
