@@ -682,6 +682,15 @@ function newestById<T extends { id: string; updatedAt?: string }>(cloudRecords: 
   return [...merged.values()];
 }
 
+function newestRoutingByConfirmedAt<T extends { id: string; confirmedAt: string }>(cloudRecords: T[] | undefined, localRecords: T[] | undefined): T[] {
+  const merged = new Map((cloudRecords ?? []).map((record) => [record.id, record]));
+  for (const localRecord of localRecords ?? []) {
+    const cloudRecord = merged.get(localRecord.id);
+    if (!cloudRecord || localRecord.confirmedAt >= cloudRecord.confirmedAt) merged.set(localRecord.id, localRecord);
+  }
+  return [...merged.values()];
+}
+
 export function mergeDemandRecords(localData: Partial<LocalWorkbenchData>, cloudData: Partial<LocalWorkbenchData>): Partial<LocalWorkbenchData> {
   return {
     ...cloudData,
@@ -689,8 +698,8 @@ export function mergeDemandRecords(localData: Partial<LocalWorkbenchData>, cloud
     supplierBusinessRecords: newestById(cloudData.supplierBusinessRecords, localData.supplierBusinessRecords),
     demandConfirmationDocuments: newestById(cloudData.demandConfirmationDocuments, localData.demandConfirmationDocuments),
     demandExplorations: newestById(cloudData.demandExplorations, localData.demandExplorations),
-    supplierAliasMappings: newestById(cloudData.supplierAliasMappings, localData.supplierAliasMappings),
-    dropshipProductRoutings: newestById(cloudData.dropshipProductRoutings, localData.dropshipProductRoutings),
+    supplierAliasMappings: newestRoutingByConfirmedAt(cloudData.supplierAliasMappings, localData.supplierAliasMappings),
+    dropshipProductRoutings: newestRoutingByConfirmedAt(cloudData.dropshipProductRoutings, localData.dropshipProductRoutings),
   };
 }
 

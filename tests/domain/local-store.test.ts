@@ -133,6 +133,24 @@ describe("local-store operations", () => {
     expect(merged.dropshipProductRoutings?.map((item) => item.id).sort()).toEqual(["cloud-route", "local-route"]);
   });
 
+  it("keeps the newer local same-id routing mapping by confirmedAt", () => {
+    const olderCloud = { id: "same", platform: "1688", sourceName: "旧云端", normalizedSourceName: "旧云端", supplierId: "cloud-supplier", confirmedAt: "2026-09-22T08:00:00.000Z" };
+    const newerLocal = { ...olderCloud, sourceName: "新本地", normalizedSourceName: "新本地", supplierId: "local-supplier", confirmedAt: "2026-09-23T08:00:00.000Z" };
+
+    const merged = mergeDemandRecords({ supplierAliasMappings: [newerLocal] }, { supplierAliasMappings: [olderCloud] });
+
+    expect(merged.supplierAliasMappings).toEqual([newerLocal]);
+  });
+
+  it("keeps the newer cloud same-id routing mapping by confirmedAt", () => {
+    const olderLocal = { id: "same", platform: "1688", productName: "旧本地商品", normalizedProductName: "旧本地商品", supplierId: "local-supplier", businessMode: "dropship" as const, confirmedAt: "2026-09-22T08:00:00.000Z" };
+    const newerCloud = { ...olderLocal, productName: "新云端商品", normalizedProductName: "新云端商品", supplierId: "cloud-supplier", businessMode: "inbound" as const, confirmedAt: "2026-09-23T08:00:00.000Z" };
+
+    const merged = mergeDemandRecords({ dropshipProductRoutings: [olderLocal] }, { dropshipProductRoutings: [newerCloud] });
+
+    expect(merged.dropshipProductRoutings).toEqual([newerCloud]);
+  });
+
   it("normalizes demand explorations for legacy snapshots", () => {
     saveLocalWorkbenchData(sampleData());
 

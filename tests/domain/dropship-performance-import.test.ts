@@ -36,6 +36,32 @@ describe('dropship performance workbook import', () => {
     expect(result.issues.some(issue => issue.severity === 'error' && issue.message.includes('缺少列'))).toBe(true);
   });
 
+  it('keeps blank and unparseable numeric cells unknown while preserving recorded zero', () => {
+    const result = parseDropshipWorkbook([
+      { name:'商家服务', rows:[
+        ['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],
+        ['1','空白供应商','', '', '', '', ''],
+        ['2','异常供应商','不是数字', '无', '无', '无', '无'],
+        ['3','零值供应商','0单/¥0', 0, 0, 0, 0],
+      ] },
+      { name:'售后服务', rows:[
+        ['排行','商家名','售后量','售后率','售后拒绝量','售后拒绝率','平均退款时长（秒）','支付订单量'],
+        ['1','空白售后','','','','','',''],
+        ['2','零值售后',0,0,0,0,0,0],
+      ] },
+    ], meta);
+
+    expect(result.merchants[0]).toMatchObject({ supplierName:'空白供应商', paidOrders:undefined, gmv:undefined, pickup48Rate:undefined });
+    expect(result.merchants[1]).toMatchObject({ supplierName:'异常供应商', paidOrders:undefined, gmv:undefined, pickup48Rate:undefined });
+    expect(result.merchants[2]).toMatchObject({ supplierName:'零值供应商', paidOrders:0, gmv:0, pickup48Rate:0 });
+    expect(result.afterSales[0]).toMatchObject({ supplierName:'空白售后', afterSalesCount:undefined, afterSalesRejectCount:undefined, paidOrders:undefined });
+    expect(result.afterSales[1]).toMatchObject({ supplierName:'零值售后', afterSalesCount:0, afterSalesRejectCount:0, paidOrders:0 });
+
+    const preview = buildDropshipImportPreview(result, [], []);
+    expect(preview.suppliers.find(row => row.sourceName === '空白供应商')?.filingBand).toBe('unknown');
+    expect(preview.suppliers.find(row => row.sourceName === '零值供应商')?.filingBand).toBe('insufficient');
+  });
+
   it('converts Excel percentage fractions and time fractions without losing blank or zero values', () => {
     const result = parseDropshipWorkbook([
       { name:'商家', rows:[
@@ -99,6 +125,28 @@ describe('dropship performance workbook import', () => {
     expect(periodRecords).toHaveLength(1);
     expect(periodRecords[0].fields.paidOrders).toBe('100');
     expect(next.dropshipProductPeriods).toHaveLength(1);
+  });
+
+  it('persists file, sheet and row provenance for formal and pending records across replacement', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家服务', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','正式供应商','100单/¥800','99%','30H','2%','0%'],['2','待建档供应商','30单/¥200','98%','40H','3%','0%']] },
+      { name:'售后服务', rows:[['排行','商家名','售后量','售后率','支付订单量'],['1','正式供应商','2','2%','100']] },
+    ], meta);
+    const data = normalizeWorkbenchData({ suppliers:[{ id:'formal', name:'正式供应商', categories:[], riskTags:[], createdAt:'' }] });
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, []);
+    const once = applyDropshipImport(data, preview, {});
+    const twice = applyDropshipImport(once, preview, {});
+    const record = twice.supplierBusinessRecords?.find(item => item.supplierIds.includes('formal'));
+    const references = JSON.parse(record?.fields.sourceReferences || '[]');
+
+    expect(references).toEqual(expect.arrayContaining([
+      { fileName:meta.fileName, sheetName:'商家服务', rowNumber:2, sourceType:'merchant' },
+      { fileName:meta.fileName, sheetName:'售后服务', rowNumber:2, sourceType:'afterSales' },
+    ]));
+    expect(record?.revision).toBe(2);
+    expect(twice.pendingDropshipSuppliers?.find(item => item.sourceName === '待建档供应商')?.sourceReferences).toEqual([
+      { fileName:meta.fileName, sheetName:'商家服务', rowNumber:3, sourceType:'merchant' },
+    ]);
   });
 
   it('ends a delisted product relationship and archives an otherwise inactive supplier without deleting history', () => {

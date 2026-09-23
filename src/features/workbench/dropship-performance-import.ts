@@ -23,23 +23,24 @@ export type DropshipProductRouting = {
 export type WorkbookSheet = { name: string; rows: unknown[][] };
 export type DropshipImportIssue = { sheetName: string; rowNumber?: number; severity: 'warning' | 'error'; message: string };
 type Source = { sourceSheetName: string; sourceRowNumber: number };
+export type ImportSourceReference = { fileName: string; sheetName: string; rowNumber: number; sourceType: 'merchant' | 'afterSales' };
 export type DropshipMerchantRow = Source & {
-  supplierName: string; paidOrders: number; gmv: number; pickup48Rate?: number; paymentToSignHours?: number;
+  supplierName: string; paidOrders?: number; gmv?: number; pickup48Rate?: number; paymentToSignHours?: number;
   paymentToSignChangeHours?: number; refundRate?: number; rejectReturnRate?: number; response3mRate?: number;
 };
 export type DropshipProductRow = Source & {
-  productName: string; paidOrders: number; gmv: number; pickup48Rate?: number; paymentToSignHours?: number;
+  productName: string; paidOrders?: number; gmv?: number; pickup48Rate?: number; paymentToSignHours?: number;
   paymentToSignChangeHours?: number; refundRate?: number; rejectReturnRate?: number;
 };
 export type DropshipAfterSalesRow = Source & {
-  supplierName: string; afterSalesCount: number; afterSalesRate?: number; afterSalesRejectCount: number;
-  afterSalesRejectRate?: number; averageRefundSeconds?: number; paidOrders: number; lighthouseAfterSales?: number;
+  supplierName: string; afterSalesCount?: number; afterSalesRate?: number; afterSalesRejectCount?: number;
+  afterSalesRejectRate?: number; averageRefundSeconds?: number; paidOrders?: number; lighthouseAfterSales?: number;
   lighthouseQuality?: number; lighthouseService?: number;
 };
 export type ParsedDropshipWorkbook = DropshipImportMeta & {
   merchants: DropshipMerchantRow[]; products: DropshipProductRow[]; afterSales: DropshipAfterSalesRow[]; issues: DropshipImportIssue[];
 };
-export type FilingBand = 'insufficient' | 'eligible' | 'priority';
+export type FilingBand = 'unknown' | 'insufficient' | 'eligible' | 'priority';
 export type SupplierImportPreviewRow = {
   sourceName: string; merchant?: DropshipMerchantRow; afterSales?: DropshipAfterSalesRow;
   matchStatus: 'exact' | 'suggested' | 'unmatched'; supplierId?: string; suggestedSupplierId?: string;
@@ -47,7 +48,7 @@ export type SupplierImportPreviewRow = {
 };
 export type PendingDropshipSupplier = {
   id: string; sourceName: string; platform: string; periodStart: string; periodEnd: string;
-  paidOrders: number; gmv: number; filingBand: FilingBand; sourceFileName: string; createdAt: string;
+  paidOrders?: number; gmv?: number; filingBand: FilingBand; sourceFileName: string; sourceReferences?: ImportSourceReference[]; createdAt: string;
   status?: 'active' | 'observing' | 'resolved' | 'archived'; handledAt?: string; linkedSupplierId?: string;
   pickup48Rate?: number; paymentToSignHours?: number; refundRate?: number; rejectReturnRate?: number; response3mRate?: number;
   afterSalesCount?: number; afterSalesRate?: number; afterSalesRejectCount?: number; afterSalesRejectRate?: number; averageRefundSeconds?: number;
@@ -58,7 +59,9 @@ export type DropshipImportPreview = ParsedDropshipWorkbook & { suppliers: Suppli
 
 const text = (value: unknown) => value == null ? '' : String(value).trim();
 const number = (value: unknown) => {
-  const parsed = Number(text(value).replace(/[,%¥￥Hh单]/g, '').replace(/,/g, ''));
+  const cleaned = text(value).replace(/[,%¥￥Hh单]/g, '').replace(/,/g, '');
+  if (!cleaned) return undefined;
+  const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 const percentage = (value: unknown) => {
@@ -73,7 +76,7 @@ const seconds = (value: unknown) => {
 };
 const ordersAndGmv = (value: unknown) => {
   const match = text(value).replace(/,/g, '').match(/([\d.]+)\s*单\s*[/／]\s*[¥￥]?\s*([\d.]+)/);
-  return { paidOrders: match ? Number(match[1]) : 0, gmv: match ? Number(match[2]) : 0 };
+  return { paidOrders: match ? Number(match[1]) : undefined, gmv: match ? Number(match[2]) : undefined };
 };
 const headers = (row: unknown[] = []) => row.map(text);
 const col = (header: string[], name: string) => header.indexOf(name);
@@ -110,7 +113,7 @@ export function parseDropshipWorkbook(sheets: WorkbookSheet[], meta: DropshipImp
         result.products.push(previous as DropshipProductRow);
       } else {
         const supplierName = text(value(row, header, '商家名')); if (!supplierName) return;
-        result.afterSales.push({ ...source(sheet.name,rowNumber), supplierName, afterSalesCount:number(value(row,header,'售后量')) ?? 0, afterSalesRate:percentage(value(row,header,'售后率')), afterSalesRejectCount:number(value(row,header,'售后拒绝量')) ?? 0, afterSalesRejectRate:percentage(value(row,header,'售后拒绝率')), averageRefundSeconds:seconds(value(row,header,'平均退款时长（秒）')), paidOrders:number(value(row,header,'支付订单量')) ?? 0, lighthouseAfterSales:number(value(row,header,'灯塔分_售后（5分制）')), lighthouseQuality:number(value(row,header,'灯塔分_品质（5分制）')), lighthouseService:number(value(row,header,'灯塔分_综合服务（5分制）')) });
+        result.afterSales.push({ ...source(sheet.name,rowNumber), supplierName, afterSalesCount:number(value(row,header,'售后量')), afterSalesRate:percentage(value(row,header,'售后率')), afterSalesRejectCount:number(value(row,header,'售后拒绝量')), afterSalesRejectRate:percentage(value(row,header,'售后拒绝率')), averageRefundSeconds:seconds(value(row,header,'平均退款时长（秒）')), paidOrders:number(value(row,header,'支付订单量')), lighthouseAfterSales:number(value(row,header,'灯塔分_售后（5分制）')), lighthouseQuality:number(value(row,header,'灯塔分_品质（5分制）')), lighthouseService:number(value(row,header,'灯塔分_综合服务（5分制）')) });
       }
     });
   }
@@ -118,7 +121,7 @@ export function parseDropshipWorkbook(sheets: WorkbookSheet[], meta: DropshipImp
 }
 
 const normalizeName = (name: string) => name.toLowerCase().replace(/[\s（）()]/g, '').replace(/(旗舰店|有限公司|有限责任公司|个体工商户)$/g, '');
-const band = (orders: number): FilingBand => orders >= 100 ? 'priority' : orders >= 20 ? 'eligible' : 'insufficient';
+const band = (orders?: number): FilingBand => orders == null ? 'unknown' : orders >= 100 ? 'priority' : orders >= 20 ? 'eligible' : 'insufficient';
 const sourceKey = (meta: DropshipImportMeta, supplierId: string) => [meta.platform,meta.periodStart,meta.periodEnd,supplierId].join('|');
 
 export function buildDropshipImportPreview(parsed: ParsedDropshipWorkbook, suppliers: LocalSupplier[], existingRecords: SupplierBusinessRecord[]): DropshipImportPreview {
@@ -134,16 +137,27 @@ export function buildDropshipImportPreview(parsed: ParsedDropshipWorkbook, suppl
     const suggested = !exact ? suppliers.find(item => normalizeName(item.name) === normalized || normalizeName(item.name).includes(normalized) || normalized.includes(normalizeName(item.name))) : undefined;
     const matchedId = exact?.id;
     const businessKey = matchedId ? sourceKey(parsed, matchedId) : undefined;
-    const paidOrders = group.merchant?.paidOrders ?? group.afterSales?.paidOrders ?? 0;
+    const paidOrders = group.merchant?.paidOrders ?? group.afterSales?.paidOrders;
     return { ...group, matchStatus: exact ? 'exact' as const : suggested ? 'suggested' as const : 'unmatched' as const, supplierId: matchedId, suggestedSupplierId: suggested?.id, filingBand: band(paidOrders), businessKey, willReplace: Boolean(businessKey && existingRecords.some(record => record.kind === 'dropship_period' && record.fields.sourceKey === businessKey)) };
   });
   return { ...parsed, suppliers: supplierRows, products: parsed.products.map(product => ({ ...product })) };
 }
 
 const str = (value: unknown) => value == null ? '' : String(value);
+const sourceReferences = (row: SupplierImportPreviewRow, fileName: string): ImportSourceReference[] => [
+  row.merchant && { fileName, sheetName:row.merchant.sourceSheetName, rowNumber:row.merchant.sourceRowNumber, sourceType:'merchant' as const },
+  row.afterSales && { fileName, sheetName:row.afterSales.sourceSheetName, rowNumber:row.afterSales.sourceRowNumber, sourceType:'afterSales' as const },
+].filter((item): item is ImportSourceReference => Boolean(item));
+const mergeSourceReferences = (existing: string | undefined, incoming: ImportSourceReference[]) => {
+  let previous: ImportSourceReference[] = [];
+  try { previous = existing ? JSON.parse(existing) as ImportSourceReference[] : []; } catch { previous = []; }
+  const byKey = new Map([...previous, ...incoming].map(item => [`${item.fileName}|${item.sheetName}|${item.rowNumber}|${item.sourceType}`, item]));
+  return [...byKey.values()];
+};
 function importedRecord(row: SupplierImportPreviewRow, supplierId: string, preview: DropshipImportPreview, existing?: SupplierBusinessRecord): SupplierBusinessRecord {
   const now = new Date().toISOString(); const merchant = row.merchant; const afterSales = row.afterSales;
-  const candidate = { sourceKey:sourceKey(preview,supplierId), periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, dataSource:`${preview.fileName}；${[merchant?.sourceSheetName,afterSales?.sourceSheetName].filter(Boolean).join('、')}`, paidOrders:str(merchant?.paidOrders ?? (existing?.fields.paidOrders || afterSales?.paidOrders)), gmv:str(merchant?.gmv), pickup48Rate:str(merchant?.pickup48Rate), paymentToSignHours:str(merchant?.paymentToSignHours), paymentToSignChangeHours:str(merchant?.paymentToSignChangeHours), refundRate:str(merchant?.refundRate), rejectReturnRate:str(merchant?.rejectReturnRate), response3mRate:str(merchant?.response3mRate), afterSalesCount:str(afterSales?.afterSalesCount), afterSalesRate:str(afterSales?.afterSalesRate), rejectedAfterSalesCount:str(afterSales?.afterSalesRejectCount), rejectedAfterSalesRate:str(afterSales?.afterSalesRejectRate), averageRefundSeconds:str(afterSales?.averageRefundSeconds), lighthouseAfterSales:str(afterSales?.lighthouseAfterSales), lighthouseQuality:str(afterSales?.lighthouseQuality), lighthouseScore:str(afterSales?.lighthouseService), evidenceNote:'Excel批量导入' };
+  const references = mergeSourceReferences(existing?.fields.sourceReferences, sourceReferences(row, preview.fileName));
+  const candidate = { sourceKey:sourceKey(preview,supplierId), periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, dataSource:`${preview.fileName}；${[merchant?.sourceSheetName,afterSales?.sourceSheetName].filter(Boolean).join('、')}`, sourceReferences:JSON.stringify(references), paidOrders:str(merchant?.paidOrders ?? existing?.fields.paidOrders ?? afterSales?.paidOrders), gmv:str(merchant?.gmv ?? existing?.fields.gmv), pickup48Rate:str(merchant?.pickup48Rate), paymentToSignHours:str(merchant?.paymentToSignHours), paymentToSignChangeHours:str(merchant?.paymentToSignChangeHours), refundRate:str(merchant?.refundRate), rejectReturnRate:str(merchant?.rejectReturnRate), response3mRate:str(merchant?.response3mRate), afterSalesCount:str(afterSales?.afterSalesCount), afterSalesRate:str(afterSales?.afterSalesRate), rejectedAfterSalesCount:str(afterSales?.afterSalesRejectCount), rejectedAfterSalesRate:str(afterSales?.afterSalesRejectRate), averageRefundSeconds:str(afterSales?.averageRefundSeconds), lighthouseAfterSales:str(afterSales?.lighthouseAfterSales), lighthouseQuality:str(afterSales?.lighthouseQuality), lighthouseScore:str(afterSales?.lighthouseService), evidenceNote:'Excel批量导入' };
   const fields = { ...(existing?.fields ?? {}) };
   for (const [key,value] of Object.entries(candidate)) if (value !== '') fields[key] = value;
   return {
@@ -164,7 +178,7 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
       const index = old ? nextRecords.indexOf(old) : -1; if (index >= 0) nextRecords[index] = record; else nextRecords.unshift(record);
     } else {
       const pendingKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizeName(row.sourceName)].join('|');
-      const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders ?? 0, gmv:row.merchant?.gmv ?? 0, filingBand:row.filingBand, sourceFileName:preview.fileName, createdAt:new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
+      const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders, gmv:row.merchant?.gmv, filingBand:row.filingBand, sourceFileName:preview.fileName, sourceReferences:sourceReferences(row,preview.fileName), createdAt:new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
       const index = pending.findIndex(value => value.id === pendingKey); if (index >= 0) pending[index] = item; else pending.unshift(item);
     }
   }
