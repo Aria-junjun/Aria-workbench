@@ -1,0 +1,58 @@
+// @vitest-environment jsdom
+import React from 'react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { SupplierProfileWorkspace } from '@/components/workbench/supplier-profile-workspace';
+import { normalizeWorkbenchData } from '@/features/workbench/local-store';
+import { setWorkbenchSnapshot } from '@/features/workbench/workbench-store';
+import { newBusinessRecord } from '@/features/workbench/supplier-business';
+import { deriveSupplierBusinessModes } from '@/features/workbench/dropship-decision-loop';
+vi.mock('next/link', () => ({ default: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => <a {...props}>{children}</a> }));
+beforeEach(() => {
+  const data = normalizeWorkbenchData({ suppliers: [{ id:'a',name:'供应商甲',contactName:'张先生',categories:[],riskTags:[],createdAt:'' }, { id:'b',name:'供应商乙',categories:[],riskTags:[],createdAt:'' }], supplierBusinessRecords: [{ ...newBusinessRecord('sample','a'), id:'sample-a',title:'甲厂白板样',productScope:'白板' },{ ...newBusinessRecord('sample','b'),id:'sample-b',title:'乙厂白板样',productScope:'白板' }] });
+  setWorkbenchSnapshot(data); localStorage.setItem('personal-commercial-workbench',JSON.stringify(data));
+});
+afterEach(cleanup);
+it('provides seven business-specific tabs and scopes sample records to this supplier', () => {
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
+  for (const name of ['综合概况','基础与资质','产品与报价','送样与准入','合作约定','履约与改善','暂停与退出']) expect(screen.getByRole('button',{name})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'基础与资质'}));
+  expect(screen.getByText('张先生')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'送样与准入'}));
+  expect(screen.getByRole('button',{name:'甲厂白板样'})).toBeTruthy();
+  expect(screen.queryByText('乙厂白板样')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'甲厂白板样'}));
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  expect(screen.queryByRole('textbox')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'关闭窗口'}));
+  fireEvent.click(screen.getByRole('button',{name:'暂停与退出'}));
+  fireEvent.click(screen.getByRole('button',{name:'新增暂停与退出'}));
+  expect(screen.getByLabelText('替代与过渡安排')).toBeTruthy();
+  expect(screen.queryByLabelText('验证标准')).toBeNull();
+});
+
+it('derives and presents dropship and inbound cooperation on one supplier master', () => {
+  const data = normalizeWorkbenchData({
+    suppliers: [{ id:'a',name:'混合供应商',categories:[],riskTags:[],createdAt:'' }],
+    supplierBusinessRecords: [
+      { id:'period-a',kind:'dropship_period',supplierIds:['a'],offerIds:[],productScope:'代发商品',status:'completed',title:'第38周代发',owner:'',fields:{paidOrders:'80',gmv:'800'},attachmentIds:[],revision:1,createdAt:'',updatedAt:'' },
+      { id:'purchase-a',kind:'purchase',supplierIds:['a'],offerIds:[],productScope:'入仓商品',status:'completed',title:'PO-入仓',owner:'',fields:{fulfillmentMode:'warehouse',orderNo:'PO-1'},attachmentIds:[],revision:1,createdAt:'',updatedAt:'' },
+    ],
+  });
+  expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['dropship','inbound']);
+  setWorkbenchSnapshot(data);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
+  expect(screen.getByText('代发')).toBeTruthy();
+  expect(screen.getByText('入仓')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
+  expect(screen.getByText('代发履约')).toBeTruthy();
+  expect(screen.getByText('入仓履约')).toBeTruthy();
+  expect(screen.getByRole('button',{name:'第38周代发'})).toBeTruthy();
+  expect(screen.getByRole('button',{name:'PO-入仓'})).toBeTruthy();
+});
+
+it('derives inbound mode from an existing procurement fulfillment line', () => {
+  const data = normalizeWorkbenchData({ suppliers: [{ id:'a',name:'入仓供应商',categories:[],riskTags:[],createdAt:'' }] });
+  localStorage.setItem('procurement-workbench-v1', JSON.stringify([{id:'f1',section:'fulfillment',title:'入仓履约',productName:'商品',priority:'中',status:'pending',createdAt:'',fulfillment:{mode:'warehouse',orderNo:'PO-3',orderDate:'2026-09-23',owner:'采购',settlement:'现结',settlementTerms:'',sourcePlatform:'1688',originalOrderNo:'',importBatch:'',destination:'仓库',lines:[{lineId:'l1',supplierId:'a',supplierName:'入仓供应商',quantity:10}],events:[]}}]));
+  expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['inbound']);
+});
