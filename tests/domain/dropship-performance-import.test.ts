@@ -92,6 +92,29 @@ describe('dropship performance workbook import', () => {
     expect(twice.dropshipProductRoutings).toEqual(once.dropshipProductRoutings);
   });
 
+  it('preserves the complete snapshot when multiple source names normalize to one unchanged alias', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[
+        ['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],
+        ['1','供应商甲有限公司','10单/¥100','100%','30H','1%','0%'],
+        ['2','供应商甲','20单/¥200','100%','30H','1%','0%'],
+      ] },
+    ], meta);
+    const supplier = { id:'a', name:'供应商甲有限公司', categories:[], riskTags:[], createdAt:'' };
+    const alias = { id:'alias-a', platform:'1688', sourceName:'供应商甲', normalizedSourceName:'供应商甲', supplierId:'a', confirmedAt:'2026-09-23T08:00:00.000Z' };
+    const data = normalizeWorkbenchData({ suppliers:[supplier], supplierAliasMappings:[alias] });
+    const decisions = { suppliers:{}, products:{} };
+
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-23T09:00:00.000Z'));
+    const once = applyDropshipImport(data, buildDropshipImportPreview(parsed, data.suppliers, [], data.supplierAliasMappings, []), decisions);
+    vi.setSystemTime(new Date('2026-09-23T10:00:00.000Z'));
+    const twice = applyDropshipImport(once, buildDropshipImportPreview(parsed, once.suppliers, once.supplierBusinessRecords ?? [], once.supplierAliasMappings, []), decisions);
+    vi.useRealTimers();
+
+    expect(twice).toEqual(once);
+    expect(twice.supplierAliasMappings?.[0].confirmedAt).toBe('2026-09-23T08:00:00.000Z');
+  });
+
   it('aggregates every source row resolved to one supplier and retains every row reference', () => {
     const parsed = parseDropshipWorkbook([
       { name:'商家', rows:[

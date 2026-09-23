@@ -282,7 +282,7 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
         const mappingIndex = aliasMappings.findIndex(item => item.platform === preview.platform && item.normalizedSourceName === normalizedSourceName);
         if (mappingIndex >= 0) {
           const old = aliasMappings[mappingIndex];
-          if (old.supplierId !== supplierId || old.sourceName !== sourceName) aliasMappings[mappingIndex] = { ...old, ...mapping, id:old.id };
+          if (old.supplierId !== supplierId) aliasMappings[mappingIndex] = { ...old, ...mapping, id:old.id };
         } else aliasMappings.push(mapping);
       }
     } else {
