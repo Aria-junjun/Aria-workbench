@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { applyDropshipImport, buildDropshipImportPreview, parseDropshipWorkbook, type DropshipImportPreview, type DropshipProductRow, type DropshipRoutingDecision, type SupplierBusinessMode } from '@/features/workbench/dropship-performance-import';
-import { loadLocalWorkbenchData, saveLocalWorkbenchData } from '@/features/workbench/local-store';
+import { loadLocalWorkbenchData, saveLocalWorkbenchData, type LocalWorkbenchData } from '@/features/workbench/local-store';
 import { BusinessRecordDialog, BusinessSection, businessInput, businessPrimary, businessSecondary } from './business-record-dialog';
 import { procurementTable } from './procurement-line-details';
 
@@ -76,19 +76,26 @@ export function DropshipPerformanceImportDialog({ onClose, onImported }: Props) 
     </>}
     {preview && step==='supplier' && <BusinessSection title="供应商归位"><div className="overflow-x-auto"><table className={`${procurementTable} min-w-[820px]`}><thead><tr>{['来源商家','订单 / GMV','样本层级','识别结果','归属档案'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{preview.suppliers.map(row=><tr data-testid={`supplier-row-${row.sourceName}`} key={row.sourceName}><td>{row.sourceName}</td><td>{row.merchant?.paidOrders ?? row.afterSales?.paidOrders ?? '未采集'}单 / ¥{row.merchant?.gmv ?? '未采集'}</td><td>{bandNames[row.filingBand]}</td><td>{routingNames[row.routingStatus]}{row.willReplace?' · 覆盖同周期':''}</td><td><select aria-label={`${row.sourceName}归属档案`} className={businessInput} value={decisions.suppliers[row.sourceName] ?? ''} onChange={event=>setDecisions(old=>({...old,suppliers:{...old.suppliers,[row.sourceName]:event.target.value}}))}><option value="">进入待建档区</option>{suppliers.map(supplier=><option key={supplier.id} value={supplier.id}>{supplier.name}{row.suggestedSupplierId===supplier.id?'（建议）':''}</option>)}</select></td></tr>)}</tbody></table></div></BusinessSection>}
     {preview && step==='product' && <BusinessSection title="商品归位"><div className="overflow-x-auto"><table className={`${procurementTable} min-w-[820px]`}><thead><tr>{['纳入','商品','订单 / GMV','供应商','业务模式'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{(preview.products as RoutedProduct[]).map(row=>{const decision=decisions.products[row.productName] ?? {selected:false,businessMode:row.businessMode}; return <tr key={row.productName}><td><input aria-label={`选择${row.productName}`} type="checkbox" checked={Boolean(decision.selected)} onChange={event=>setDecisions(old=>({...old,products:{...old.products,[row.productName]:{...decision,selected:event.target.checked}}}))} /></td><td>{row.productName}</td><td>{row.paidOrders ?? '未采集'}单 / ¥{row.gmv ?? '未采集'}</td><td><select aria-label={`${row.productName}供应商`} className={businessInput} value={decision.supplierId ?? ''} onChange={event=>setDecisions(old=>({...old,products:{...old.products,[row.productName]:{...decision,supplierId:event.target.value || undefined}}}))}><option value="">请选择供应商</option>{suppliers.map(supplier=><option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></td><td><select aria-label={`${row.productName}业务模式`} className={businessInput} value={decision.businessMode} onChange={event=>setDecisions(old=>({...old,products:{...old.products,[row.productName]:{...decision,businessMode:event.target.value as 'dropship'|'inbound'}}}))}><option value="dropship">一件代发</option><option value="inbound">入仓采购</option></select></td></tr>;})}</tbody></table></div></BusinessSection>}
-    {preview && step==='review' && <Review preview={preview} decisions={decisions} />}
+    {preview && step==='review' && <Review data={data} preview={preview} decisions={decisions} />}
     {preview?.issues.length ? <BusinessSection title="解析提示"><ul className="space-y-2 text-sm">{preview.issues.map((issue,index)=><li className={issue.severity==='error'?'text-red-600':'text-muted'} key={index}>{issue.sheetName}{issue.rowNumber?` 第${issue.rowNumber}行`:''}：{issue.message}</li>)}</ul></BusinessSection> : null}
     {error && <p role="alert" className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
     {success && <p className="border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{success}</p>}
   </BusinessRecordDialog>;
 }
 
-function Review({preview,decisions}:{preview:DropshipImportPreview;decisions:DropshipRoutingDecision}) {
-  const formal=preview.suppliers.filter(row=>row.supplierId || decisions.suppliers[row.sourceName]).length;
-  const pending=preview.suppliers.length-formal;
-  const aliases=preview.suppliers.filter(row=>!row.supplierId && Boolean(decisions.suppliers[row.sourceName])).length;
-  const routed=preview.products.filter(row=>decisions.products[row.productName]?.selected && decisions.products[row.productName]?.supplierId).length;
-  const unresolved=pending+preview.products.filter(row=>decisions.products[row.productName]?.selected && !decisions.products[row.productName]?.supplierId).length+preview.blockingIssues.length;
+function Review({data,preview,decisions}:{data:LocalWorkbenchData;preview:DropshipImportPreview;decisions:DropshipRoutingDecision}) {
+  const next = applyDropshipImport(data,preview,decisions);
+  const normalize = (name:string) => name.toLowerCase().replace(/[\s（）()]/g,'').replace(/(旗舰店|有限公司|有限责任公司|个体工商户)$/g,'');
+  const supplierIds = new Set(preview.suppliers.map(row=>row.supplierId || decisions.suppliers[row.sourceName]).filter((value):value is string=>Boolean(value)));
+  const formalKeys = new Set([...supplierIds].map(supplierId=>[preview.platform,preview.periodStart,preview.periodEnd,supplierId].join('|')));
+  const formal = (next.supplierBusinessRecords ?? []).filter(record=>record.kind==='dropship_period' && formalKeys.has(record.fields.sourceKey ?? '')).length;
+  const pendingKeys = new Set(preview.suppliers.filter(row=>!(row.supplierId || decisions.suppliers[row.sourceName])).map(row=>[preview.platform,preview.periodStart,preview.periodEnd,normalize(row.sourceName)].join('|')));
+  const pending = (next.pendingDropshipSuppliers ?? []).filter(row=>pendingKeys.has(row.id)).length;
+  const aliasKeys = new Set(preview.suppliers.flatMap(row=>row.supplierId || decisions.suppliers[row.sourceName] ? [...(row.merchantRows ?? []).map(item=>item.supplierName),...(row.afterSalesRows ?? []).map(item=>item.supplierName)].map(name=>`${preview.platform}|${normalize(name)}`) : []));
+  const aliases = (next.supplierAliasMappings ?? []).filter(row=>aliasKeys.has(`${row.platform}|${row.normalizedSourceName}`)).length;
+  const productKeys = new Set((preview.products as RoutedProduct[]).filter(row=>decisions.products[row.productName]?.selected && decisions.products[row.productName]?.supplierId).map(row=>`${preview.platform}|${normalize(row.productName)}`));
+  const routed = (next.dropshipProductRoutings ?? []).filter(row=>productKeys.has(`${row.platform}|${row.normalizedProductName}`)).length;
+  const unresolved=pending+(preview.products as RoutedProduct[]).filter(row=>decisions.products[row.productName]?.selected && !decisions.products[row.productName]?.supplierId).length+preview.blockingIssues.length;
   return <BusinessSection title="最终写入预览"><div className="grid border border-line sm:grid-cols-5"><Metric label="正式周期记录" value={`${formal} 条`} /><Metric label="待建档供应商" value={`${pending} 条`} /><Metric label="保存别名" value={`${aliases} 条`} /><Metric label="路由商品" value={`${routed} 条`} /><Metric label="未解决项目" value={`${unresolved} 条`} /></div></BusinessSection>;
 }
 function StepBar({step}:{step:Step}) { const steps:[Step,string][]=[['upload','1 上传与识别'],['supplier','2 供应商归位'],['product','3 商品归位'],['review','4 确认写入']]; return <ol className="mb-4 grid grid-cols-2 overflow-hidden rounded-md border border-line text-sm sm:grid-cols-4">{steps.map(([key,label])=><li className={`border-r border-line px-3 py-2 last:border-r-0 ${step===key?'bg-action-soft font-medium text-action':'text-muted'}`} key={key}>{label}</li>)}</ol>; }

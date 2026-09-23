@@ -61,7 +61,7 @@ it('guides one workbook through supplier and product routing before showing fina
 
   expect(screen.getByText('最终写入预览')).toBeTruthy();
   expect(screen.getByText('正式周期记录')).toBeTruthy();
-  expect(screen.getByText('3 条')).toBeTruthy();
+  expect(screen.getByText('正式周期记录').parentElement?.querySelector('p:last-child')?.textContent).toBe('3 条');
   expect(screen.getByText('待建档供应商')).toBeTruthy();
   expect(screen.getByText('保存别名')).toBeTruthy();
   expect(screen.getByText('路由商品')).toBeTruthy();
@@ -89,4 +89,29 @@ it('keeps successful re-import idempotent and reports the saved result', async (
   const twice = loadLocalWorkbenchData();
   expect(twice.supplierBusinessRecords).toEqual(once.supplierBusinessRecords);
   expect(twice.pendingDropshipSuppliers).toEqual(once.pendingDropshipSuppliers);
+});
+
+it('previews the same deduplicated counts that persistence saves when source rows share one supplier', async () => {
+  await openAndUpload();
+  fireEvent.click(screen.getByRole('button',{name:'下一步：供应商归位'}));
+  fireEvent.change(screen.getByLabelText('供应商乙店铺归属档案'),{target:{value:'b'}});
+  fireEvent.change(screen.getByLabelText('新商家归属档案'),{target:{value:'b'}});
+  fireEvent.click(screen.getByRole('button',{name:'下一步：商品归位'}));
+  fireEvent.click(screen.getByRole('button',{name:'下一步：导入确认'}));
+
+  const expected = { formal:3, pending:0, aliases:4, products:0, unresolved:0 };
+  const countFor = (label:string) => screen.getByText(label).parentElement?.querySelector('p:last-child')?.textContent;
+  expect(countFor('正式周期记录')).toBe(`${expected.formal} 条`);
+  expect(countFor('待建档供应商')).toBe(`${expected.pending} 条`);
+  expect(countFor('保存别名')).toBe(`${expected.aliases} 条`);
+  expect(countFor('路由商品')).toBe(`${expected.products} 条`);
+  expect(countFor('未解决项目')).toBe(`${expected.unresolved} 条`);
+
+  fireEvent.click(screen.getByRole('button',{name:'确认导入'}));
+  await screen.findByText(/导入完成/);
+  const saved = loadLocalWorkbenchData();
+  expect(saved.supplierBusinessRecords?.filter(record=>record.kind==='dropship_period')).toHaveLength(expected.formal);
+  expect(saved.pendingDropshipSuppliers).toHaveLength(expected.pending);
+  expect(saved.supplierAliasMappings).toHaveLength(expected.aliases);
+  expect(saved.dropshipProductRoutings).toHaveLength(expected.products);
 });
