@@ -49,6 +49,65 @@ describe('dropship performance workbook import', () => {
     expect(next.dropshipProductRoutings?.[0]).toMatchObject({ productName:'商品甲', supplierId:'supplier-a', businessMode:'dropship' });
   });
 
+  it('preserves the same product for different supplier and business-mode relationships', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','共用商品','10单/¥100','100%','30H','1%','0%']] }], meta);
+    const suppliers = [
+      { id:'supplier-a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' },
+      { id:'supplier-b', name:'供应商乙', categories:[], riskTags:[], createdAt:'' },
+    ];
+    const data = normalizeWorkbenchData({ suppliers });
+    const preview = buildDropshipImportPreview(parsed, suppliers, [], [], []);
+
+    const once = applyDropshipImport(data, preview, { suppliers:{}, products:{ 共用商品:{ supplierId:'supplier-a', businessMode:'dropship' } } });
+    const twice = applyDropshipImport(once, preview, { suppliers:{}, products:{ 共用商品:{ supplierId:'supplier-b', businessMode:'inbound' } } });
+
+    expect(twice.dropshipProductPeriods).toHaveLength(2);
+    expect(twice.dropshipProductPeriods).toEqual(expect.arrayContaining([
+      expect.objectContaining({ supplierId:'supplier-a', businessMode:'dropship' }),
+      expect.objectContaining({ supplierId:'supplier-b', businessMode:'inbound' }),
+    ]));
+    expect(twice.dropshipProductRoutings).toHaveLength(2);
+  });
+
+  it('upgrades a legacy product-period key in place for the same supplier relationship', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','历史商品','12单/¥120','100%','30H','1%','0%']] }], meta);
+    const supplier = { id:'supplier-a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const legacyKey = '1688|2026-09-04|2026-09-18|历史商品';
+    const data = normalizeWorkbenchData({
+      suppliers:[supplier],
+      dropshipProductPeriods:[{ id:legacyKey, businessKey:legacyKey, supplierId:'supplier-a', businessMode:'dropship', productName:'历史商品', paidOrders:10, sourceSheetName:'商品', sourceRowNumber:2, ...meta, importedAt:'' }],
+    });
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, [], [], []);
+
+    const next = applyDropshipImport(data, preview, { suppliers:{}, products:{ 历史商品:{ supplierId:'supplier-a', businessMode:'dropship' } } });
+
+    expect(next.dropshipProductPeriods).toHaveLength(1);
+    expect(next.dropshipProductPeriods?.[0]).toMatchObject({ paidOrders:12, supplierId:'supplier-a', businessMode:'dropship' });
+    expect(next.dropshipProductPeriods?.[0].businessKey).not.toBe(legacyKey);
+  });
+
+  it('ignores stale saved mappings and rejects forged supplier decisions atomically', () => {
+    const parsed = parseDropshipWorkbook([
+      { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','历史简称','10单/¥100','100%','30H','1%','0%']] },
+      { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','历史商品','10单/¥100','100%','30H','1%','0%']] },
+    ], meta);
+    const data = normalizeWorkbenchData({
+      suppliers:[{ id:'active', name:'现有供应商', categories:[], riskTags:[], createdAt:'' }],
+      supplierAliasMappings:[{ id:'alias', platform:'1688', sourceName:'历史简称', normalizedSourceName:'历史简称', supplierId:'deleted', confirmedAt:'' }],
+      dropshipProductRoutings:[{ id:'route', platform:'1688', productName:'历史商品', normalizedProductName:'历史商品', supplierId:'deleted', businessMode:'dropship', confirmedAt:'' }],
+    });
+    const preview = buildDropshipImportPreview(parsed, data.suppliers, [], data.supplierAliasMappings, data.dropshipProductRoutings);
+
+    expect(preview.suppliers[0].supplierId).toBeUndefined();
+    expect(preview.products[0].supplierId).toBeUndefined();
+    expect(() => applyDropshipImport(data, preview, {
+      suppliers:{ 历史简称:'forged' },
+      products:{ 历史商品:{ selected:true, supplierId:'forged', businessMode:'dropship' } },
+    })).toThrow(/供应商档案不存在/);
+    expect(data.supplierBusinessRecords).toEqual([]);
+    expect(data.dropshipProductPeriods).toEqual([]);
+  });
+
   it('blocks conflicting aliases and unrouted selected products', () => {
     const parsed = parseDropshipWorkbook([
       { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','共同简称','10单/¥100','100%','30H','1%','0%']] },

@@ -131,6 +131,8 @@ export function parseDropshipWorkbook(sheets: WorkbookSheet[], meta: DropshipImp
 }
 
 const normalizeName = (name: string) => name.toLowerCase().replace(/[\s（）()]/g, '').replace(/(旗舰店|有限公司|有限责任公司|个体工商户)$/g, '');
+const productRelationshipKey = (platform: string, normalizedProductName: string, supplierId: string, businessMode: SupplierBusinessMode) =>
+  [platform, normalizedProductName, supplierId, businessMode].join('|');
 const band = (orders?: number): FilingBand => orders == null ? 'unknown' : orders >= 100 ? 'priority' : orders >= 20 ? 'eligible' : 'insufficient';
 const sourceKey = (meta: DropshipImportMeta, supplierId: string) => [meta.platform,meta.periodStart,meta.periodEnd,supplierId].join('|');
 const sum = <T>(rows: T[], read: (row: T) => number | undefined) => {
@@ -177,7 +179,8 @@ export function buildDropshipImportPreview(
 ): DropshipImportPreview {
   const groups = new Map<string, { sourceName: string; merchantRows: DropshipMerchantRow[]; afterSalesRows: DropshipAfterSalesRow[] }>();
   const blockingIssues: string[] = [];
-  const aliasesFor = (sourceName: string) => aliasMappings.filter(item => item.platform === parsed.platform && item.normalizedSourceName === normalizeName(sourceName));
+  const supplierIds = new Set(suppliers.map(item => item.id));
+  const aliasesFor = (sourceName: string) => aliasMappings.filter(item => item.platform === parsed.platform && item.normalizedSourceName === normalizeName(sourceName) && supplierIds.has(item.supplierId));
   const resolution = (sourceName: string) => {
     const exact = suppliers.find(item => item.name.trim().toLowerCase() === sourceName.trim().toLowerCase());
     if (exact) return { key:`supplier:${exact.id}`, supplierId:exact.id, status:'exact' as const };
@@ -213,7 +216,8 @@ export function buildDropshipImportPreview(
     return { ...group, merchant, afterSales, matchStatus, routingStatus, supplierId:matchedId, suggestedSupplierId:suggested?.suggestedSupplierId, filingBand:band(paidOrders), businessKey, willReplace:Boolean(businessKey && existingRecords.some(record => record.kind === 'dropship_period' && record.fields.sourceKey === businessKey)) };
   });
   const products = parsed.products.map(product => {
-    const routing = productRoutings.find(item => item.platform === parsed.platform && item.normalizedProductName === normalizeName(product.productName));
+    const routings = productRoutings.filter(item => item.platform === parsed.platform && item.normalizedProductName === normalizeName(product.productName) && supplierIds.has(item.supplierId));
+    const routing = routings.length === 1 ? routings[0] : undefined;
     return { ...product, supplierId:routing?.supplierId, businessMode:routing?.businessMode ?? 'dropship' as const };
   });
   const matchedSuppliers = supplierRows.filter(row => Boolean(row.supplierId)).length;
@@ -263,8 +267,18 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
   const supplierDecisions = structured ? (decisions as DropshipRoutingDecision).suppliers ?? {} : decisions as Record<string,string>;
   const productDecisions = structured ? (decisions as DropshipRoutingDecision).products ?? {} : {};
   const validationIssues = [...preview.blockingIssues];
+  const supplierIds = new Set(data.suppliers.map(item => item.id));
+  for (const row of preview.suppliers) {
+    const supplierId = row.supplierId || supplierDecisions[row.sourceName];
+    if (supplierId && !supplierIds.has(supplierId)) validationIssues.push(`供应商“${row.sourceName}”关联的供应商档案不存在`);
+  }
   for (const [productName, decision] of Object.entries(productDecisions)) {
     if (decision.selected && !decision.supplierId) validationIssues.push(`商品“${productName}”未选择供应商`);
+    if (decision.selected !== false && decision.supplierId && !supplierIds.has(decision.supplierId)) validationIssues.push(`商品“${productName}”关联的供应商档案不存在`);
+  }
+  for (const row of preview.products) {
+    const decision = productDecisions[row.productName];
+    if (!decision && row.supplierId && !supplierIds.has(row.supplierId)) validationIssues.push(`商品“${row.productName}”关联的供应商档案不存在`);
   }
   if (validationIssues.length) throw new Error(validationIssues.join('；'));
   const existing = data.supplierBusinessRecords ?? []; const nextRecords = [...existing];
@@ -301,16 +315,20 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
     const supplierId = decision?.supplierId ?? row.supplierId;
     const businessMode = decision?.businessMode ?? row.businessMode;
     const normalizedProductName = normalizeName(row.productName);
-    const businessKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizedProductName].join('|');
+    const relationshipKey = productRelationshipKey(preview.platform, normalizedProductName, supplierId!, businessMode);
+    const businessKey = [preview.periodStart,preview.periodEnd,relationshipKey].join('|');
     const item: DropshipProductPeriod = { ...row, supplierId, businessMode, periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, fileName:preview.fileName, id:businessKey, businessKey, importedAt:new Date().toISOString() };
-    const index = products.findIndex(value => value.businessKey === businessKey);
+    const index = products.findIndex(value => value.businessKey === businessKey || (
+      value.platform === preview.platform && value.periodStart === preview.periodStart && value.periodEnd === preview.periodEnd
+      && normalizeName(value.productName) === normalizedProductName && value.supplierId === supplierId && value.businessMode === businessMode
+    ));
     if (index >= 0) {
       const old = products[index]; const { importedAt:_oldImportedAt, ...oldComparable } = old; const { importedAt:_newImportedAt, ...newComparable } = item;
       if (JSON.stringify(oldComparable) !== JSON.stringify(newComparable)) products[index] = item;
     } else products.unshift(item);
     if (supplierId) {
-      const mapping: DropshipProductRouting = { id:`${preview.platform}|${normalizedProductName}`, platform:preview.platform, productName:row.productName, normalizedProductName, supplierId, businessMode, confirmedAt:new Date().toISOString() };
-      const mappingIndex = productRoutings.findIndex(value => value.platform === preview.platform && value.normalizedProductName === normalizedProductName);
+      const mapping: DropshipProductRouting = { id:relationshipKey, platform:preview.platform, productName:row.productName, normalizedProductName, supplierId, businessMode, confirmedAt:new Date().toISOString() };
+      const mappingIndex = productRoutings.findIndex(value => value.platform === preview.platform && value.normalizedProductName === normalizedProductName && value.supplierId === supplierId && value.businessMode === businessMode);
       if (mappingIndex >= 0) {
         const old = productRoutings[mappingIndex];
         if (old.supplierId !== supplierId || old.businessMode !== businessMode || old.productName !== row.productName) productRoutings[mappingIndex] = { ...old, ...mapping, id:old.id };

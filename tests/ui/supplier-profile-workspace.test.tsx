@@ -67,6 +67,27 @@ it('does not treat a generic active product relation as inbound evidence', () =>
   expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['dropship']);
 });
 
+it('does not infer inbound mode from a legacy purchase without an explicit fulfillment mode', () => {
+  const data = normalizeWorkbenchData({
+    suppliers: [{ id:'a',name:'历史供应商',categories:[],riskTags:[],createdAt:'' }],
+    supplierBusinessRecords: [{id:'legacy',kind:'purchase',supplierIds:['a'],offerIds:[],productScope:'历史商品',status:'completed',title:'历史采购',owner:'',fields:{orderNo:'PO-OLD'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''}],
+  });
+  expect(deriveSupplierBusinessModes(data, 'a')).toEqual([]);
+});
+
+it('shows routed product-period facts in the assigned supplier dropship section', () => {
+  const data = normalizeWorkbenchData({
+    suppliers: [{ id:'a',name:'代发供应商',categories:[],riskTags:[],createdAt:'' }],
+    dropshipProductRoutings: [{id:'route',platform:'1688',productName:'透明收纳盒',normalizedProductName:'透明收纳盒',supplierId:'a',businessMode:'dropship',confirmedAt:''}],
+    dropshipProductPeriods: [{id:'period',businessKey:'period',supplierId:'a',businessMode:'dropship',productName:'透明收纳盒',paidOrders:18,gmv:360,pickup48Rate:99,refundRate:2,sourceSheetName:'商品服务',sourceRowNumber:2,periodStart:'2026-09-04',periodEnd:'2026-09-18',platform:'1688',fileName:'履约.xlsx',importedAt:''}],
+  });
+  setWorkbenchSnapshot(data);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
+  expect(screen.getByText('透明收纳盒')).toBeTruthy();
+  expect(screen.getByText('18单 / ¥360')).toBeTruthy();
+});
+
 it('hides inbound performance payload for a dropship-only supplier', () => {
   const data = normalizeWorkbenchData({
     suppliers: [{ id:'a',name:'代发供应商',categories:[],riskTags:[],createdAt:'' }],
