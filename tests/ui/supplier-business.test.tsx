@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SupplierBusinessLedger } from '@/components/workbench/supplier-business-ledger';
 import { normalizeWorkbenchData, loadLocalWorkbenchData } from '@/features/workbench/local-store';
+import * as localStore from '@/features/workbench/local-store';
 import { setWorkbenchSnapshot } from '@/features/workbench/workbench-store';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -163,4 +164,25 @@ it('turns pending dropship suppliers into an actionable filing queue', () => {
   fireEvent.click(screen.getByRole('button',{name:'关联来源商家'}));
   expect(loadLocalWorkbenchData().pendingDropshipSuppliers?.[0].status).toBe('resolved');
   expect(loadLocalWorkbenchData().supplierBusinessRecords?.[0].supplierIds).toEqual(['a']);
+});
+
+it('lists permanent batch delete actions and previews the selected scope without deleting automatically', () => {
+  const data = normalizeWorkbenchData({ suppliers:[{id:'a',name:'供应商A',categories:[],riskTags:[],createdAt:''}], supplierBusinessRecords:[{
+    id:'target',kind:'dropship_period',supplierIds:['a'],offerIds:[],productScope:'商品A',status:'completed',title:'目标周期',owner:'',fields:{platform:'1688',periodStart:'2026-09-04',periodEnd:'2026-09-18'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''
+  }]});
+  setWorkbenchSnapshot(data); localStorage.setItem('personal-commercial-workbench',JSON.stringify(data));
+  render(<SupplierBusinessLedger />);
+  fireEvent.click(screen.getByRole('button',{name:'代发周期履约'}));
+  expect(screen.getByText('导入批次管理')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'删除导入批次 1688 2026-09-04 至 2026-09-18'}));
+  expect(screen.getByText('1688 · 2026-09-04 至 2026-09-18')).toBeTruthy();
+  expect(screen.getByText('供应商周期履约')).toBeTruthy();
+  expect(loadLocalWorkbenchData().supplierBusinessRecords?.map(item=>item.id)).toContain('target');
+  expect(screen.getByRole('button',{name:'下载完整JSON备份'})).toBeTruthy();
+  const save = vi.spyOn(localStore,'saveLocalWorkbenchData');
+  fireEvent.click(screen.getByLabelText('我确认仅删除该导入批次'));
+  fireEvent.click(screen.getByRole('button',{name:'确认删除该导入批次'}));
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(loadLocalWorkbenchData().supplierBusinessRecords?.map(item=>item.id)).not.toContain('target');
+  expect(screen.getByText('已删除导入批次：1688 · 2026-09-04 至 2026-09-18')).toBeTruthy();
 });

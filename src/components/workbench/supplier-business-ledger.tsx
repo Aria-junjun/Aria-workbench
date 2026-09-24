@@ -12,6 +12,7 @@ import { recordNames as names, recordStatuses as statuses, recordGroups } from '
 import { DropshipPerformanceImportDialog } from './dropship-performance-import-dialog';
 import { resolvePendingDropshipSupplier } from '@/features/workbench/dropship-decision-loop';
 import type { PendingDropshipSupplier } from '@/features/workbench/dropship-performance-import';
+import { applyScopedDropshipCleanup, listDropshipImportBatches, previewScopedDropshipCleanup, type DropshipCleanupScope } from '@/features/workbench/scoped-dropship-cleanup';
 
 const allKinds: SupplierBusinessKind[] = ['sample', 'inspection', 'agreement', 'purchase', 'dropship_period'];
 type Props = { supplierId?: string; kinds?: SupplierBusinessKind[]; embedded?: boolean };
@@ -33,12 +34,15 @@ export function SupplierBusinessLedger({ supplierId, kinds = allKinds, embedded 
   const [linking, setLinking] = useState<{ record: SupplierBusinessRecord; masterId: string } | null>(null);
   const [importingPeriod, setImportingPeriod] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
+  const [cleanupScope, setCleanupScope] = useState<DropshipCleanupScope | null>(null);
+  const [cleanupSuccess, setCleanupSuccess] = useState('');
   const records = mergeSupplierBusinessRecords(data.supplierBusinessRecords ?? [], projectProcurementSupplierRecords(loadProcurementRecords(), data.suppliers));
   useEffect(() => { setSupplierFilter(supplierId || ''); setDraft(null); setViewing(null); setSelected([]); }, [supplierId]);
   const visible = records.filter(r => r.kind === tab && (!supplierFilter || r.supplierIds.includes(supplierFilter)));
   const selectedRecords = visible.filter(r => selected.includes(r.id));
   const periodMetrics = visible.filter(r => r.kind === 'dropship_period').map(dropshipMetricsFromRecord);
   const periodOverview = dropshipOverview(periodMetrics);
+  const importBatches = listDropshipImportBatches(importRevision ? loadLocalWorkbenchData() : data);
   const supplierName = (r: SupplierBusinessRecord) => r.supplierIds.map(id => data.suppliers.find(s => s.id === id)?.name || '关联档案缺失').join('、') || r.pendingSupplierName || '待关联供应商';
   const changeTab = (key: SupplierBusinessKind) => { setTab(key); setDraft(null); setViewing(null); setSelected([]); setError(''); };
   const change = (key: string, value: string) => setDraft(current => {
@@ -79,6 +83,7 @@ export function SupplierBusinessLedger({ supplierId, kinds = allKinds, embedded 
   const closeEdit = () => { if (!uploading) { setDraft(null); setError(''); } };
   return <div className={embedded ? 'space-y-5' : 'mx-auto max-w-[1440px] space-y-5 py-6'}>
     {importingPeriod && <DropshipPerformanceImportDialog onClose={() => setImportingPeriod(false)} onImported={() => setImportRevision(value => value + 1)} />}
+    {cleanupScope && <DropshipCleanupDialog scope={cleanupScope} onClose={() => setCleanupScope(null)} onCleaned={() => { setImportRevision(value => value + 1); setCleanupSuccess(`已删除导入批次：${cleanupScope.platform} · ${cleanupScope.periodStart} 至 ${cleanupScope.periodEnd}`); setCleanupScope(null); }} />}
     {!embedded && <header><p className="text-xs tracking-widest text-action">供应商 · 业务记录</p><h1 className="mt-2 text-2xl font-semibold">供应商业务台账</h1><p className="mt-2 text-sm text-muted">按业务查看真实记录；按供应商追溯来源。报价资料库不自动进入当前询价。</p></header>}
     <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-line pb-4">
       {kinds.map(key => <button className={tab === key ? 'text-sm font-semibold text-action' : 'text-sm text-muted hover:text-ink'} key={key} onClick={() => changeTab(key)} type="button">{names[key]}</button>)}
@@ -88,7 +93,9 @@ export function SupplierBusinessLedger({ supplierId, kinds = allKinds, embedded 
         <button className={businessPrimary} onClick={() => { setViewing(null); setError(''); setDraft(newBusinessRecord(tab, supplierFilter)); }} type="button">新增{names[tab]}</button>
       </div>
     </div>
+    {cleanupSuccess && <p className="border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{cleanupSuccess}</p>}
     {tab === 'dropship_period' && <div className="grid overflow-hidden border border-line bg-surface sm:grid-cols-4"><Metric label="周期订单量" value={String(periodOverview.totalOrders)} /><Metric label="周期GMV" value={`¥${periodOverview.totalGmv.toFixed(2)}`} /><Metric label="加权48H揽收率" value={periodOverview.weightedPickup48Rate == null ? '未采集' : `${periodOverview.weightedPickup48Rate.toFixed(1)}%`} /><Metric label="风险记录" value={String(periodOverview.riskCount)} danger={periodOverview.riskCount > 0} /></div>}
+    {tab === 'dropship_period' && importBatches.length > 0 && <BusinessSection title="导入批次管理"><p className="mb-3 text-xs text-muted">按平台与统计周期管理历史导入。删除前可查看影响范围并下载完整备份。</p><div className="overflow-x-auto"><table className={`${procurementTable} min-w-[620px]`}><thead><tr>{['平台','统计周期','涉及数据','操作'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{importBatches.map(batch=>{const preview=previewScopedDropshipCleanup(importRevision ? loadLocalWorkbenchData() : data,batch); const key=`${batch.platform}|${batch.periodStart}|${batch.periodEnd}`; return <tr key={key}><td>{batch.platform}</td><td>{batch.periodStart} 至 {batch.periodEnd}</td><td>{preview.total} 条</td><td><button className="text-red-600 hover:underline" aria-label={`删除导入批次 ${batch.platform} ${batch.periodStart} 至 ${batch.periodEnd}`} type="button" onClick={()=>setCleanupScope(batch)}>删除导入批次</button></td></tr>;})}</tbody></table></div></BusinessSection>}
     {!supplierId && records.some(record => record.pendingArchive) && <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">有 {new Set(records.filter(record => record.pendingArchive).map(record => record.pendingSupplierName)).size} 家已发生履约的临时供应商待建立或关联正式档案。</div>}
     <div className="overflow-x-auto"><table className={`${procurementTable} min-w-[760px] table-fixed`}>
       <thead><tr className="border-b border-line text-xs text-muted">{['对比', '供应商 / 产品', '记录', '状态', ...(tab === 'sample' ? ['寄出 / 收到', '样品版本'] : tab === 'inspection' ? ['来源寄样', '检验结果'] : tab === 'agreement' ? ['约定版本', '供应商确认'] : tab === 'dropship_period' ? ['订单 / GMV', '履约表现'] : ['订单号', '发货 / 收货']), '操作'].map(h => <th className="px-2 py-3 font-medium" key={h}>{h}</th>)}</tr></thead>
@@ -132,6 +139,29 @@ export function SupplierBusinessLedger({ supplierId, kinds = allKinds, embedded 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     </BusinessRecordDialog>}
   </div>;
+}
+function DropshipCleanupDialog({ scope, onClose, onCleaned }: { scope: DropshipCleanupScope; onClose: () => void; onCleaned: () => void }) {
+  const [confirmed,setConfirmed] = useState(false);
+  const snapshot = loadLocalWorkbenchData();
+  const preview = previewScopedDropshipCleanup(snapshot,scope);
+  const backup = () => {
+    const blob = new Blob([JSON.stringify(loadLocalWorkbenchData(),null,2)],{type:'application/json;charset=utf-8'});
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+    anchor.href=url; anchor.download=`供应商业务台账-删除批次前完整备份-${scope.platform}-${scope.periodStart}至${scope.periodEnd}.json`; anchor.click(); URL.revokeObjectURL(url);
+  };
+  const clean = () => {
+    if (!confirmed) return;
+    const current = loadLocalWorkbenchData();
+    saveLocalWorkbenchData(applyScopedDropshipCleanup(current,scope));
+    onCleaned();
+  };
+  const rows: Array<[string,number]> = [['供应商周期履约',preview.counts.supplierBusinessRecords],['待建档供应商',preview.counts.pendingDropshipSuppliers],['商品周期明细',preview.counts.dropshipProductPeriods],['无其他周期引用的供应商别名',preview.counts.supplierAliasMappings],['无其他周期引用的商品路由',preview.counts.dropshipProductRoutings]];
+  return <BusinessRecordDialog title="删除导入批次" onClose={onClose} footer={<><button className={businessSecondary} type="button" onClick={onClose}>取消</button><button className="inline-flex items-center justify-center rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={!confirmed} type="button" onClick={clean}>确认删除该导入批次</button></>}>
+    <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><strong>明确删除范围</strong><p className="mt-1">{scope.platform} · {scope.periodStart} 至 {scope.periodEnd}</p><p className="mt-1">不会删除供应商主档，也不会删除寄样、核样、合作约定、采购或入仓记录。</p></div>
+    <BusinessSection title="删除预览"><div className="overflow-hidden border border-line">{rows.map(([label,count])=><div className="flex items-center justify-between border-b border-line px-4 py-3 text-sm last:border-b-0" key={label}><span>{label}</span><strong>{count} 条</strong></div>)}</div><p className="mt-3 text-sm">合计将删除 <strong className="text-red-600">{preview.total}</strong> 条数据。</p></BusinessSection>
+    <BusinessSection title="清理前备份"><button className={businessSecondary} type="button" onClick={backup}>下载完整JSON备份</button><p className="mt-2 text-xs text-muted">备份包含当前工作台完整快照，可留作恢复和审计依据。</p></BusinessSection>
+    <label className="flex items-start gap-3 border border-line p-4 text-sm"><input aria-label="我确认仅删除该导入批次" className="mt-1" type="checkbox" checked={confirmed} onChange={event=>setConfirmed(event.target.checked)} /><span>我确认仅删除平台为{scope.platform}、周期为{scope.periodStart}至{scope.periodEnd}的代发导入数据。</span></label>
+  </BusinessRecordDialog>;
 }
 function PendingDropshipQueue({ data }: { data: LocalWorkbenchData }) {
   const [status,setStatus] = useState<'active'|'observing'|'archived'|'resolved'>('active');
