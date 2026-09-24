@@ -12,7 +12,6 @@ export type DropshipCleanupPreview = { scope: DropshipCleanupScope; counts: Drop
 
 const matches = (item: { platform?: string; periodStart?: string; periodEnd?: string }, scope: DropshipCleanupScope) =>
   item.platform === scope.platform && item.periodStart === scope.periodStart && item.periodEnd === scope.periodEnd;
-const normalized = (value: string) => value.toLowerCase().replace(/[\s（）()]/g, '').replace(/(旗舰店|有限公司|有限责任公司|个体工商户)$/g, '');
 
 export function listDropshipImportBatches(data: LocalWorkbenchData): DropshipCleanupScope[] {
   const candidates: DropshipCleanupScope[] = [
@@ -32,24 +31,9 @@ function cleanupResult(data: LocalWorkbenchData, scope: DropshipCleanupScope) {
   const removedProducts = (data.dropshipProductPeriods ?? []).filter(item => matches(item, scope));
   const dropshipProductPeriods = (data.dropshipProductPeriods ?? []).filter(item => !removedProducts.includes(item));
 
-  const removedSupplierIds = new Set(removedRecords.flatMap(record => record.supplierIds));
-  const supplierStillReferenced = (supplierId: string, platform: string) =>
-    supplierBusinessRecords.some(record => record.kind === 'dropship_period' && record.fields.platform === platform && record.supplierIds.includes(supplierId))
-    || dropshipProductPeriods.some(period => period.platform === platform && period.supplierId === supplierId);
-  const removedAliases = (data.supplierAliasMappings ?? []).filter(mapping =>
-    mapping.platform === scope.platform && removedSupplierIds.has(mapping.supplierId) && !supplierStillReferenced(mapping.supplierId, mapping.platform));
-  const supplierAliasMappings = (data.supplierAliasMappings ?? []).filter(mapping => !removedAliases.includes(mapping));
-
-  const routingStillReferenced = (routing: NonNullable<LocalWorkbenchData['dropshipProductRoutings']>[number]) =>
-    dropshipProductPeriods.some(period => period.platform === routing.platform
-      && normalized(period.productName) === routing.normalizedProductName
-      && period.supplierId === routing.supplierId
-      && period.businessMode === routing.businessMode);
-  const removedRoutings = (data.dropshipProductRoutings ?? []).filter(routing =>
-    routing.platform === scope.platform
-    && removedProducts.some(period => normalized(period.productName) === routing.normalizedProductName && period.supplierId === routing.supplierId && period.businessMode === routing.businessMode)
-    && !routingStillReferenced(routing));
-  const dropshipProductRoutings = (data.dropshipProductRoutings ?? []).filter(routing => !removedRoutings.includes(routing));
+  // Current mapping schema has no batch ownership/provenance. Retain all mappings conservatively.
+  const supplierAliasMappings = data.supplierAliasMappings ?? [];
+  const dropshipProductRoutings = data.dropshipProductRoutings ?? [];
 
   return {
     next: { ...data, supplierBusinessRecords, pendingDropshipSuppliers, dropshipProductPeriods, supplierAliasMappings, dropshipProductRoutings },
@@ -57,8 +41,8 @@ function cleanupResult(data: LocalWorkbenchData, scope: DropshipCleanupScope) {
       supplierBusinessRecords: removedRecords.length,
       pendingDropshipSuppliers: removedPending.length,
       dropshipProductPeriods: removedProducts.length,
-      supplierAliasMappings: removedAliases.length,
-      dropshipProductRoutings: removedRoutings.length,
+      supplierAliasMappings: 0,
+      dropshipProductRoutings: 0,
     },
   };
 }

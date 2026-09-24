@@ -26,5 +26,11 @@ DONE
 
 ## Concerns
 
-- Historical mappings do not carry an import batch ID. Cleanup therefore uses conservative reference analysis: mappings remain whenever another supplier or product period still references them.
+- Historical mappings do not carry an import batch ID. Following review, deletion now always retains all supplier alias and product routing mappings; preview states this explicitly.
 - Existing Vite CJS and test-only Supabase proxy warnings are unrelated and non-blocking.
+
+## Review fixes
+
+- Mapping safety: `supplierAliasMappings` and `dropshipProductRoutings` are never deleted because current schema cannot prove batch ownership.
+- Snapshot consistency: opening the preview captures one immutable full snapshot and serialized revision. Preview and backup use that capture. Confirmation compares persisted data against the captured revision immediately before deletion; any difference aborts without saving and requires reopening the preview.
+- Added domain coverage for retained mappings and UI coverage for retained-mapping disclosure plus stale-preview abort.

@@ -142,25 +142,31 @@ export function SupplierBusinessLedger({ supplierId, kinds = allKinds, embedded 
 }
 function DropshipCleanupDialog({ scope, onClose, onCleaned }: { scope: DropshipCleanupScope; onClose: () => void; onCleaned: () => void }) {
   const [confirmed,setConfirmed] = useState(false);
-  const snapshot = loadLocalWorkbenchData();
-  const preview = previewScopedDropshipCleanup(snapshot,scope);
+  const [error,setError] = useState('');
+  const [captured] = useState(() => { const data=loadLocalWorkbenchData(); return { data, revision:JSON.stringify(data) }; });
+  const preview = previewScopedDropshipCleanup(captured.data,scope);
   const backup = () => {
-    const blob = new Blob([JSON.stringify(loadLocalWorkbenchData(),null,2)],{type:'application/json;charset=utf-8'});
+    const blob = new Blob([JSON.stringify(captured.data,null,2)],{type:'application/json;charset=utf-8'});
     const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
     anchor.href=url; anchor.download=`供应商业务台账-删除批次前完整备份-${scope.platform}-${scope.periodStart}至${scope.periodEnd}.json`; anchor.click(); URL.revokeObjectURL(url);
   };
   const clean = () => {
     if (!confirmed) return;
     const current = loadLocalWorkbenchData();
-    saveLocalWorkbenchData(applyScopedDropshipCleanup(current,scope));
+    if (JSON.stringify(current) !== captured.revision) {
+      setError('数据已发生变化，本次删除已中止。请关闭窗口并重新打开预览后再确认。');
+      return;
+    }
+    saveLocalWorkbenchData(applyScopedDropshipCleanup(captured.data,scope));
     onCleaned();
   };
-  const rows: Array<[string,number]> = [['供应商周期履约',preview.counts.supplierBusinessRecords],['待建档供应商',preview.counts.pendingDropshipSuppliers],['商品周期明细',preview.counts.dropshipProductPeriods],['无其他周期引用的供应商别名',preview.counts.supplierAliasMappings],['无其他周期引用的商品路由',preview.counts.dropshipProductRoutings]];
+  const rows: Array<[string,string]> = [['供应商周期履约',`${preview.counts.supplierBusinessRecords} 条`],['待建档供应商',`${preview.counts.pendingDropshipSuppliers} 条`],['商品周期明细',`${preview.counts.dropshipProductPeriods} 条`],['供应商别名映射','全部保留'],['商品路由映射','全部保留']];
   return <BusinessRecordDialog title="删除导入批次" onClose={onClose} footer={<><button className={businessSecondary} type="button" onClick={onClose}>取消</button><button className="inline-flex items-center justify-center rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={!confirmed} type="button" onClick={clean}>确认删除该导入批次</button></>}>
     <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><strong>明确删除范围</strong><p className="mt-1">{scope.platform} · {scope.periodStart} 至 {scope.periodEnd}</p><p className="mt-1">不会删除供应商主档，也不会删除寄样、核样、合作约定、采购或入仓记录。</p></div>
-    <BusinessSection title="删除预览"><div className="overflow-hidden border border-line">{rows.map(([label,count])=><div className="flex items-center justify-between border-b border-line px-4 py-3 text-sm last:border-b-0" key={label}><span>{label}</span><strong>{count} 条</strong></div>)}</div><p className="mt-3 text-sm">合计将删除 <strong className="text-red-600">{preview.total}</strong> 条数据。</p></BusinessSection>
+    <BusinessSection title="删除预览"><div className="overflow-hidden border border-line">{rows.map(([label,value])=><div className="flex items-center justify-between border-b border-line px-4 py-3 text-sm last:border-b-0" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><p className="mt-3 text-sm">合计将删除 <strong className="text-red-600">{preview.total}</strong> 条数据。</p></BusinessSection>
     <BusinessSection title="清理前备份"><button className={businessSecondary} type="button" onClick={backup}>下载完整JSON备份</button><p className="mt-2 text-xs text-muted">备份包含当前工作台完整快照，可留作恢复和审计依据。</p></BusinessSection>
     <label className="flex items-start gap-3 border border-line p-4 text-sm"><input aria-label="我确认仅删除该导入批次" className="mt-1" type="checkbox" checked={confirmed} onChange={event=>setConfirmed(event.target.checked)} /><span>我确认仅删除平台为{scope.platform}、周期为{scope.periodStart}至{scope.periodEnd}的代发导入数据。</span></label>
+    {error && <p role="alert" className="mt-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
   </BusinessRecordDialog>;
 }
 function PendingDropshipQueue({ data }: { data: LocalWorkbenchData }) {

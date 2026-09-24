@@ -177,6 +177,8 @@ it('lists permanent batch delete actions and previews the selected scope without
   fireEvent.click(screen.getByRole('button',{name:'删除导入批次 1688 2026-09-04 至 2026-09-18'}));
   expect(screen.getByText('1688 · 2026-09-04 至 2026-09-18')).toBeTruthy();
   expect(screen.getByText('供应商周期履约')).toBeTruthy();
+  expect(screen.getByText('供应商别名映射')).toBeTruthy();
+  expect(screen.getAllByText('全部保留')).toHaveLength(2);
   expect(loadLocalWorkbenchData().supplierBusinessRecords?.map(item=>item.id)).toContain('target');
   expect(screen.getByRole('button',{name:'下载完整JSON备份'})).toBeTruthy();
   const save = vi.spyOn(localStore,'saveLocalWorkbenchData');
@@ -185,4 +187,23 @@ it('lists permanent batch delete actions and previews the selected scope without
   expect(save).toHaveBeenCalledTimes(1);
   expect(loadLocalWorkbenchData().supplierBusinessRecords?.map(item=>item.id)).not.toContain('target');
   expect(screen.getByText('已删除导入批次：1688 · 2026-09-04 至 2026-09-18')).toBeTruthy();
+});
+
+it('aborts batch deletion when persisted data changed after preview opened', () => {
+  const data = normalizeWorkbenchData({ suppliers:[{id:'a',name:'供应商A',categories:[],riskTags:[],createdAt:''}], supplierBusinessRecords:[{
+    id:'target',kind:'dropship_period',supplierIds:['a'],offerIds:[],productScope:'商品A',status:'completed',title:'目标周期',owner:'',fields:{platform:'1688',periodStart:'2026-09-04',periodEnd:'2026-09-18'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''
+  }]});
+  setWorkbenchSnapshot(data); localStorage.setItem('personal-commercial-workbench',JSON.stringify(data));
+  render(<SupplierBusinessLedger />);
+  fireEvent.click(screen.getByRole('button',{name:'代发周期履约'}));
+  fireEvent.click(screen.getByRole('button',{name:'删除导入批次 1688 2026-09-04 至 2026-09-18'}));
+  const changed = normalizeWorkbenchData({ ...data, supplierBusinessRecords:[...(data.supplierBusinessRecords ?? []),{id:'sample-new',kind:'sample',supplierIds:['a'],offerIds:[],productScope:'商品B',status:'completed',title:'新寄样',owner:'',fields:{},attachmentIds:[],revision:1,createdAt:'',updatedAt:''}] });
+  localStorage.setItem('personal-commercial-workbench',JSON.stringify(changed));
+  const save = vi.spyOn(localStore,'saveLocalWorkbenchData');
+  fireEvent.click(screen.getByLabelText('我确认仅删除该导入批次'));
+  fireEvent.click(screen.getByRole('button',{name:'确认删除该导入批次'}));
+  expect(screen.getByRole('alert').textContent).toContain('数据已发生变化');
+  expect(screen.getByRole('alert').textContent).toContain('重新打开预览');
+  expect(save).not.toHaveBeenCalled();
+  expect(loadLocalWorkbenchData().supplierBusinessRecords?.map(item=>item.id)).toContain('target');
 });

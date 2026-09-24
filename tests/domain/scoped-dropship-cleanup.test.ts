@@ -54,16 +54,16 @@ describe('scoped dropship cleanup', () => {
     expect(next.dropshipProductRoutings?.map(item => item.id)).toEqual(['route-a']);
   });
 
-  it('removes orphaned alias and product routing mappings after the scoped records are removed', () => {
+  it('always retains alias and product routing mappings because batch ownership is not provable', () => {
     const data = fixture();
     data.supplierBusinessRecords = data.supplierBusinessRecords?.filter(item => item.id !== 'other-period');
     data.dropshipProductPeriods = data.dropshipProductPeriods?.filter(item => item.id !== 'product-other');
     const preview = previewScopedDropshipCleanup(data, scope);
-    expect(preview.counts.supplierAliasMappings).toBe(1);
-    expect(preview.counts.dropshipProductRoutings).toBe(1);
+    expect(preview.counts.supplierAliasMappings).toBe(0);
+    expect(preview.counts.dropshipProductRoutings).toBe(0);
     const next = applyScopedDropshipCleanup(data, scope);
-    expect(next.supplierAliasMappings).toEqual([]);
-    expect(next.dropshipProductRoutings).toEqual([]);
+    expect(next.supplierAliasMappings).toEqual(data.supplierAliasMappings);
+    expect(next.dropshipProductRoutings).toEqual(data.dropshipProductRoutings);
   });
 
   it('does not match near dates or another platform', () => {
