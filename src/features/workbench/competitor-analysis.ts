@@ -87,6 +87,8 @@ export type CompetitorAnalysisProject = {
   productName: string;
   opportunityProductId?: string;
   aiDrafts?: AiTaskDraft[];
+  /** 已逐字段审核并写入的 AI 研究结论，不覆盖人工分析记录。 */
+  aiFindings?: Record<string, string>;
   targetUsers: string;
   analysisTheme: string;
   decisionQuestion: string;
@@ -192,6 +194,7 @@ export function buildCompetitorAnalysisReport(project: CompetitorAnalysisProject
     { key: "self_state", title: "我们的产品状态", content: project.comparisons.map((item) => `${item.layer}：${item.ourState}`).join("\n"), evidenceIds: project.comparisons.flatMap((item) => item.evidenceIds) },
     { key: "strategy", title: "策略分类和优先级行动计划", content: project.strategies.map((item) => `[${item.type}] ${item.title}`).join("\n"), evidenceIds: project.strategies.flatMap((item) => item.evidenceIds) },
     { key: "evidence", title: "证据附录", content: project.evidence.map((item) => `[${item.tag}] ${item.sourceName}：${item.statement}`).join("\n"), evidenceIds: project.evidence.map((item) => item.id) },
+    { key: "ai_findings", title: "AI 已确认研究结论", content: Object.entries(project.aiFindings ?? {}).map(([path, value]) => `${path}：${value}`).join("\n") || "尚未形成记录", evidenceIds: [] },
     { key: "limitations", title: "未验证信息和分析限制", content: "本报告基于已记录的公开资料、实际体验和内部观察，不代表竞品完整真实情况。", evidenceIds: [] },
   ];
   return { sections, limitations: ["未被证据支持的内容不得作为确定事实。", "竞品的内部数据、商业数据和未公开机制需要进一步验证。"] };

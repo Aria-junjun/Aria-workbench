@@ -1,0 +1,37 @@
+'use client';
+import React, { useState } from 'react';
+import Link from 'next/link';
+import type { ProcurementRecord } from '@/features/workbench/procurement';
+import { localToday, managementProjects, updateProjectManagement, type ProjectManagement } from '@/features/workbench/procurement-management';
+import { fulfillmentProgress } from '@/features/workbench/procurement-fulfillment';
+import { BusinessRecordDialog, businessPrimary, businessSecondary } from './business-record-dialog';
+import { ProcurementManagementFields } from './procurement-management-fields';
+import { ProcurementFilter } from './procurement-filter';
+import { procurementTable } from './procurement-line-details';
+
+const stages = { request: '需求申请', pool: '需求池', task: '采购任务', quote: '询价比价', fulfillment: '采购履约' };
+export function ProcurementManagementLedger({ records, onCommit }: { records: ProcurementRecord[]; onCommit: (records: ProcurementRecord[]) => void }) {
+  const [team, setTeam] = useState('');
+  const [platform, setPlatform] = useState('');
+  const [owner, setOwner] = useState('');
+  const [view, setView] = useState('projects');
+  const [editing, setEditing] = useState<{ id: string; name: string; value: ProjectManagement } | null>(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const projects = managementProjects(records, localToday());
+  const rows = projects.filter(project => (!team || (project.management.team || '未分组') === team) && (!platform || (project.management.platform || '待补充') === platform) && (!owner || project.owners.includes(owner)));
+  const people = [...new Set(rows.flatMap(project => project.owners))];
+  const options = (values: string[]) => [...new Set(values)].sort().map(value => <option key={value}>{value}</option>);
+  return <section className="mb-7 rounded-xl border border-line bg-surface p-5" aria-label="项目组管理台账">
+    <header className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">项目组管理台账</h2><div className="flex gap-2">{[['projects', '项目台账'], ['people', '执行人台账']].map(([key, label]) => <button type="button" key={key} aria-pressed={view === key} className={`rounded-lg px-3 py-2 text-sm ${view === key ? 'bg-action-soft font-medium text-action' : 'text-muted'}`} onClick={() => setView(key)}>{label}</button>)}</div></header>
+    <div className="my-4 flex flex-wrap items-center gap-4"><ProcurementFilter label="项目组筛选" value={team} onChange={setTeam}><option value="">全部项目组</option>{options(projects.map(item => item.management.team || '未分组'))}</ProcurementFilter><ProcurementFilter label="平台筛选" value={platform} onChange={setPlatform}><option value="">全部平台</option>{options(projects.map(item => item.management.platform || '待补充'))}</ProcurementFilter><ProcurementFilter label="执行人" value={owner} onChange={setOwner}><option value="">全部执行人</option>{options(projects.flatMap(item => item.owners))}</ProcurementFilter>{(team || platform || owner) && <button className="text-sm text-action" type="button" onClick={() => { setTeam(''); setPlatform(''); setOwner(''); }}>清除筛选</button>}</div>
+    <p className="mb-4 text-sm text-muted">当前范围：{rows.length} 个项目 · {rows.filter(item => !item.closed).length} 个在办 · <span className="text-red-600">{rows.filter(item => item.overdue).length} 个超期</span> · {rows.filter(item => !item.closed && item.management.blockedReason?.trim()).length} 个阻塞</p>
+    {message && <p role="status" className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
+    <div className="overflow-x-auto">{view === 'projects' ? <table className={`${procurementTable} min-w-[1180px]`}><thead><tr>{['项目 / 项目组', '服务平台 / 运营', '执行人', '当前阶段', '验收人 / 项目期限', '阻塞 / 下一步', '操作'].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{rows.map(project => <tr key={project.id}><td className="min-w-44"><p className="font-medium">{project.name}</p><p className="mt-1 text-xs text-muted">{project.management.team || '未分组'}</p></td><td><p>{project.management.platform || '待补充'}</p><p className="mt-1 text-xs text-muted">{project.management.operator || '未指定运营'}</p></td><td>{project.owners.join('、') || '—'}</td><td>{project.closed ? '已结束' : [...new Set(project.current.map(item => item.section === 'fulfillment' ? fulfillmentProgress(item).stage : item.section === 'request' && item.status === 'pending' ? '需求池待承接' : stages[item.section]))].join('、')}</td><td><p>{project.management.reviewer || '待指定验收人'}</p><p className={`mt-1 text-xs ${project.overdue ? 'text-red-600' : 'text-muted'}`}>{project.management.deadline || '未定期限'}{project.overdue ? ' · 已超期' : ''}</p></td><td className="max-w-64">{project.management.blockedReason ? <><p className="text-amber-700">{project.management.blockedReason}</p><p className="mt-1 text-xs text-muted">等待：{project.management.waitingFor || '待明确'}</p></> : <span className="text-muted">{project.closed ? '已结束' : [...new Set(project.current.map(item => item.section === 'fulfillment' ? fulfillmentProgress(item).next : item.nextAction || '待安排'))].join('；')}</span>}</td><td className="min-w-32"><button className="text-action hover:underline" type="button" onClick={() => { setEditing({ id: project.id, name: project.name, value: { ...project.management } }); setError(''); setMessage(''); }}>管理信息</button>{[...new Set(project.current.map(item => item.section === 'request' && item.status === 'pending' ? 'pool' : item.section))].map(stage => <Link className="mt-2 block text-xs text-muted hover:text-action" key={stage} href={`/procurement/${stage}`}>进入{stages[stage]}</Link>)}</td></tr>)}{!rows.length && <tr><td colSpan={7} className="text-center text-muted">暂无符合条件的项目</td></tr>}</tbody></table> : <table className={`${procurementTable} min-w-[700px]`}><thead><tr>{['执行人', '关联项目', '在办项目', '超期项目', '阻塞项目', '操作'].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{people.map(person => {
+      const assigned = rows.filter(item => item.owners.includes(person));
+      return <tr key={person}><td>{person}</td><td>{assigned.length}</td><td>{assigned.filter(item => !item.closed).length}</td><td className="text-red-600">{assigned.filter(item => item.overdue).length}</td><td>{assigned.filter(item => !item.closed && item.management.blockedReason?.trim()).length}</td><td><button className="text-action" aria-label={`查看${person}的项目`} type="button" onClick={() => { setOwner(person); setView('projects'); }}>查看项目</button></td></tr>;
+    })}{!people.length && <tr><td colSpan={6} className="text-center text-muted">暂无执行人记录</td></tr>}</tbody></table>}</div>
+    <p className="mt-3 text-xs text-muted">执行人沿用当前单据负责人；同一项目多名执行人可分别计入，人员数据不宜相加。超期按项目交付期限判断，不等同于个人责任。</p>
+    {editing && <BusinessRecordDialog title={`管理信息 · ${editing.name}`} onClose={() => setEditing(null)} footer={<>{error && <p role="alert" className="w-full text-sm text-red-600">未保存：{error}</p>}<button className={businessSecondary} type="button" onClick={() => setEditing(null)}>取消</button><button className={businessPrimary} type="button" onClick={() => { try { onCommit(updateProjectManagement(records, editing.id, editing.value)); setEditing(null); setMessage('管理信息已保存到当前浏览器，关联项目台账已更新。'); } catch (failure) { setError(failure instanceof Error ? failure.message : '保存失败，请重试'); } }}>保存管理信息</button></>}><p className="mb-5 text-sm text-muted">以下为项目共享管理信息，不改变采购业务状态。项目交付期限与具体产品的期望到货日分别维护；负责人在原业务单据中调整。</p><ProcurementManagementFields value={editing.value} onChange={value => setEditing({ ...editing, value })} /></BusinessRecordDialog>}
+  </section>;
+}

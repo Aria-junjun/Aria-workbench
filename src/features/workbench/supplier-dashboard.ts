@@ -8,6 +8,10 @@ export type SupplierDashboardSupplier = {
   supplierName: string;
   erpPerformanceScore?: number;
   erpPerformanceGrade?: string;
+  erpQualityScore?: number;
+  erpDeliveryScore?: number;
+  returnRate?: number;
+  supplierCausedExtraCost?: number;
   workbenchJudgment: SupplierWorkbenchJudgment;
   dataStatus: SupplierDataStatus;
   basis: { quality: SupplierBasisStatus; delivery: SupplierBasisStatus };
@@ -40,7 +44,7 @@ type DashboardInput = {
     name: string;
     evaluations?: Array<{
       period?: string;
-      scores?: { total?: number; grade?: string };
+      scores?: { total?: number; grade?: string; quality?: number; delivery?: number };
       rawMetrics?: Record<string, unknown>;
     }>;
   }>;
@@ -95,6 +99,16 @@ export function buildSupplierDashboard(data: DashboardInput, period: string): Su
       supplierName: supplier.name,
       erpPerformanceScore: evaluation.scores?.total,
       erpPerformanceGrade: evaluation.scores?.grade,
+      erpQualityScore: evaluation.scores?.quality,
+      erpDeliveryScore: evaluation.scores?.delivery,
+      returnRate: typeof evaluation.rawMetrics?.returnRate === "number"
+        ? evaluation.rawMetrics.returnRate
+        : typeof evaluation.rawMetrics?.customerReturnRate === "number"
+          ? evaluation.rawMetrics.customerReturnRate
+          : undefined,
+      supplierCausedExtraCost: typeof evaluation.rawMetrics?.supplierCausedExtraCost === "number"
+        ? evaluation.rawMetrics.supplierCausedExtraCost
+        : undefined,
       workbenchJudgment: issue ? "needs_review" : "normal",
       dataStatus: basis.quality === "available" && basis.delivery === "available" ? "available" : "partial",
       basis,

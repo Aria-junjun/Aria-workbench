@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-describe("supplier detail links", () => {
-  it("resolves legacy inbound rows that only have a supplier name", () => {
-    const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/page.tsx"), "utf8");
-    expect(source).toContain("supplierIdByName");
-    expect(source).toContain("supplierId: snapshot.supplierId ?? (");
-    expect(source).toContain("supplierIdByName.get");
+describe("supplier archive mode source", () => {
+  it("derives business ownership from transaction evidence instead of profile labels", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/features/workbench/dropship-decision-loop.ts"), "utf8");
+    expect(source).toContain("export function deriveSupplierBusinessModes");
+    expect(source).toContain("snapshot.supplierName");
+    expect(source).toContain("record.fields.fulfillmentMode === 'warehouse'");
+    expect(source).toContain("record.kind === 'dropship_period'");
   });
 });

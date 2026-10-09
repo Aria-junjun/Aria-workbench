@@ -5,6 +5,29 @@ import { normalizeWorkbenchData } from '@/features/workbench/local-store';
 const meta = { periodStart: '2026-09-04', periodEnd: '2026-09-18', platform: '1688', fileName: '代发供应商履约表.xlsx' };
 
 describe('dropship performance workbook import', () => {
+  it('preserves every non-empty source column alongside mapped metrics', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商家', rows:[
+      ['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率','店铺层级','发货备注'],
+      ['1','供应商甲','10单/¥100','100%','30H','1%','0%','金牌','当天发货'],
+    ] }], meta);
+    expect(parsed.merchants[0].rawFields).toMatchObject({ '排名':'1', '商家':'供应商甲', '店铺层级':'金牌', '发货备注':'当天发货' });
+  });
+  it('writes supplier and product short names during import and reuses them on later previews', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','供应商甲','10单/¥100','100%','30H','1%','0%']] }, { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','毛毡板','10单/¥100','100%','30H','1%','0%']] }], meta);
+    const supplier = { id:'supplier-a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const preview = buildDropshipImportPreview(parsed, [supplier], []);
+    const next = applyDropshipImport(normalizeWorkbenchData({ suppliers:[supplier] }), preview, { suppliers:{'供应商甲':'supplier-a'}, supplierShortNames:{'供应商甲':'甲厂'}, products:{'毛毡板':{selected:true,supplierId:'supplier-a',businessMode:'dropship'}}, productShortNames:{'毛毡板':'毛毡'} });
+    expect(next.suppliers[0].shortName).toBe('甲厂');
+    expect(next.dropshipProductPeriods?.[0].shortName).toBe('毛毡');
+  });
+  it('supports saving product routing separately from supplier performance records', () => {
+    const parsed = parseDropshipWorkbook([{ name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','供应商甲','10单/¥100','100%','30H','1%','0%']] }, { name:'商品', rows:[['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','毛毡板','10单/¥100','100%','30H','1%','0%']] }], meta);
+    const supplier = { id:'supplier-a', name:'供应商甲', categories:[], riskTags:[], createdAt:'' };
+    const preview = buildDropshipImportPreview(parsed, [supplier], []);
+    const next = applyDropshipImport(normalizeWorkbenchData({ suppliers:[supplier] }), preview, { suppliers:{'供应商甲':'supplier-a'}, products:{'毛毡板':{selected:true,supplierId:'supplier-a',businessMode:'dropship'}} }, { mode:'product' });
+    expect(next.dropshipProductPeriods).toHaveLength(1);
+    expect(next.supplierBusinessRecords).toEqual([]);
+  });
   it('uses a saved alias to merge merchant and after-sales rows', () => {
     const parsed = parseDropshipWorkbook([
       { name:'商家', rows:[['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率'],['1','江苏新丰之星膜材料有限公司','40单/¥555.5','100%','53.4H','14.3%','0%']] },

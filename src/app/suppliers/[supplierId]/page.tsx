@@ -1,9 +1,11 @@
 "use client";
+import { SupplierProfileWorkspace } from "@/components/workbench/supplier-profile-workspace";
+import { BusinessRecordDialog, businessPrimary, businessSecondary } from "@/components/workbench/business-record-dialog";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { ListField, TextField } from "@/components/workbench/edit-fields";
+import { Fragment, useRef, useState } from "react";
+import { BusinessListField as ListField, BusinessTextField as TextField } from "@/components/workbench/business-record-dialog";
 import {
   deleteLocalItem,
   updateLocalItem,
@@ -41,8 +43,8 @@ import {
 import { useWorkbenchData } from "@/features/workbench/workbench-store";
 import { deriveProductFamilyKey } from "@/features/workbench/product-master";
 import { buildSupplierMonthlyCostRows, type SupplierMonthlyCostRow } from "@/features/workbench/supplier-monthly-cost";
+import { calculateAdjustedMonthlyCost, classifyMonthlyCostAnomaly, hasConsecutiveMonthlyAnomaly, setSupplierCostEventStatus } from "@/features/workbench/supplier-performance-rules";
 import { buildMonthOptions } from "@/features/workbench/month-options";
-import { labelSupplierType } from "@/features/workbench/display-labels";
 import { SupplierRelationshipEditor, type SupplierRelationshipEditorHandle } from "@/components/workbench/supplier-relationship-editor";
 import { SupplierCapabilityEditor, type SupplierCapabilityEditorHandle } from "@/components/workbench/supplier-capability-editor";
 import {
@@ -151,6 +153,28 @@ export default function SupplierDetailPage() {
       offers,
     })
     : [];
+  const previousPeriod = selectedPeriod ? previousMonthPeriod(selectedPeriod) : undefined;
+  const previousMonthlyCostRows = previousPeriod
+    ? buildSupplierMonthlyCostRows({ supplierId, period: previousPeriod, skuMasters: data.skuMasters ?? [], inboundRows, offers })
+    : [];
+  const supplierCostEvents = supplier.costEvents ?? [];
+  const pendingExtraCostEvents = supplierCostEvents.filter((event) => event.period === selectedPeriod && event.status === "pending_review");
+  const consecutiveCostAnomalyFamilies = Array.from(new Set(inboundRows.map((row) => row.productFamilyKey).filter(Boolean)))
+    .filter((familyKey): familyKey is string => Boolean(familyKey))
+    .filter((familyKey) => hasConsecutiveMonthlyAnomaly(availablePeriods.map((period) => {
+      const rows = buildSupplierMonthlyCostRows({ supplierId, period, skuMasters: data.skuMasters ?? [], inboundRows, offers });
+      const row = rows.find((item) => item.productFamilyKey === familyKey);
+      if (!row || row.baselineCost === undefined || row.settlementCost === undefined || row.purchaseQuantity <= 0) return { period, status: "pending_review" as const };
+      const periodExtra = supplierCostEvents.filter((event) => event.period === period && event.productFamilyKey === familyKey && event.status === "verified").reduce((sum, event) => sum + event.amount, 0);
+      const score = calculateAdjustedMonthlyCost({ baselineCost: row.baselineCost, settlementCost: row.settlementCost, purchaseQuantity: row.purchaseQuantity }, [{ period, productFamilyKey: familyKey, amount: periodExtra, status: "verified" }]);
+      return { period, varianceRate: score.varianceRate, status: "measured" as const };
+    }), 2));
+  const decisionIssues = [
+    pendingExtraCostEvents.length ? `${pendingExtraCostEvents.length} 条增量成本待核验` : "",
+    consecutiveCostAnomalyFamilies.length ? `${consecutiveCostAnomalyFamilies.join("、")}连续两月成本异常` : "",
+    monthlyCostRows.some((row) => row.status !== "measured") ? "存在基准价或结算价待复核" : "",
+  ].filter(Boolean);
+  const decisionSummary = decisionIssues.length ? "需要处理" : monthlyCostRows.length ? "当前月度数据稳定" : "待收录数据";
   // 通过货盘桥接的产品
   const linkedProducts = offers
     .filter((o) => o.productId)
@@ -180,8 +204,6 @@ export default function SupplierDetailPage() {
     ? getScoreBreakdown(latestEval.rawMetrics, businessModel, manualDeductions)
     : null;
 
-  const typeLabel = labelSupplierType(supplier.supplierType);
-  const typeColor = supplier.supplierType === "factory" ? "text-success" : supplier.supplierType === "trader" ? "text-warning" : "text-muted";
 
   function save() {
     if (!draft) return;
@@ -260,24 +282,12 @@ export default function SupplierDetailPage() {
         供应商列表
       </Link>
 
-      <div className="flex justify-end gap-2">
-        <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => { setSettingsPanel("relationship"); setEditing(false); }} type="button">维护供应关系</button>
-        <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => { setSettingsPanel("capability"); setEditing(false); }} type="button">维护能力</button>
-        {editing ? (
-          <>
-            <button className="bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90" onClick={save} type="button">保存</button>
-            <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={cancelEditing} type="button">取消</button>
-          </>
-        ) : (
-          <button className="border border-line px-4 py-2 text-sm font-medium hover:bg-paper-warm" onClick={() => setEditing(true)} type="button">编辑档案</button>
-        )}
-      </div>
       {saveError ? <p className="rounded-lg border border-danger/30 bg-danger-soft/20 px-3 py-2 text-sm text-danger">{saveError}</p> : null}
 
       {/* 供应商名片 - 去卡片化 */}
       <section className="pb-5 border-b border-line">
         {editing && draft ? (
-          <div className="space-y-4">
+          <BusinessRecordDialog title="编辑供应商基础资料" onClose={cancelEditing} footer={<><button className={businessSecondary} onClick={cancelEditing} type="button">取消</button><button className={businessPrimary} onClick={save} type="button">保存</button></>}><div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <TextField label="供应商名称" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} />
               <TextField label="地区" value={draft.location ?? ""} onChange={(v) => setDraft({ ...draft, location: v })} />
@@ -287,7 +297,7 @@ export default function SupplierDetailPage() {
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted">供应商类型</label>
                 <select
-                  className="w-full border border-line bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-md border-0 bg-paper px-3 py-2 text-sm"
                   value={draft.supplierType ?? "unknown"}
                   onChange={(e) => setDraft({ ...draft, supplierType: e.target.value })}
                 >
@@ -299,7 +309,7 @@ export default function SupplierDetailPage() {
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted">合作模式（影响评分公式）</label>
                 <select
-                  className="w-full border border-line bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-md border-0 bg-paper px-3 py-2 text-sm"
                   value={draft.businessModel ?? "inbound"}
                   onChange={(e) => setDraft({ ...draft, businessModel: e.target.value as "inbound" | "dropship" | "hybrid" })}
                 >
@@ -311,29 +321,25 @@ export default function SupplierDetailPage() {
               <TextField label="联系人" value={draft.contactName ?? ""} onChange={(v) => setDraft({ ...draft, contactName: v })} />
               <TextField label="合作等级" value={draft.cooperationLevel ?? ""} onChange={(v) => setDraft({ ...draft, cooperationLevel: v })} />
             </div>
+            <div className="grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+              {(['inbound', 'dropship'] as const).map((mode) => <div key={mode} className="space-y-3 rounded border border-line p-3"><h3 className="text-sm font-medium">{mode === 'inbound' ? '入仓采购对接' : '一件代发对接'}</h3>{([['department', '对接部门'], ['name', '业务联系人'], ['method', '联系方式']] as const).map(([key, label]) => <TextField key={key} label={label} value={draft.businessContacts?.[mode]?.[key] ?? ''} onChange={(value) => setDraft({ ...draft, businessContacts: { ...draft.businessContacts, [mode]: { ...draft.businessContacts?.[mode], [key]: value } } })} />)}</div>)}
+            </div>
             <ListField label="主营品类" values={draft.categories} onChange={(v) => setDraft({ ...draft, categories: v })} />
             <ListField label="风险标签" values={draft.riskTags} onChange={(v) => setDraft({ ...draft, riskTags: v })} />
             <div>
               <label className="mb-1 block text-xs font-medium text-muted">备注</label>
               <textarea
-                className="w-full border border-line bg-white p-3 text-sm min-h-[80px]"
+                className="w-full rounded-md border-0 bg-paper p-3 text-sm min-h-[80px]"
                 value={draft.notes ?? ""}
                 onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
               />
             </div>
-          </div>
+          </div></BusinessRecordDialog>
         ) : (
-          <div className="flex flex-wrap items-start gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-2 border-action/30 bg-action-soft">
-                <span className="text-[10px] text-action">当前操作月份</span>
-                <span className="mt-0.5 text-sm font-semibold text-action">{defaultMonth()}</span>
-                <span className="mt-0.5 text-[9px] text-muted">最新数据 {latestInboundPeriod ?? "未采集"}</span>
-              </div>
-              <div>
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <h1 className="text-2xl font-semibold">{supplier.name}</h1>
-                  <span className={`text-xs font-semibold ${typeColor}`}>{typeLabel}</span>
                   <select
                     className="text-xs px-2 py-0.5 bg-action-soft text-action rounded border-0 cursor-pointer outline-none hover:bg-action-soft/80 focus:ring-2 focus:ring-action/30"
                     value={supplier.businessModel ?? "inbound"}
@@ -367,22 +373,31 @@ export default function SupplierDetailPage() {
                   ) : null}
                 </div>
               </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button className={businessSecondary} onClick={() => { setSettingsPanel("relationship"); setEditing(false); }} type="button">维护供应关系</button>
+              <button className={businessSecondary} onClick={() => { setSettingsPanel("capability"); setEditing(false); }} type="button">维护能力</button>
+              {editing ? (
+                <>
+                  <button className="bg-action px-4 py-2 text-sm font-medium text-white hover:bg-action/90" onClick={save} type="button">保存</button>
+                  <button className={businessSecondary} onClick={cancelEditing} type="button">取消</button>
+                </>
+              ) : (
+                <button className={businessSecondary} onClick={() => { setDraft(supplier); setEditing(true); }} type="button">编辑档案</button>
+              )}
+              <label className="flex items-center gap-2 text-xs text-muted">
+                查看月份
+                <select className="rounded-md border-0 bg-paper px-3 py-2 text-sm text-ink" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}>
+                  {availablePeriods.map((period) => <option key={period} value={period}>{period}{period === defaultMonth() ? "（当前月）" : ""}</option>)}
+                </select>
+              </label>
             </div>
-          </div>
+            </div>
         )}
       </section>
 
-      <SupplierDecisionLoop
-        records={decisionRecords}
-        period={selectedPeriod}
-        inboundTotal={actualInboundTotal}
-        inboundSkuCount={actualInboundProducts.length}
-        returnRate={productReturnRate}
-        onRecordDecision={recordDecision}
-        onCompleteDecision={completeDecision}
-      />
 
-      {settingsPanel ? <section className="border border-line bg-white p-5">
+
+      {settingsPanel ? <BusinessRecordDialog title={settingsPanel === "relationship" ? "维护供应关系" : "维护供应商能力"} onClose={() => setSettingsPanel(null)}>
         <div className="mb-4 flex items-center justify-between"><div className="text-sm font-semibold">{settingsPanel === "relationship" ? "维护供应关系" : "维护供应商能力"}</div><button className="text-xs text-muted hover:text-ink" onClick={() => { setSettingsPanel(null); setSaveError(""); }} type="button">收起</button></div>
       {settingsPanel === "relationship" ? <SupplierRelationshipEditor
         ref={relationshipEditorRef}
@@ -404,78 +419,34 @@ export default function SupplierDetailPage() {
         onSaved={() => setDecisionVersion((value) => value + 1)}
       /> : null}
         <div className="mt-4 flex justify-end gap-2 border-t border-line-soft pt-4"><button className="border border-line px-3 py-1.5 text-xs" onClick={() => setSettingsPanel(null)} type="button">取消</button><button className="bg-action px-3 py-1.5 text-xs text-white" onClick={saveSettingsPanel} type="button">保存</button></div>
-      </section> : null}
+      </BusinessRecordDialog> : null}
 
-      {/* Tab 导航 - 扁平下划线式 */}
-      <div className="flex items-center justify-between border-b border-line">
-        <TabButton tab="overview" activeTab={activeTab} onClick={setActiveTab} label="月度表现" />
-        <label className="mb-2 flex items-center gap-2 text-xs text-muted">
-          查看月份
-          <select
-            className="border border-line bg-white px-2 py-1 text-xs text-ink"
-            value={selectedPeriod}
-            onChange={(event) => setSelectedPeriod(event.target.value)}
-          >
-                {availablePeriods.map((period) => <option key={period} value={period}>{period}{period === defaultMonth() ? "（当前月）" : ""}</option>)}
-          </select>
-        </label>
-      </div>
+      <section className="grid gap-3 border-b border-line pb-5 md:grid-cols-2">
+        {(['inbound', 'dropship'] as const).map((mode) => {
+          const contact = supplier.businessContacts?.[mode];
+          const records = (data.supplierLifecycleRecords ?? []).filter(record => record.supplierIds.includes(supplierId) && record.businessMode === mode && record.status === 'completed');
+          const agreement = records.filter(record => record.section === 'agreements').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+          const businessAgreement = (data.supplierBusinessRecords ?? []).filter(record => record.kind === 'agreement' && record.supplierIds.includes(supplierId) && record.fields.fulfillmentMode === (mode === 'inbound' ? 'warehouse' : 'dropship') && record.status !== 'cancelled').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+          const performance = records.filter(record => record.section === 'performance').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+          const params = `supplierId=${encodeURIComponent(supplierId)}&businessMode=${mode}`;
+          return <div className="border border-line bg-white p-4" key={mode}>
+            <h2 className="text-sm font-semibold">{mode === 'inbound' ? '入仓采购' : '一件代发'}</h2>
+            <p className="mt-2 text-xs text-muted">对接：{[contact?.department, contact?.name, contact?.method].filter(Boolean).join(' · ') || '待设置'}</p>
+            <button className="mt-2 text-xs text-action" onClick={() => { setDraft(supplier); setEditing(true); }} type="button">维护对接信息</button>
+            <div className="mt-4 space-y-2 border-t border-line pt-3 text-xs">
+              <p>合作约定：{agreement ? <Link className="text-action" href={`/supplier-lifecycle/agreements/${agreement.id}`}>{agreement.result || agreement.title}</Link> : businessAgreement ? <Link className="text-action" href={`/supplier-records?supplierId=${encodeURIComponent(supplierId)}&kind=agreement`}>{businessAgreement.title || '查看已有业务约定'}</Link> : <Link className="text-action" href={`/supplier-lifecycle/agreements/new?${params}`}>待确认，建立约定</Link>}</p>
+              <p>绩效结论：{performance ? <Link className="text-action" href={`/supplier-lifecycle/performance/${performance.id}`}>{performance.result || performance.title}</Link> : <Link className="text-action" href={`/supplier-lifecycle/performance/new?${params}`}>待复核，建立改善记录</Link>}</p>
+            </div>
+          </div>;
+        })}
+      </section>
 
-      {/* Tab 内容 */}
-      {activeTab === "overview" ? (
-        <div className="space-y-6">
-          <MonthlyPerformanceTab
-            period={selectedPeriod}
-            inboundTotal={actualInboundTotal}
-            inboundSkuCount={actualInboundProducts.length}
-            returnRate={productReturnRate}
-            monthlyCostRows={monthlyCostRows}
-            costEvents={supplier.costEvents ?? []}
-          />
-          <CostReductionTab
-            costReductionRecords={costReductionRecords}
-            offers={offers}
-            monthlyCostRows={monthlyCostRows}
-            costEvents={supplier.costEvents ?? []}
-            supplierId={supplierId}
-            period={selectedPeriod}
-            onSaved={() => setDecisionVersion((value) => value + 1)}
-          />
-        </div>
-      ) : null}
-
-      {activeTab === "rawData" ? (
-        <RawDataTab
-          orderRecords={orderRecords}
-          qualityRecords={qualityRecords}
-          serviceRecords={serviceRecords}
-          manualDeductions={manualDeductions}
-          supplierId={supplierId}
-          period={latestEval?.period}
-          latestEval={latestEval}
-          businessModel={businessModel}
-        />
-      ) : null}
-
-      {activeTab === "communications" ? (
-        <CommunicationsTab communications={communications} />
-      ) : null}
-
-      {activeTab === "costReduction" ? (
-        <CostReductionTab
-          costReductionRecords={costReductionRecords}
-          offers={offers}
-          monthlyCostRows={monthlyCostRows}
-          costEvents={supplier.costEvents ?? []}
-          supplierId={supplierId}
-          period={latestInboundPeriod ?? defaultMonth()}
-          onSaved={() => setDecisionVersion((value) => value + 1)}
-        />
-      ) : null}
-
-      {activeTab === "history" ? (
-        <HistoryTab evaluations={evaluations} />
-      ) : null}
+      <SupplierProfileWorkspace supplierId={supplierId} onEdit={() => { setDraft(supplier); setEditing(true); }} performance={<div className="space-y-4">
+        {qualityRecords.length > 0 || orderRecords.length > 0 || serviceRecords.length > 0 || manualDeductions.length > 0
+          ? <details className="rounded border border-line p-4" open><summary className="cursor-pointer text-sm font-medium">质量、交付与服务原始记录（{qualityRecords.length + orderRecords.length + serviceRecords.length} 条）</summary><p className="my-3 text-xs text-muted">这些是供应商维度的历史证据记录；未关联产品或日期的记录不用于产品/周期比较。</p><RawDataTab orderRecords={orderRecords} qualityRecords={qualityRecords} serviceRecords={serviceRecords} manualDeductions={manualDeductions} supplierId={supplierId} period={latestEval?.period} latestEval={latestEval} businessModel={businessModel} /></details>
+          : <div className="rounded border border-line p-4 text-sm text-muted">暂无质量、交付或服务原始记录。</div>}
+        <details className="rounded border border-line p-4"><summary className="cursor-pointer text-sm font-medium">历史成本改善与评估记录</summary><div className="mt-4 space-y-6"><CostReductionTab costReductionRecords={costReductionRecords} offers={offers} monthlyCostRows={monthlyCostRows} costEvents={supplier.costEvents ?? []} supplierId={supplierId} period={selectedPeriod} onSaved={() => setDecisionVersion((value) => value + 1)} /><CommunicationsTab communications={communications} /><HistoryTab evaluations={evaluations} /></div></details>
+      </div>} />
     </div>
   );
 }
@@ -503,7 +474,7 @@ function TabButton({ tab, activeTab, onClick, label, count }: {
   );
 }
 
-function SupplierDecisionLoop({ records, period, inboundTotal, inboundSkuCount, returnRate, onRecordDecision, onCompleteDecision }: {
+function SupplierDecisionLoop({ records, period, inboundTotal, inboundSkuCount, returnRate, onRecordDecision, onCompleteDecision, summary, issues }: {
   records: LocalSupplierDecisionRecord[];
   period?: string;
   inboundTotal: number;
@@ -511,6 +482,8 @@ function SupplierDecisionLoop({ records, period, inboundTotal, inboundSkuCount, 
   returnRate?: number;
   onRecordDecision: (action: SupplierDecisionAction) => void;
   onCompleteDecision: (recordId: string) => void;
+  summary: string;
+  issues: string[];
 }) {
   const labels: Record<SupplierDecisionAction, string> = {
     maintain_primary: "保持主供",
@@ -520,16 +493,17 @@ function SupplierDecisionLoop({ records, period, inboundTotal, inboundSkuCount, 
   };
 
   return (
-    <section className="space-y-4 border border-line bg-white p-5 shadow-sm">
+    <section className="space-y-4 border-t border-line py-5">
       <div>
         <h2 className="text-sm font-semibold">供应商决策闭环</h2>
-        <p className="mt-1 text-xs text-muted">先看实际供货证据，再记录供应商动作；SKU覆盖仅作为参考，不自动生成待办。</p>
+        <p className="mt-1 text-xs text-muted">由月度表现数据自动生成判断；这里只保留结论和需要处理的事项。</p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-4">
-        <DecisionEvidence label="统计周期" value={period ?? "未采集"} />
-        <DecisionEvidence label="本周期实际入仓" value={inboundTotal ? String(inboundTotal) : "未采集"} />
-        <DecisionEvidence label="实际供货 SKU" value={inboundSkuCount ? String(inboundSkuCount) + " 个" : "未采集"} />
-        <DecisionEvidence label="产品质量信号" value={returnRate !== undefined ? "退货率 " + String(returnRate) + "%" : "未采集"} danger={returnRate !== undefined && returnRate >= 5} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border border-line-soft bg-paper-warm/40 px-3 py-2 text-xs">
+        <span className="font-medium text-ink">工作台判断：{summary}</span>
+        {issues.length ? <span className="text-warning">需处理：{issues.join("；")}</span> : <span className="text-success">暂无异常事项</span>}
+      </div>
+      <div className="border-t border-line-soft pt-3 text-xs text-muted">
+        判断月份：<span className="font-medium text-ink">{period ?? "未采集"}</span> · 详细数量、SKU 和质量数据请查看「履约与改善」页签。
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-line-soft pt-4">
         <span className="mr-1 text-xs text-muted">记录决策：</span>
@@ -575,16 +549,52 @@ function DecisionEvidence({ label, value, danger = false }: { label: string; val
   );
 }
 
-function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRate, monthlyCostRows, costEvents }: {
+function MonthlyFactTable({ period, returnRate, monthlyCostRows, previousMonthlyCostRows, previousPeriod, costEvents }: {
+  period?: string;
+  returnRate?: number;
+  monthlyCostRows: SupplierMonthlyCostRow[];
+  previousMonthlyCostRows: SupplierMonthlyCostRow[];
+  previousPeriod?: string;
+  costEvents: SupplierCostEvent[];
+}) {
+  const previousScoreByFamily = new Map(previousMonthlyCostRows.map((row) => {
+    const extra = costEvents.filter((event) => event.period === previousPeriod && event.productFamilyKey === row.productFamilyKey && event.status === "verified").reduce((sum, event) => sum + event.amount, 0);
+    const score = row.baselineCost !== undefined && row.settlementCost !== undefined && row.purchaseQuantity > 0
+      ? calculateAdjustedMonthlyCost({ baselineCost: row.baselineCost, settlementCost: row.settlementCost, purchaseQuantity: row.purchaseQuantity }, [{ period: previousPeriod ?? "", productFamilyKey: row.productFamilyKey, amount: extra, status: "verified" }])
+      : undefined;
+    return [row.productFamilyKey, score?.varianceRate] as const;
+  }));
+  if (!monthlyCostRows.length) return <div className="text-sm text-muted">本月尚未形成可核验的产品族成本数据。</div>;
+  return <div className="overflow-x-auto border border-line"><table className="min-w-[1180px] w-full text-xs text-left"><thead className="bg-paper-warm text-muted"><tr>{["产品族", "SKU数", "入仓数量", "基准成本", "结算成本", "已确认增量", "调整后实际成本", "成本偏差", "聚水潭质量/交付", "数据完整度", "异常", "异常明细", "状态"].map((label) => <th className="whitespace-nowrap px-3 py-2" key={label}>{label}</th>)}</tr></thead><tbody>{monthlyCostRows.map((row) => {
+    const verifiedExtra = costEvents.filter((event) => event.productFamilyKey === row.productFamilyKey && event.period === period && event.status === "verified").reduce((sum, event) => sum + event.amount, 0);
+    const pendingExtra = costEvents.some((event) => event.productFamilyKey === row.productFamilyKey && event.period === period && event.status === "pending_review");
+    const score = row.baselineCost !== undefined && row.settlementCost !== undefined && row.purchaseQuantity > 0 ? calculateAdjustedMonthlyCost({ baselineCost: row.baselineCost, settlementCost: row.settlementCost, purchaseQuantity: row.purchaseQuantity }, [{ period: period ?? "", productFamilyKey: row.productFamilyKey, amount: verifiedExtra, status: "verified" }]) : undefined;
+    const familyEvents = costEvents.filter((event) => event.period === period && event.productFamilyKey === row.productFamilyKey);
+    const anomaly = pendingExtra ? "待核验" : classifyMonthlyCostAnomaly(score?.varianceRate, previousScoreByFamily.get(row.productFamilyKey));
+    const anomalyDetail = familyEvents.length ? familyEvents.map((event) => `${event.eventType}：${event.reason}（${event.amount}元）`).join("；") : "—";
+    const completeness = row.status === "measured" && returnRate !== undefined ? "成本/质量完整" : row.status === "measured" ? "质量待收录" : "成本待复核";
+    return <Fragment key={row.productFamilyKey}><tr className="border-t border-line-soft align-top"><td className="whitespace-nowrap px-3 py-2 font-medium">{row.productFamilyKey}</td><td className="px-3 py-2">{row.skuRows.length}</td><td className="px-3 py-2">{row.purchaseQuantity}</td><td className="whitespace-nowrap px-3 py-2">{row.baselineCost === undefined ? "待复核" : `${row.baselineCost.toFixed(2)}元`}</td><td className="whitespace-nowrap px-3 py-2">{row.settlementCost === undefined ? "待收录" : `${row.settlementCost.toFixed(2)}元`}</td><td className="whitespace-nowrap px-3 py-2">{verifiedExtra ? `${verifiedExtra.toFixed(2)}元` : "—"}</td><td className="whitespace-nowrap px-3 py-2">{score?.adjustedActualCost === undefined ? "待核算" : `${score.adjustedActualCost.toFixed(2)}元`}</td><td className="whitespace-nowrap px-3 py-2">{score?.varianceRate === undefined ? "N/A" : `${score.varianceRate.toFixed(2)}% / ${score.score}分`}</td><td className="whitespace-nowrap px-3 py-2">质量：{returnRate === undefined ? "N/A" : `退货率 ${returnRate}%`}<br />交付：N/A</td><td className="whitespace-nowrap px-3 py-2">{completeness}</td><td className={`whitespace-nowrap px-3 py-2 ${anomaly === "无异常" ? "text-muted" : "text-warning"}`}>{anomaly}</td><td className="max-w-64 px-3 py-2">{anomalyDetail}</td><td className="whitespace-nowrap px-3 py-2">{row.status === "measured" ? "已核验" : "待复核"}</td></tr><tr className="border-t border-line-soft bg-paper-warm/30"><td className="px-3 py-2" colSpan={13}><details><summary className="cursor-pointer text-action">查看 SKU 成本明细（增量成本按产品族归集，不虚比分摊到 SKU）</summary><div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">{row.skuRows.map((sku) => <div className={`rounded border px-2 py-1 ${sku.baselineCost !== undefined && sku.settlementCost !== undefined && Math.abs(sku.settlementCost - sku.baselineCost) > 0.005 ? "border-red-200 bg-red-50" : "border-line bg-white"}`} key={sku.skuMasterId}><span className="font-medium">{sku.skuCode}</span> · {sku.specification} · {sku.purchaseQuantity}件<br />基准 {sku.baselineUnitPrice === undefined ? "待复核" : `${sku.baselineUnitPrice.toFixed(2)}元`} / 结算 {sku.settlementUnitPrice === undefined ? "待收录" : `${sku.settlementUnitPrice.toFixed(2)}元`} / 差异 {sku.baselineCost !== undefined && sku.settlementCost !== undefined ? `${(sku.settlementCost - sku.baselineCost).toFixed(2)}元` : "N/A"}</div>)}</div></details></td></tr></Fragment>;
+  })}</tbody></table></div>;
+}
+
+function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRate, monthlyCostRows, previousMonthlyCostRows, previousPeriod, costEvents }: {
   period?: string;
   inboundTotal: number;
   inboundSkuCount: number;
   returnRate?: number;
   monthlyCostRows: SupplierMonthlyCostRow[];
+  previousMonthlyCostRows: SupplierMonthlyCostRow[];
+  previousPeriod?: string;
   costEvents: SupplierCostEvent[];
 }) {
+  const verifiedExtraTotal = costEvents
+    .filter((event) => event.period === period && event.status === "verified")
+    .reduce((sum, event) => sum + event.amount, 0);
+  const pendingExtraTotal = costEvents
+    .filter((event) => event.period === period && event.status === "pending_review")
+    .reduce((sum, event) => sum + event.amount, 0);
   return (
-    <section className="space-y-5 border border-line bg-white p-5">
+    <section className="space-y-5 py-5">
       <div>
         <h2 className="text-sm font-semibold">月度表现 · {period ?? "未采集"}</h2>
         <p className="mt-1 text-xs text-muted">本区域只展示已经导入的聚水潭/结算数据，不把未到月末的数据当作供应商异常。</p>
@@ -595,9 +605,14 @@ function MonthlyPerformanceTab({ period, inboundTotal, inboundSkuCount, returnRa
         <DecisionEvidence label="产品质量信号" value={returnRate === undefined ? "尚未收录" : `退货率 ${returnRate}%`} danger={returnRate !== undefined && returnRate >= 5} />
         <DecisionEvidence label="月度成本核验" value={monthlyCostRows.length ? `${monthlyCostRows.length} 个产品族` : "尚未收录"} />
       </div>
+      <div className="border-t border-line-soft pt-3 text-xs text-muted">
+        <span>成本口径：结算成本 + 已核实责任增量成本 = 调整后实际成本。</span>
+        {verifiedExtraTotal > 0 ? <span className="ml-3 text-warning">本月已纳入 {verifiedExtraTotal.toFixed(2)} 元</span> : null}
+        {pendingExtraTotal > 0 ? <span className="ml-3 text-warning">另有 {pendingExtraTotal.toFixed(2)} 元待核验，暂不计分</span> : null}
+      </div>
        <div className="border-t border-line-soft pt-4">
          <div className="mb-2 text-xs font-medium text-muted">产品族表现与成本核验</div>
-         {monthlyCostRows.length > 0 ? <div className="overflow-x-auto border border-line"><table className="min-w-full text-xs text-left"><thead className="bg-paper-warm text-muted"><tr><th className="px-3 py-2">产品族</th><th className="px-3 py-2">SKU数</th><th className="px-3 py-2">采购数量</th><th className="px-3 py-2">基准成本</th><th className="px-3 py-2">结算成本</th><th className="px-3 py-2">成本偏差</th><th className="px-3 py-2">状态</th></tr></thead><tbody>{monthlyCostRows.map((row) => { const verifiedExtra = costEvents.filter((event) => event.productFamilyKey === row.productFamilyKey && event.period === period && event.status === "verified").reduce((sum, event) => sum + event.amount, 0); const score = row.baselineCost !== undefined && row.settlementCost !== undefined ? calculateSupplierCostScore({ baselineUnitPrice: row.baselineCost / row.purchaseQuantity, actualSettlementUnitPrice: row.settlementCost / row.purchaseQuantity, purchaseQuantity: row.purchaseQuantity, supplierCausedExtraCost: verifiedExtra }) : undefined; return <tr className="border-t border-line-soft" key={row.productFamilyKey}><td className="px-3 py-2 font-medium">{row.productFamilyKey}</td><td className="px-3 py-2">{row.skuRows.length}</td><td className="px-3 py-2">{row.purchaseQuantity}</td><td className="px-3 py-2">{row.baselineCost === undefined ? "待复核" : `${row.baselineCost.toFixed(2)}元`}</td><td className="px-3 py-2">{row.settlementCost === undefined ? "待收录" : `${row.settlementCost.toFixed(2)}元`}</td><td className="px-3 py-2">{score?.varianceRate === undefined ? "N/A" : `${score.varianceRate.toFixed(2)}% / ${score.score}分`}</td><td className="px-3 py-2">{row.status === "measured" ? "已核验" : "待复核"}</td></tr>; })}</tbody></table></div> : <div className="text-sm text-muted">本月尚未形成可核验的产品族成本数据。</div>}
+        <MonthlyFactTable period={period} returnRate={returnRate} monthlyCostRows={monthlyCostRows} previousMonthlyCostRows={previousMonthlyCostRows} previousPeriod={previousPeriod} costEvents={costEvents} />
        </div>
     </section>
   );
@@ -1259,10 +1274,12 @@ function RawDataTab({ orderRecords, qualityRecords, serviceRecords, manualDeduct
                   <div className="flex-1">
                     <div className="text-sm">{q.issueDescription || "质量问题"}</div>
                     <div className="text-xs text-muted mt-0.5">
-                      {q.reportedAt ?? "—"} · {q.issueCount}件
+                      {q.productName || "未关联产品"} · {q.reportedAt ?? "未记录日期"} · {q.issueCount}件{q.totalBatchSize !== undefined ? ` / 批次 ${q.totalBatchSize}件` : ""}
+                      {q.totalBatchSize && q.totalBatchSize > 0 ? ` · 异常占比 ${(q.issueCount / q.totalBatchSize * 100).toFixed(2)}%` : ""}
                       {q.isClosed ? " · 已关闭" : " · 未关闭"}
                       {q.repeated ? " · 重复发生" : ""}
                     </div>
+                    {(!q.productName || !q.reportedAt || q.totalBatchSize === undefined) && <div className="mt-1 text-[11px] text-warning">记录范围不完整，暂不适合做产品/周期质量率比较</div>}
                   </div>
                   <div className="text-right shrink-0">
                     <button
@@ -1486,6 +1503,18 @@ function QualityRecordEditor({ record, value, onChange, onSave, onReset }: {
         </div>
       ) : null}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div>
+          <label className="block text-[10px] text-muted mb-0.5">关联产品</label>
+          <input className="w-full border border-line px-2 py-1 text-xs" value={patch.productName ?? ""} placeholder="产品名 / 简称" onChange={(e) => onChange({ ...value, productName: e.target.value })} />
+        </div>
+        <div>
+          <label className="block text-[10px] text-muted mb-0.5">发生日期</label>
+          <input type="date" className="w-full border border-line px-2 py-1 text-xs" value={patch.reportedAt ?? ""} onChange={(e) => onChange({ ...value, reportedAt: e.target.value || undefined })} />
+        </div>
+        <div>
+          <label className="block text-[10px] text-muted mb-0.5">关联订单 / 批次号</label>
+          <input className="w-full border border-line px-2 py-1 text-xs" value={patch.orderRef ?? ""} onChange={(e) => onChange({ ...value, orderRef: e.target.value || undefined })} />
+        </div>
         <div className="md:col-span-2">
           <label className="block text-[10px] text-muted mb-0.5">问题描述</label>
           <input className="w-full border border-line px-2 py-1 text-xs" value={patch.issueDescription ?? ""}
@@ -1495,6 +1524,10 @@ function QualityRecordEditor({ record, value, onChange, onSave, onReset }: {
           <label className="block text-[10px] text-muted mb-0.5">问题数量</label>
           <input type="number" className="w-full border border-line px-2 py-1 text-xs" value={patch.issueCount ?? ""}
             onChange={(e) => onChange({ ...value, issueCount: e.target.value ? Number(e.target.value) : undefined })} />
+        </div>
+        <div>
+          <label className="block text-[10px] text-muted mb-0.5">检验 / 入库批次数量</label>
+          <input type="number" min="0" className="w-full border border-line px-2 py-1 text-xs" value={patch.totalBatchSize ?? ""} onChange={(e) => onChange({ ...value, totalBatchSize: e.target.value ? Number(e.target.value) : undefined })} />
         </div>
         <div>
           <label className="block text-[10px] text-muted mb-0.5">是否已关闭</label>
@@ -1521,6 +1554,7 @@ function QualityRecordEditor({ record, value, onChange, onSave, onReset }: {
           </select>
         </div>
       </div>
+      <div><label className="block text-[10px] text-muted mb-0.5">证据 / 处理说明</label><textarea className="w-full border border-line px-2 py-1 text-xs" rows={2} value={patch.evidenceNote ?? ""} onChange={(e) => onChange({ ...value, evidenceNote: e.target.value || undefined })} placeholder="可记录照片/检验单位置、问题批次、处理结论等" /></div>
       <div className="flex gap-2 pt-1">
         <button
           className={`px-3 py-1 text-xs rounded ${isDirty ? "bg-action text-white" : "bg-line text-muted"}`}
@@ -2003,6 +2037,14 @@ function CostReductionTab({ costReductionRecords, offers, monthlyCostRows, costE
     setMessage("增量成本事件已保存，待核实后计入月度成本。");
     onSaved?.();
   }
+  function reviewCostEvent(eventId: string, status: SupplierCostEvent["status"]) {
+    if (!supplierId) return;
+    updateLocalItem("suppliers", supplierId, {
+      costEvents: setSupplierCostEventStatus(costEvents, eventId, status),
+    });
+    setMessage(status === "verified" ? "增量成本已核实，并已纳入本月成本核算。" : "增量成本已驳回，不纳入本月成本核算。 ");
+    onSaved?.();
+  }
   const currentPeriod = period ?? defaultMonth();
   const currentEvents = costEvents.filter((event) => event.period === currentPeriod);
   return (
@@ -2021,7 +2063,7 @@ function CostReductionTab({ costReductionRecords, offers, monthlyCostRows, costE
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3"><button className="rounded border border-action bg-action px-3 py-1.5 text-white" onClick={saveCostEvent} type="button">保存增量成本事件</button>{message ? <span className="text-xs text-muted">{message}</span> : null}</div>
         </div>
-        {currentEvents.length > 0 ? <div className="mt-4 border-t border-line pt-3 text-xs text-muted"><div className="mb-2 font-medium text-ink">本月增量成本事件（{currentEvents.length}）</div><div className="space-y-1">{currentEvents.map((event) => <div className="flex flex-wrap gap-x-4" key={event.id}><span>{event.productFamilyKey}</span><span>{event.eventType}</span><span>{event.reason}</span><span>{event.amount}元</span><span>{event.status === "verified" ? "已核实" : "待核实"}</span></div>)}</div></div> : null}
+        {currentEvents.length > 0 ? <div className="mt-4 border-t border-line pt-3 text-xs text-muted"><div className="mb-2 font-medium text-ink">本月增量成本事件（{currentEvents.length}）</div><div className="space-y-2">{currentEvents.map((event) => <div className="flex flex-wrap items-center gap-x-4 gap-y-1" key={event.id}><span>{event.productFamilyKey}</span><span>{event.eventType}</span><span className="min-w-48">{event.reason}</span><span>{event.amount}元</span><span>{event.status === "verified" ? "已核实" : "待核实"}</span>{event.status === "pending_review" ? <span className="flex gap-2"><button className="border border-success px-2 py-1 text-success" onClick={() => reviewCostEvent(event.id, "verified")} type="button">确认纳入</button><button className="border border-line px-2 py-1 text-muted" onClick={() => reviewCostEvent(event.id, "pending_review")} type="button">保留待核</button></span> : null}</div>)}</div></div> : null}
       </section>
 
       {costReductionRecords.length > 0 ? (
@@ -2346,6 +2388,11 @@ function defaultPeriod(): string {
 function defaultMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function previousMonthPeriod(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
 const GRADE_COLORS: Record<string, { bg: string; text: string; border: string }> = {

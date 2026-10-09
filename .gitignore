@@ -1,5 +1,7 @@
 node_modules/
 .next/
+.next-verify/
+.workbench-files/
 out/
 .env
 .env.local

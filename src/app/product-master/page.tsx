@@ -9,6 +9,7 @@ import { HelpHint } from "@/components/workbench/help-hint";
 import {
   createInboundProductsFromSkuMasters,
   saveMonthlyInboundSnapshots,
+  saveSupplierInboundProductMappings,
   saveSkuOperatingSnapshots,
   type LocalMonthlyInboundSnapshot,
   type LocalProductSupplierAssignment,
@@ -286,11 +287,23 @@ export default function ProductMasterPage() {
   }
 
   function saveInboundImport(rows: ConfirmedInboundRow[]) {
+    const importBatchId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `inbound-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const grouped = mergeInboundCostFacts(rows.map((row) => ({
       ...row,
       key: row.mappingLevel === "operating_product" && row.operatingProductCode ? `operating:${row.operatingProductCode}` : `sku:${row.skuMasterId}`,
     })));
-    saveMonthlyInboundSnapshots(grouped.map(({ key: _key, ...row }) => row));
+    saveMonthlyInboundSnapshots(grouped.map(({ key: _key, ...row }) => ({ ...row, importBatchId })));
+    saveSupplierInboundProductMappings(rows.flatMap((row) => row.supplierId && row.supplierProductName && row.supplierSpec ? [{
+      supplierId: row.supplierId,
+      supplierProductName: row.supplierProductName,
+      supplierSpec: row.supplierSpec,
+      mappingLevel: row.mappingLevel ?? "sku",
+      skuMasterId: row.skuMasterId,
+      productFamilyKey: row.productFamilyKey,
+      operatingProductCode: row.operatingProductCode,
+    }] : []));
     setInboundPreview(null);
     setInboundFileMeta(null);
     setMessage(`已保存 ${selectedPeriod} 实际入仓：${grouped.length} 条产品族/ SKU 记录；未匹配行未写入。`);
@@ -367,7 +380,7 @@ export default function ProductMasterPage() {
             onClick={saveSelectedPeriod}
             type="button"
           >
-            保存本月快照
+            <span title="保存当前月份已录入或导入的月度销售、退货与成本指标，供历史月份对比；不保存入仓表数据。">保存本月经营指标</span>
           </button>
           <label className="inline-flex h-10 cursor-pointer items-center rounded-md border border-line bg-white px-3 text-sm text-slate-700 hover:bg-paper-warm">
             导入聚水潭月度表
@@ -538,7 +551,7 @@ export default function ProductMasterPage() {
         </p>
       ) : null}
       {inboundImportError ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{inboundImportError}</p> : null}
-      {inboundPreview && inboundFileMeta ? <SupplierInboundImportPreview result={inboundPreview} period={selectedPeriod} fileName={inboundFileMeta.fileName} sheetName={inboundFileMeta.sheetName} skuMasters={skus} suppliers={data.suppliers} existingAssignments={data.productSupplierAssignments ?? []} onCancel={() => { setInboundPreview(null); setInboundFileMeta(null); }} onConfirm={saveInboundImport} /> : null}
+      {inboundPreview && inboundFileMeta ? <SupplierInboundImportPreview result={inboundPreview} period={selectedPeriod} fileName={inboundFileMeta.fileName} sheetName={inboundFileMeta.sheetName} skuMasters={skus} suppliers={data.suppliers} existingAssignments={data.productSupplierAssignments ?? []} savedMappings={data.supplierInboundProductMappings ?? []} onCancel={() => { setInboundPreview(null); setInboundFileMeta(null); }} onConfirm={saveInboundImport} /> : null}
       {salesPreview && salesFileMeta ? (
         <section className="space-y-3 rounded-xl border border-line bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">

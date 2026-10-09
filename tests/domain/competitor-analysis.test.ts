@@ -95,7 +95,7 @@ describe("competitor analysis domain", () => {
   it("builds traceable report sections and flags unverified content", () => {
     const result = buildCompetitorAnalysisReport(project());
     expect(result.sections.map((section) => section.key)).toEqual([
-      "summary", "scope", "competitors", "five_layers", "stages", "self_state", "strategy", "evidence", "limitations",
+      "summary", "scope", "competitors", "five_layers", "stages", "self_state", "strategy", "evidence", "ai_findings", "limitations",
     ]);
     expect(result.limitations.length).toBeGreaterThan(0);
   });

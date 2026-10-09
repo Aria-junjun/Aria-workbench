@@ -16,4 +16,10 @@ describe("demand confirmation workspace", () => {
     expect(source).toContain("需求项分析");
     expect(source).toContain("需求确认结论");
   });
+
+  it("refreshes the document ledger after the shared snapshot changes", () => {
+    const source = readFileSync("src/components/workbench/demand-exploration/exploration-home.tsx", "utf8");
+    expect(source).toContain("useWorkbenchData");
+    expect(source).toContain("loadDemandConfirmationDocumentsFromData");
+  });
 });

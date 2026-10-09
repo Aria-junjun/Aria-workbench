@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { exportLocalWorkbenchData, importLocalWorkbenchData } from "@/features/workbench/local-store";
 import { exportProductImportDrafts } from "@/features/workbench/product-import-store";
+import { readCloudSnapshotForRestore, recordCloudRestoreBase } from "@/features/workbench/manual-cloud-sync";
 import { presetThemes, applyTheme, saveTheme, type ThemeConfig } from "@/lib/theme";
 import { Palette, Check, Upload, User, Trash2, Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -169,6 +170,28 @@ export default function SettingsPage() {
       setError(caught instanceof Error ? caught.message : "导入失败，请检查备份文件。");
     } finally {
       if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  function openCloudBackup() {
+    window.dispatchEvent(new Event('workbench-open-cloud-backup'));
+  }
+
+  async function restoreFromCloud() {
+    setError("");
+    setMessage("");
+    try {
+      const cloud = await readCloudSnapshotForRestore();
+      if (!window.confirm("从云端恢复将替换当前浏览器业务数据。是否先下载当前本地备份？取消则不恢复。")) return;
+      exportBackup();
+      if (!window.confirm("请检查下载完成，且确认要用云端数据替换本地数据。此操作不会修改云端。")) return;
+      const latest = await readCloudSnapshotForRestore();
+      if (latest.revision !== cloud.revision) throw new Error("确认期间云端数据已变化，请重新核对");
+      importLocalWorkbenchData(JSON.stringify(cloud.data));
+      recordCloudRestoreBase(cloud.revision);
+      setMessage("云端业务数据已恢复到当前浏览器；本地副本已标记为待核验。请刷新页面查看。当前操作未写回云端。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "云端恢复失败，未替换本地数据");
     }
   }
 
@@ -353,8 +376,10 @@ export default function SettingsPage() {
       {/* 工作台备份 */}
       <section className="rounded-3xl border border-line bg-surface p-5">
         <h2 className="font-semibold">工作台备份</h2>
-        <p className="mt-1 text-sm text-muted">日常使用业务数据备份；阶段性更新后再导出完整程序备份。</p>
+        <p className="mt-1 text-sm text-muted">日常使用业务数据备份；云端备份需先核对差异并手动确认。完整程序备份另行下载。</p>
         <div className="mt-4 flex flex-wrap gap-3">
+          <button className="rounded-xl border border-action px-4 py-2.5 text-sm font-medium text-action" onClick={openCloudBackup} type="button">备份到云端</button>
+          <button className="rounded-xl border border-line px-4 py-2.5 text-sm" onClick={() => void restoreFromCloud()} type="button">从云端恢复</button>
           <button
             className="rounded-xl bg-action px-4 py-2.5 text-sm font-medium text-white transition-all hover:shadow-glow"
             style={{ borderRadius: "var(--radius-button)" }}

@@ -25,6 +25,7 @@ const statusLabels = {
   confirmed: "已确认",
   inference: "推断",
   "to-verify": "待验证",
+  excluded: "已排除",
 };
 
 export function EvidenceConflictStatus({

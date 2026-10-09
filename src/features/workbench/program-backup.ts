@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { strToU8, zipSync } from "fflate";
+import { collectSupplierAttachmentFiles } from "./supplier-attachments-server";
 
 export type ProgramBackupFile = {
   relativePath: string;
@@ -8,7 +9,7 @@ export type ProgramBackupFile = {
 };
 
 const excludedDirectories = new Set([
-  ".git", ".next", ".worktrees", "node_modules", "output", "tmp", ".tmp-competitor-analysis"
+  ".git", ".next", ".worktrees", ".workbench-files", "node_modules", "output", "tmp", ".tmp-competitor-analysis"
 ]);
 
 export function collectProgramBackupFiles(root: string): ProgramBackupFile[] {
@@ -33,6 +34,7 @@ export function createProgramBackupArchive(root: string, businessData: string, p
   JSON.parse(businessData);
   JSON.parse(productDrafts);
   const files = collectProgramBackupFiles(root);
+  files.push(...collectSupplierAttachmentFiles(root));
   const entries: Record<string, Uint8Array> = {};
   for (const file of files) entries[file.relativePath] = new Uint8Array(fs.readFileSync(file.absolutePath));
 

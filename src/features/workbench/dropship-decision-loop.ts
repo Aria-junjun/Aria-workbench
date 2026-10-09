@@ -4,7 +4,7 @@ import type { SupplierBusinessRecord } from './supplier-business';
 import { analyzeDropshipPeriod, dropshipMetricsFromRecord, dropshipOverview } from './dropship-period-performance';
 import { loadProcurementRecords } from './procurement';
 
-export type DropshipRiskItem = { supplierId: string; supplierName: string; paidOrders: number; gmv: number; reasons: string[] };
+export type DropshipRiskItem = { supplierId: string; supplierName: string; sourceRecordId: string; paidOrders: number; gmv: number; metrics: ReturnType<typeof dropshipMetricsFromRecord>; reasons: string[] };
 export type DropshipDecisionSummary = {
   periodStart: string; periodEnd: string; periodLabel: string; totalOrders: number; totalGmv: number;
   weightedPickup48Rate?: number; weightedRefundRate?: number; scoreableCount: number; riskCount: number;
@@ -26,6 +26,7 @@ export function deriveSupplierBusinessModes(data: LocalWorkbenchData, supplierId
   const hasDropship = records.some(record => record.kind === 'dropship_period' || (record.kind === 'purchase' && record.fields.fulfillmentMode === 'dropship'))
     || routings.some(routing => routing.businessMode === 'dropship') || fulfillmentModes.includes('dropship');
   const hasInbound = records.some(record => record.kind === 'purchase' && record.fields.fulfillmentMode === 'warehouse')
+    || (data.monthlyInboundSnapshots ?? []).some(snapshot => snapshot.supplierId === supplierId || (!snapshot.supplierId && !!snapshot.supplierName && data.suppliers.filter(supplier => supplier.name.trim().toLowerCase() === snapshot.supplierName!.trim().toLowerCase()).length === 1 && data.suppliers.find(supplier => supplier.name.trim().toLowerCase() === snapshot.supplierName!.trim().toLowerCase())?.id === supplierId))
     || routings.some(routing => routing.businessMode === 'inbound')
     || fulfillmentModes.includes('warehouse');
   return [hasDropship && 'dropship', hasInbound && 'inbound'].filter(Boolean) as SupplierBusinessMode[];
@@ -42,8 +43,18 @@ export function buildDropshipDecisionSummary(data: LocalWorkbenchData): Dropship
     const metric = dropshipMetricsFromRecord(record);
     const analysis = analyzeDropshipPeriod(metric);
     if (metric.paidOrders == null || metric.gmv == null || metric.paidOrders < 20 || !analysis.risks.length) return [];
-    return [{ supplierId: record.supplierIds[0] || '', supplierName: data.suppliers.find(item => item.id === record.supplierIds[0])?.name || '档案缺失', paidOrders: metric.paidOrders, gmv: metric.gmv, reasons: analysis.risks }];
-  }).sort((a, b) => b.paidOrders - a.paidOrders);
+    const duration = metric.periodStart && metric.periodEnd ? Math.floor((Date.parse(`${metric.periodEnd}T00:00:00Z`) - Date.parse(`${metric.periodStart}T00:00:00Z`)) / 86400000) + 1 : 0;
+    const numericReasons = analysis.risks.map(reason => {
+      if (reason === '揽收时效异常') return `48小时揽收率 ${metric.pickup48Rate}%`;
+      if (reason === '签收时长偏高') return `支签时长 ${metric.paymentToSignHours} 小时`;
+      if (reason === '退款率偏高') return metric.refundRate != null && metric.refundRate > 10 ? `退款率 ${metric.refundRate}%` : `售后率 ${metric.afterSalesRate}%`;
+      if (reason === '拒退风险') return metric.rejectReturnRate != null && metric.rejectReturnRate > 10 ? `拒退率 ${metric.rejectReturnRate}%` : `售后拒绝率 ${metric.rejectedAfterSalesRate}%`;
+      if (reason === '客服响应偏低') return `3分钟响应率 ${metric.response3mRate}%`;
+      if (reason === '高量高风险') return duration > 0 ? `高量高风险（日均 ${ (metric.paidOrders! / duration).toFixed(1).replace(/\.0$/, '') } 单）` : `高量高风险（周期 ${metric.paidOrders} 单）`;
+      return reason;
+    });
+    return [{ supplierId: record.supplierIds[0] || '', supplierName: data.suppliers.find(item => item.id === record.supplierIds[0])?.shortName || data.suppliers.find(item => item.id === record.supplierIds[0])?.name || '档案缺失', sourceRecordId: record.id, paidOrders: metric.paidOrders, gmv: metric.gmv, metrics: metric, reasons: numericReasons }];
+  }).sort((a, b) => b.reasons.length - a.reasons.length || b.paidOrders - a.paidOrders);
   const pending = (data.pendingDropshipSuppliers ?? []).filter(activePending);
   const start = records.map(record => record.fields.periodStart || '').sort()[0] || '';
   const periodCount = new Set(all.map(record => `${record.fields.periodStart}|${record.fields.periodEnd}`)).size;
@@ -66,7 +77,7 @@ export function resolvePendingDropshipSupplier(data: LocalWorkbenchData, pending
   if (action.type === 'link' && !suppliers.some(value => value.id === supplierId)) throw new Error('请选择有效供应商档案');
   if (action.type === 'create') {
     supplierId = crypto.randomUUID();
-    const supplier: LocalSupplier = { id:supplierId, name:item.sourceName, categories:[], riskTags:[], businessModel:'dropship', sourcePlatform:item.platform, createdAt:now };
+    const supplier: LocalSupplier = { id:supplierId, name:item.sourceName, shortName:item.shortName, categories:[], riskTags:[], businessModel:'dropship', sourcePlatform:item.platform, createdAt:now };
     suppliers = [supplier, ...suppliers];
   }
   const record = pendingRecord(item,supplierId);

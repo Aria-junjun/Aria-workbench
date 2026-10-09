@@ -19,10 +19,11 @@ describe("supplier capability editor UI contract", () => {
     expect(editor).toContain("aria-expanded");
   });
 
-  it("keeps capability maintenance out of the supplier dashboard", () => {
+  it("keeps capability maintenance in detail rather than the supplier directory", () => {
     const page = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/page.tsx"), "utf8");
 
-    expect(page).toContain("return <SupplierDashboardView");
-    expect(page).toContain("全部供应商绩效总览");
+    expect(page).toContain("供应商档案");
+    expect(page).toContain("管理总览");
+    expect(page).not.toContain("SupplierCapabilityEditor");
   });
 });

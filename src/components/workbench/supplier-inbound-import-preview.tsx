@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { LocalSkuMaster, LocalSupplier } from "@/features/workbench/local-store";
+import type { LocalSkuMaster, LocalSupplier, LocalSupplierInboundProductMapping } from "@/features/workbench/local-store";
 import { deriveOperatingProductCode, deriveProductFamilyKey } from "@/features/workbench/product-master";
 import type { LocalProductSupplierAssignment } from "@/features/workbench/local-store";
 import type { SupplierInboundImportResult } from "@/features/workbench/supplier-inbound-import";
@@ -18,6 +18,8 @@ export type ConfirmedInboundRow = {
   settlementAmount?: number;
   supplierId?: string;
   supplierName?: string;
+  supplierProductName: string;
+  supplierSpec: string;
   sourceFileName: string;
   sourceSheetName: string;
   importedAt: string;
@@ -33,6 +35,7 @@ type Props = {
   existingAssignments?: LocalProductSupplierAssignment[];
   onCancel: () => void;
   onConfirm: (rows: ConfirmedInboundRow[]) => void;
+  savedMappings?: LocalSupplierInboundProductMapping[];
 };
 
 function normalize(value: string) {
@@ -49,6 +52,7 @@ type MatchingOptions = {
   supplierName?: string;
   period?: string;
   assignments?: LocalProductSupplierAssignment[];
+  savedMappings?: LocalSupplierInboundProductMapping[];
 };
 
 export function suggestInboundSku(
@@ -88,6 +92,23 @@ export function suggestInboundMapping(
   skuMasters: LocalSkuMaster[],
   options: MatchingOptions = {},
 ): InboundMappingSuggestion | undefined {
+  const saved = options.supplierId ? (options.savedMappings ?? []).filter((mapping) =>
+    mapping.supplierId === options.supplierId
+      && normalize(mapping.supplierProductName) === normalize(row.supplierProductName)
+      && normalize(mapping.supplierSpec) === normalize(row.supplierSpec)) : [];
+  if (saved.length === 1) {
+    const mapping = saved[0];
+    if (mapping.mappingLevel === "operating_product" && mapping.productFamilyKey && mapping.operatingProductCode) {
+      const activeSkus = skuMasters.filter((item) => item.status !== "archived");
+      const sku = activeSkus.find((item) => item.id === mapping.skuMasterId)
+        ?? activeSkus.find((item) => deriveProductFamilyKey(item.productName, item.productFamilyKey) === mapping.productFamilyKey && deriveOperatingProductCode(item.internalSkuCode, item.productName, item.specification, activeSkus.map((skuItem) => skuItem.internalSkuCode)) === mapping.operatingProductCode);
+      if (sku) return { kind: "operating_product", productFamilyKey: mapping.productFamilyKey, operatingProductCode: mapping.operatingProductCode, skuMasterId: sku.id };
+    }
+    if (mapping.mappingLevel === "sku") {
+      const sku = skuMasters.find((item) => item.id === mapping.skuMasterId && item.status !== "archived");
+      if (sku) return { kind: "sku", skuMasterId: sku.id };
+    }
+  }
   const supplierAssignments = (options.assignments ?? [])
     .filter((assignment) => assignment.status === "active")
     .filter((assignment) => !options.period || assignment.effectiveFrom <= options.period)
@@ -115,10 +136,11 @@ export function suggestInboundMapping(
   return skuMasterId ? { kind: "sku", skuMasterId } : undefined;
 }
 
-export function SupplierInboundImportPreview({ result, period, fileName, sheetName, skuMasters, suppliers, existingAssignments = [], onCancel, onConfirm }: Props) {
+export function SupplierInboundImportPreview({ result, period, fileName, sheetName, skuMasters, suppliers, existingAssignments = [], savedMappings = [], onCancel, onConfirm }: Props) {
   const [supplierId, setSupplierId] = useState(() => {
     const embeddedName = result.rows.find((row) => row.supplierName)?.supplierName;
-    return suppliers.find((supplier) => supplier.name === embeddedName)?.id ?? "";
+    const matches = suppliers.filter((supplier) => normalize(supplier.name) === normalize(embeddedName ?? ""));
+    return matches.length === 1 ? matches[0].id : "";
   });
   const supplierFromFile = result.rows.find((row) => row.supplierName)?.supplierName;
   const skuSignature = skuMasters.map((sku) => `${sku.id}:${sku.productName}:${sku.specification}:${sku.productFamilyKey ?? ""}`).join("|");
@@ -129,9 +151,10 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
     supplierName: supplierFromFile,
     period,
     assignments: existingAssignments,
+      savedMappings,
     });
     return [row.rowNumber, suggestion?.kind === "operating_product" ? `operating:${suggestion.operatingProductCode}|${suggestion.productFamilyKey}` : suggestion?.skuMasterId];
-  })), [result.rows, skuSignature, supplierId, supplierFromFile, period, assignmentSignature]);
+  })), [result.rows, skuSignature, supplierId, supplierFromFile, period, assignmentSignature, savedMappings]);
   const [matches, setMatches] = useState<Record<number, string | undefined>>(initialMatches);
   useEffect(() => setMatches(initialMatches), [initialMatches]);
   const matchedCount = result.rows.filter((row) => matches[row.rowNumber]).length;
@@ -172,6 +195,8 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
         ...(row.amount !== undefined ? { settlementAmount: row.amount } : {}),
         supplierId: supplier?.id,
         supplierName: supplier?.name ?? supplierFromFile,
+        supplierProductName: row.supplierProductName,
+        supplierSpec: row.supplierSpec,
         sourceFileName: row.sourceFileName,
         sourceSheetName: row.sourceSheetName,
         importedAt: row.importedAt
@@ -189,7 +214,7 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
         <div className="text-xs text-slate-600">原始 {result.summary.rawRowCount ?? result.rows.length} 行 · 合并后 {result.rows.length} 行 · 已关联 {matchedCount} 行 · 待确认 {result.rows.length - matchedCount} 行</div>
       </div>
       <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
-        本次只保存表格明确证明的实际入仓数量。若该供应商与一个产品族存在唯一有效关系，系统会自动按产品族归属并合并入仓量；没有唯一关系时才回退到 SKU 匹配。未关联行不会写入；没有供应商名称时，请先为整张表选择供应商。
+        已保存的供应商商品名 + 规格映射会优先自动匹配，之后可在本表逐行检核或修正；确认导入后，修正结果会保存供下次复用。新商品、规格变化或未匹配供应商仍需处理。未关联行不会写入。
       </div>
       <div className={`rounded-lg px-3 py-2 text-xs leading-5 ${quality.status === "ready" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
         <div className="font-medium">数据质量检查：{quality.headline}</div>
@@ -198,15 +223,14 @@ export function SupplierInboundImportPreview({ result, period, fileName, sheetNa
       {!matchedCount && futureRelationshipCount > 0 ? <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
         已找到该供应商的供应关系，但关系生效月份晚于本次导入月份（{period}）。系统不会把未来关系倒灌到历史数据；请确认保存月份，或将关系生效月份修正为真实生效月份。
       </div> : null}
-      {!supplierFromFile ? (
-        <label className="block text-xs text-slate-600">
-          本批对账供应商
-          <select className="mt-1 w-full rounded border border-line px-2 py-2 text-sm" value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
-            <option value="">请选择供应商</option>
-            {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-          </select>
-        </label>
-      ) : <p className="text-xs text-slate-600">表格供应商：{supplierFromFile}</p>}
+      {supplierFromFile ? <p className="text-xs text-slate-600">表格供应商：{supplierFromFile}</p> : null}
+      <label className="block text-xs text-slate-600">
+        {supplierFromFile ? "匹配供应商档案（用于复用商品映射，可留空）" : "本批对账供应商"}
+        <select aria-label="本批对账供应商" className="mt-1 w-full rounded border border-line px-2 py-2 text-sm" value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+          <option value="">{supplierFromFile ? "不关联档案" : "请选择供应商"}</option>
+          {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+        </select>
+      </label>
       {result.errors.length ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{result.errors.map((item) => `第${item.rowNumber}行：${item.message}`).join("；")}</p> : null}
       <div className="max-h-96 overflow-auto rounded-lg border border-line">
         <table className="min-w-full text-left text-xs">

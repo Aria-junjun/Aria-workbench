@@ -7,6 +7,7 @@ type DemandTaskInput = {
   userType: string;
   scenario: string;
   problem: string;
+  referencedEvidence?: string;
 };
 
 type CompetitorTaskInput = {
@@ -16,6 +17,7 @@ type CompetitorTaskInput = {
   targetUsers: string;
   analysisTheme: string;
   decisionQuestion: string;
+  referencedEvidence?: string;
 };
 
 type DecompositionTaskInput = {
@@ -25,6 +27,7 @@ type DecompositionTaskInput = {
   scenario: string;
   centralQuestion: string;
   decisionGoal: string;
+  referencedEvidence?: string;
 };
 
 export function buildDemandExplorationTaskPackage(input: DemandTaskInput): AiTaskPackage {
@@ -33,6 +36,7 @@ export function buildDemandExplorationTaskPackage(input: DemandTaskInput): AiTas
     projectId: input.projectId,
     title: input.title,
     context: `产品：${input.productName}\n目标用户：${input.userType}\n使用场景：${input.scenario}\n当前问题：${input.problem}`,
+    referencedEvidence: input.referencedEvidence,
     fields: [
       { path: "demand.problem", label: "需求问题", guidance: "明确用户在什么场景遇到什么问题" },
       { path: "demand.evidence", label: "需求证据", guidance: "整理用户回答、访谈原话或公开资料，并标明样本口径" },
@@ -42,7 +46,7 @@ export function buildDemandExplorationTaskPackage(input: DemandTaskInput): AiTas
       { path: "demand.nextAction", label: "下一步动作", guidance: "给出下一项可执行的需求验证动作" },
     ],
   });
-  return { ...task, prompt: `${task.prompt}\n\n研究重点：需求真实性、KANO 解释和样本限制。` };
+  return { ...task, prompt: `${task.prompt}\n\n研究重点：需求真实性、KANO 解释和样本限制。KANO不是必经步骤；没有真实成对问卷回答或计算结果时，不输出属性分类、SI或DSI。销售下滑本身不能证明需求消失，也不能仅靠KANO解释。` };
 }
 
 export function buildCompetitorAnalysisTaskPackage(input: CompetitorTaskInput): AiTaskPackage {
@@ -51,6 +55,7 @@ export function buildCompetitorAnalysisTaskPackage(input: CompetitorTaskInput): 
     projectId: input.projectId,
     title: input.title,
     context: `产品：${input.productName}\n目标用户：${input.targetUsers}\n分析主题：${input.analysisTheme}\n决策问题：${input.decisionQuestion}`,
+    referencedEvidence: input.referencedEvidence,
     fields: [
       { path: "competitor.boundary", label: "竞品边界", guidance: "区分直接竞品、替代方案、参考产品和不纳入对象" },
       { path: "competitor.differences", label: "差异分析", guidance: "说明产品、用户场景和解决方式的可观察差异" },
@@ -69,6 +74,7 @@ export function buildProductDecompositionTaskPackage(input: DecompositionTaskInp
     projectId: input.projectId,
     title: input.title,
     context: `目标用户：${input.targetUsers}\n使用场景：${input.scenario}\n中心问题：${input.centralQuestion}\n决策目标：${input.decisionGoal}`,
+    referencedEvidence: input.referencedEvidence,
     fields: [
       { path: "decomposition.causes", label: "原因拆解", guidance: "区分事实、推断和信息缺口，避免只写表面现象" },
       { path: "decomposition.solutions", label: "方案与优先级", guidance: "提供多个可比较的解决方向并说明依据" },

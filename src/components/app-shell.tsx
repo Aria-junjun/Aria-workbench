@@ -52,8 +52,21 @@ const navGroups: { title: string; items: NavItem[] }[] = [
   {
     title: "供应商管理",
     items: [
+      { href: "/supplier-lifecycle", label: "管理总览", icon: LayoutDashboard },
+      { href: "/supplier-records", label: "供应商业务记录", icon: Search },
       { href: "/suppliers", label: "供应商档案", icon: Truck },
       { href: "/offers", label: "货盘报价", icon: Package }
+    ]
+  },
+  {
+    title: "采购管理",
+    items: [
+      { href: "/procurement/overview", label: "采购总览", icon: LayoutDashboard },
+      { href: "/procurement/request", label: "需求申请", icon: Zap },
+      { href: "/procurement/pool", label: "需求池", icon: LayoutDashboard },
+      { href: "/procurement/task", label: "采购任务", icon: CheckSquare },
+      { href: "/procurement/quote", label: "询价比价", icon: GitCompare },
+      { href: "/procurement/fulfillment", label: "采购履约", icon: Truck }
     ]
   },
   {
@@ -141,7 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
+                  const isActive = pathname === item.href || (item.href !== "/" && item.href !== "/supplier-lifecycle" && pathname.startsWith(`${item.href}/`));
                   return (
                     <Link
                       key={item.href}

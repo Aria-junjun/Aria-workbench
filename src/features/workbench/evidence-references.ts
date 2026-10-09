@@ -1,6 +1,6 @@
 import { randomId } from "@/lib/random-id";
 
-export type EvidenceReferenceStatus = "original" | "ai-draft" | "edited" | "confirmed" | "inference" | "to-verify";
+export type EvidenceReferenceStatus = "original" | "ai-draft" | "edited" | "confirmed" | "inference" | "to-verify" | "excluded";
 
 export type EvidenceReferenceModule = "industry-insight" | "demand-exploration" | "competitor-analysis" | "product-decomposition";
 
@@ -31,8 +31,8 @@ export function createEvidenceReference(
   };
 }
 
-export function canReferenceEvidence(status: EvidenceReferenceStatus): boolean {
-  return status === "confirmed";
+export function canReferenceEvidence(status: EvidenceReferenceStatus, referenceable = true): boolean {
+  return status === "confirmed" && referenceable;
 }
 
 export function isEvidenceReferenceDirectionAllowed(

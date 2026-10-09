@@ -10,12 +10,14 @@ import { OfferDetailDrawer } from "@/components/workbench/offer-detail-drawer";
 import { OfferListView } from "@/components/workbench/offer-list-view";
 import { OfferSkuCompareView, SupplierOfferView, groupOffersByProduct, groupOffersBySupplier } from "@/components/workbench/offer-aggregate-views";
 import { includesQuery, sortPinnedFirst, togglePinned, type LocalOffer } from "@/features/workbench/local-store";
-import { useWorkbenchData } from "@/features/workbench/workbench-store";
+import { setWorkbenchSnapshot, useWorkbenchData } from "@/features/workbench/workbench-store";
+import { buildJuyingMatteOffer, JUYING_MATTE_OFFER_NAME } from "@/features/workbench/juying-matte-offer";
 
 type SortField = "createdAt" | "quotedPriceNum" | "moqNum" | "leadTimeDays";
 type SortDirection = "asc" | "desc";
 
 const SPECIAL_TAG_HAS_SKUS = "有规格的";
+const LOCAL_ONLY_PENDING_KEY = "personal-commercial-workbench:pending-sync";
 
 export default function OffersPage() {
   const router = useRouter();
@@ -33,7 +35,8 @@ export default function OffersPage() {
   const [viewMode, setViewMode] = useState<"cards" | "list" | "sku" | "supplier">("list");
   const [detailOffer, setDetailOffer] = useState<LocalOffer | null>(null);
 
-  const offers = sortPinnedFirst(useWorkbenchData().offers);
+  const data = useWorkbenchData();
+  const offers = sortPinnedFirst(data.offers);
   const hasSkusOffers = offers.filter(hasSkus).length;
   const baseTags = uniqueTags(offers.map((offer) => [offer.category || "", offer.supplierName || ""]));
   const tags = hasSkusOffers > 0 ? [...baseTags, SPECIAL_TAG_HAS_SKUS] : baseTags;
@@ -155,6 +158,31 @@ export default function OffersPage() {
     setSelectedOfferIds((current) => current.includes(id) ? current : [...current, id]);
   }
 
+  function importJuyingMatteOffer() {
+    const existing = offers.find((offer) => offer.name === JUYING_MATTE_OFFER_NAME || (offer.supplierName === "聚赢" && offer.category === "哑光墙贴/静电保护膜"));
+    if (existing) {
+      if (existing.name !== JUYING_MATTE_OFFER_NAME || existing.productName !== "静电哑光墙贴") {
+        const corrected = { ...existing, name: JUYING_MATTE_OFFER_NAME, productName: "静电哑光墙贴" };
+        const correctedData = { ...data, offers: data.offers.map((offer) => offer.id === existing.id ? corrected : offer) };
+        window.localStorage.setItem("personal-commercial-workbench", JSON.stringify(correctedData));
+        window.localStorage.setItem(LOCAL_ONLY_PENDING_KEY, String(Date.now()));
+        setWorkbenchSnapshot(correctedData);
+        setVersion((current) => current + 1);
+        window.alert("已修正哑面货盘的产品族映射，未重复录入。");
+      } else window.alert("聚赢哑面墙贴报价已存在，未重复录入。");
+      return;
+    }
+    const offer = buildJuyingMatteOffer(`juying-matte-${crypto.randomUUID()}`, new Date().toISOString());
+    const next = { ...data, offers: [offer, ...data.offers] };
+    window.localStorage.setItem("personal-commercial-workbench", JSON.stringify(next));
+    // 标记为本地待确认快照，防止页面重新加载时旧云端快照覆盖本次本地录入。
+    // 此入口不调用云端写入接口。
+    window.localStorage.setItem(LOCAL_ONLY_PENDING_KEY, String(Date.now()));
+    setWorkbenchSnapshot(next);
+    setVersion((current) => current + 1);
+    window.alert("已录入聚赢哑面墙贴报价（16个有明确单价的规格），仅保存于本地。");
+  }
+
   return (
     <div className="space-y-5" data-version={version}>
       <LibraryToolbar
@@ -179,6 +207,7 @@ export default function OffersPage() {
           <span>货盘 {filtered.length}</span>
           <span>已关联 {filtered.filter((offer) => offer.productId || offer.productName).length}</span>
           <span>供应商 {new Set(filtered.map((offer) => offer.supplierName).filter(Boolean)).size}</span>
+          <button className="rounded-xl border border-line px-3 py-2 text-xs text-slate-700 hover:bg-paper-warm" onClick={importJuyingMatteOffer} type="button">录入聚赢哑面报价</button>
           <Link className="rounded-xl border border-line px-3 py-2 text-xs text-slate-700 hover:bg-paper-warm" href="/sku-master/import">导入产品编码表</Link>
         </div>
       </div>

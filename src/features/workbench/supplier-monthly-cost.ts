@@ -76,12 +76,29 @@ function sameSpecification(left: string, right: string) {
   const rightNormalized = normalize(right);
   if (leftNormalized === rightNormalized) return true;
   const leftSignature = dimensionSignature(left);
-  return leftSignature !== undefined && leftSignature === dimensionSignature(right);
+  const rightSignature = dimensionSignature(right);
+  if (leftSignature !== undefined && leftSignature === rightSignature) return true;
+  const leftNumbers = left.match(/\d+(?:\.\d+)?/g) ?? [];
+  const rightNumbers = right.match(/\d+(?:\.\d+)?/g) ?? [];
+  if (leftNumbers.length < 2 || rightNumbers.length < 2) return false;
+  const neutralExtras = (values: string[]) => values.slice(2).every((value) => Number(value) === 1);
+  if (!neutralExtras(leftNumbers) || !neutralExtras(rightNumbers)) return false;
+  const normalizeWidth = (value: string) => {
+    const number = Number(value);
+    return number > 0 && number < 10 ? number * 100 : number;
+  };
+  return normalizeWidth(leftNumbers[0]!) === normalizeWidth(rightNumbers[0]!) && Number(leftNumbers[1]) === Number(rightNumbers[1]);
 }
 
-function offerMatchesFamily(offer: LocalOffer, familyKey: string) {
+export function offerMatchesFamily(offer: LocalOffer, familyKey: string) {
   const offerFamily = deriveProductFamilyKey(offer.productName || offer.name);
-  return offerFamily === familyKey || offer.productName === familyKey || offer.name.includes(familyKey);
+  if (offerFamily === familyKey || offer.productName === familyKey || offer.name.includes(familyKey)) return true;
+  const familyIsWhiteboard = /白板贴|白板墙贴|静电白板|白板/.test(familyKey);
+  const familyIsMatte = /哑光墙贴|哑面|哑光/.test(familyKey) && !/亮光/.test(familyKey);
+  const offerText = `${offer.name}${offer.productName || ""}${offer.category || ""}`;
+  const offerIsWhiteboard = /白板贴|白板墙贴|静电白板|白板/.test(offerText);
+  const offerIsMatte = /哑光墙贴|哑面|哑光/.test(offerText) && !/亮光/.test(offerText);
+  return (familyIsWhiteboard && offerIsWhiteboard) || (familyIsMatte && offerIsMatte);
 }
 
 function findBaselineUnitPrice(sku: LocalSkuMaster, familyKey: string, offers: LocalOffer[], supplierId: string) {

@@ -76,7 +76,7 @@ it('keeps successful re-import idempotent and reports the saved result', async (
   fireEvent.click(screen.getByRole('button',{name:'下一步：商品归位'}));
   fireEvent.click(screen.getByRole('button',{name:'下一步：导入确认'}));
   fireEvent.click(screen.getByRole('button',{name:'确认导入'}));
-  await screen.findByText(/导入完成/);
+  await screen.findByText(/履约数据已保存/);
   const once = loadLocalWorkbenchData();
   cleanup();
   await openAndUpload();
@@ -85,7 +85,7 @@ it('keeps successful re-import idempotent and reports the saved result', async (
   fireEvent.click(screen.getByRole('button',{name:'下一步：商品归位'}));
   fireEvent.click(screen.getByRole('button',{name:'下一步：导入确认'}));
   fireEvent.click(screen.getByRole('button',{name:'确认导入'}));
-  await screen.findByText(/导入完成/);
+  await screen.findByText(/履约数据已保存/);
   const twice = loadLocalWorkbenchData();
   expect(twice.supplierBusinessRecords).toEqual(once.supplierBusinessRecords);
   expect(twice.pendingDropshipSuppliers).toEqual(once.pendingDropshipSuppliers);
@@ -108,7 +108,7 @@ it('previews the same deduplicated counts that persistence saves when source row
   expect(countFor('未解决项目')).toBe(`${expected.unresolved} 条`);
 
   fireEvent.click(screen.getByRole('button',{name:'确认导入'}));
-  await screen.findByText(/导入完成/);
+  await screen.findByText(/履约数据已保存/);
   const saved = loadLocalWorkbenchData();
   expect(saved.supplierBusinessRecords?.filter(record=>record.kind==='dropship_period')).toHaveLength(expected.formal);
   expect(saved.pendingDropshipSuppliers).toHaveLength(expected.pending);

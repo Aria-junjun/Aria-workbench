@@ -3,14 +3,24 @@ import { buildEvidenceSourceProjects } from "./evidence-sources";
 import { loadLocalWorkbenchData, saveLocalWorkbenchData } from "./local-store";
 import { setWorkbenchSnapshot } from "./workbench-store";
 
-export function confirmWorkbenchEvidenceField(module: EvidenceReferenceModule, projectId: string, path: string, snapshot: string): void {
+export function confirmWorkbenchEvidenceField(module: EvidenceReferenceModule, projectId: string, path: string, snapshot: string, referenceable = true): void {
   const data = loadLocalWorkbenchData();
   const field = buildEvidenceSourceProjects(data).find((project) => project.module === module && project.projectId === projectId)?.fields.find((item) => item.path === path);
   if (!field || field.snapshot !== snapshot) throw new Error("字段已变化，请刷新后重新核对。");
   // Reference copies retain their own edited state; this action confirms native fields only.
   if (path.startsWith("evidenceReferences.")) throw new Error("引用副本不能作为原始字段确认。");
   const confirmations = (data.evidenceFieldConfirmations ?? []).filter((item) => !(item.module === module && item.projectId === projectId && item.path === path));
-  saveLocalWorkbenchData({ ...data, evidenceFieldConfirmations: [...confirmations, { module, projectId, path, snapshot, confirmedAt: new Date().toISOString() }] });
+  saveLocalWorkbenchData({ ...data, evidenceFieldConfirmations: [...confirmations, { module, projectId, path, snapshot, referenceable, decision: "confirmed" as const, confirmedAt: new Date().toISOString() }] });
+  setWorkbenchSnapshot(loadLocalWorkbenchData());
+}
+
+export function excludeWorkbenchEvidenceField(module: EvidenceReferenceModule, projectId: string, path: string, snapshot: string, exclusionReason: string): void {
+  const data = loadLocalWorkbenchData();
+  const field = buildEvidenceSourceProjects(data).find((project) => project.module === module && project.projectId === projectId)?.fields.find((item) => item.path === path);
+  if (!field || field.snapshot !== snapshot) throw new Error("字段已变化，请刷新后重新核对。");
+  if (path.startsWith("evidenceReferences.")) throw new Error("引用副本不能排除原始字段。");
+  const confirmations = (data.evidenceFieldConfirmations ?? []).filter((item) => !(item.module === module && item.projectId === projectId && item.path === path));
+  saveLocalWorkbenchData({ ...data, evidenceFieldConfirmations: [...confirmations, { module, projectId, path, snapshot, referenceable: false, decision: "excluded" as const, exclusionReason, confirmedAt: new Date().toISOString() }] });
   setWorkbenchSnapshot(loadLocalWorkbenchData());
 }
 

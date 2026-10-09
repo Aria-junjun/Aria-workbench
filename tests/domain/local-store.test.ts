@@ -20,8 +20,10 @@ import {
   saveBookPackage,
   saveLocalWorkbenchData,
   saveSupplierEvaluation,
+  saveSupplierNativePerformanceSnapshot,
   saveSkuOperatingSnapshot,
   saveMonthlyInboundSnapshots,
+  saveSupplierInboundProductMappings,
   archiveSkuMaster,
   saveSupplierOfferDecision,
   saveSupplierDecisionRecord,
@@ -75,11 +77,50 @@ beforeEach(() => {
 });
 
 describe("local-store operations", () => {
+  it("keeps an ordinary local edit pending without writing the cloud in manual mode", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    saveLocalWorkbenchData(sampleData());
+    expect(storage.get('personal-commercial-workbench:pending-sync')).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("normalizes missing supplier import routing collections for legacy snapshots", () => {
     const normalized = normalizeWorkbenchData(sampleData());
 
     expect(normalized.supplierAliasMappings).toEqual([]);
     expect(normalized.dropshipProductRoutings).toEqual([]);
+  });
+
+  it("normalizes legacy supplier data without native performance snapshots", () => {
+    expect(normalizeWorkbenchData(sampleData()).supplierNativePerformanceSnapshots).toEqual([]);
+  });
+
+  it("stores imported native scores separately from workbench evaluations", () => {
+    const data = sampleData();
+    data.suppliers[0].evaluations = [];
+    data.suppliers[0].latestEvaluationScore = undefined;
+    saveLocalWorkbenchData(data);
+
+    saveSupplierNativePerformanceSnapshot({
+      id: "native-1",
+      supplierId: data.suppliers[0].id,
+      businessMode: "inbound",
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      schemeName: "入仓方案",
+      totalScore: 82,
+      metrics: { onTimeDeliveryRateQuantity: 92 },
+      riskLabels: [],
+      sourceSystem: "jushuitan",
+      sourceRecordKey: "row-1",
+      importBatchId: "batch-1",
+      importedAt: "2026-09-29T00:00:00.000Z",
+    });
+
+    const saved = loadLocalWorkbenchData();
+    expect(saved.supplierNativePerformanceSnapshots).toHaveLength(1);
+    expect(saved.suppliers[0].evaluations).toEqual([]);
+    expect(saved.suppliers[0].latestEvaluationScore).toBeUndefined();
   });
 
   it("preserves supplier alias and product routing mappings through save, export and import", () => {
@@ -155,6 +196,18 @@ describe("local-store operations", () => {
     saveLocalWorkbenchData(sampleData());
 
     expect(loadLocalWorkbenchData().demandExplorations).toEqual([]);
+  });
+
+  it("round-trips supplier cost improvement projects and merges by id without losing either side", () => {
+    const localProject = { id: 'local-project', title: '本地降本', supplierId: 's1', skuMasterId: 'sku1', baselineUnitPrice: 10, effectiveFrom: '2026-01', effectiveTo: '2026-12', owner: '采购', comparabilityConfirmed: true, comparabilityNote: '同规格同税运条件', evidence: '报价单.pdf', status: 'active' as const, createdAt: '2026-09-29', updatedAt: '2026-09-29' };
+    const cloudProject = { ...localProject, id: 'cloud-project', title: '云端降本' };
+    const data = normalizeWorkbenchData({ ...sampleData(), supplierCostImprovementProjects: [localProject] });
+    saveLocalWorkbenchData(data);
+    const backup = exportLocalWorkbenchData();
+    storage.clear();
+    importLocalWorkbenchData(backup);
+    expect(loadLocalWorkbenchData().supplierCostImprovementProjects).toEqual([localProject]);
+    expect(mergeDemandRecords({ supplierCostImprovementProjects: [localProject] }, { supplierCostImprovementProjects: [cloudProject] }).supplierCostImprovementProjects?.map(project => project.id).sort()).toEqual(['cloud-project', 'local-project']);
   });
 
   it("saves and updates an independent demand exploration record", () => {
@@ -234,10 +287,11 @@ describe("local-store operations", () => {
   it("archives a supplier without deleting its historical records", () => {
     saveLocalWorkbenchData(sampleData());
 
-    archiveSupplier("supplier-1");
+    archiveSupplier("supplier-1", "测试停用原因");
 
     const archived = loadLocalWorkbenchData().suppliers[0];
     expect(archived.archivedAt).toEqual(expect.any(String));
+    expect(archived.archiveReason).toBe("测试停用原因");
     expect(archived.orderRecords).toEqual([]);
   });
 
@@ -317,6 +371,16 @@ describe("local-store operations", () => {
       { skuMasterId: "sku-1", period: "2026-08", receivedQuantity: 320, sourceFileName: "august-revised.xlsx" },
       { skuMasterId: "sku-1", period: "2026-07", receivedQuantity: 500, sourceFileName: "july.xlsx" }
     ]);
+  });
+
+  it("persists and updates supplier-specific inbound product mappings without duplicating the key", () => {
+    saveLocalWorkbenchData(sampleData());
+    const mapping = { supplierId: "supplier-a", supplierProductName: "厂家墙贴", supplierSpec: "90×2", mappingLevel: "sku" as const, skuMasterId: "sku-1" };
+    saveSupplierInboundProductMappings([mapping]);
+    saveSupplierInboundProductMappings([{ ...mapping, skuMasterId: "sku-2" }]);
+
+    expect(loadLocalWorkbenchData().supplierInboundProductMappings).toHaveLength(1);
+    expect(loadLocalWorkbenchData().supplierInboundProductMappings?.[0]).toMatchObject({ supplierId: "supplier-a", supplierProductName: "厂家墙贴", supplierSpec: "90×2", skuMasterId: "sku-2" });
   });
 
   it("archives a SKU without deleting its operating snapshots or offer links", () => {
@@ -1325,6 +1389,10 @@ describe("supplier evaluation storage", () => {
           evaluations: [{ id: "ev-B", supplierId: "a-2", period: "2026-Q2", periodType: "quarter", businessModel: "inbound", rawMetrics: {}, scores: { delivery: 70, cost: 80, quality: 80, service: 70, total: 75, grade: "B" }, riskLabels: [], evaluatedAt: "2026-07-05" }],
           orderRecords: [{ id: "A-PO2", orderQuantity: 20 } as any]
         }
+      ],
+      supplierInboundProductMappings: [
+        { id: '["a-1","item","902"]', supplierId: "a-1", supplierProductName: "item", supplierSpec: "90*2", mappingLevel: "sku", skuMasterId: "sku-1", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
+        { id: '["a-2","item","902"]', supplierId: "a-2", supplierProductName: "item", supplierSpec: "90×2", mappingLevel: "sku", skuMasterId: "sku-2", createdAt: "2026-01-01", updatedAt: "2026-02-01" }
       ]
     });
     const merged = mergeSuppliers("a-1", "a-2");
@@ -1332,6 +1400,8 @@ describe("supplier evaluation storage", () => {
     expect(t.evaluations).toHaveLength(2);
     expect(t.orderRecords).toHaveLength(2);
     expect(t.categories).toEqual(expect.arrayContaining(["x", "y"]));
+    expect(merged.supplierInboundProductMappings).toHaveLength(1);
+    expect(merged.supplierInboundProductMappings?.[0]).toMatchObject({ supplierId: "a-1", skuMasterId: "sku-2" });
   });
 
   it("mergeSupplier (draft) preserves existing evaluations and records", () => {

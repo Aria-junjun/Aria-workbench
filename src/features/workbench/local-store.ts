@@ -41,6 +41,11 @@ import {
   calculateTotalScoreAndGrade
 } from "./supplier-evaluation";
 import { parseSupplierChat } from "./supplier-chat-parser";
+import {
+  normalizeNativeSupplierPerformance,
+  upsertNativeSupplierPerformanceSnapshots,
+  type NativeSupplierPerformanceSnapshot,
+} from "./supplier-native-performance";
 import { hasPendingLocalWrite } from "./sync-guard";
 import type {
   SupplierChatExtractionDraft,
@@ -78,7 +83,10 @@ export type LocalSupplier = {
   pinned?: boolean;
   /** 停用时间；保留后续历史入仓、货盘和绩效记录。 */
   archivedAt?: string;
+  /** 最近一次停用原因；恢复后保留，作为档案审计信息。 */
+  archiveReason?: string;
   name: string;
+  shortName?: string;
   categories: string[];
   location?: string;
   supplierType?: string;
@@ -104,6 +112,17 @@ export type LocalSupplier = {
   latestEvaluationScore?: number;
   latestEvaluationGrade?: SupplierEvaluationRecord["scores"]["grade"];
   latestEvaluationPeriod?: string;
+  /** 供应链总监台账中的人工补录事实；空值代表尚未采集，不等于 0。 */
+  managementFacts?: {
+    inboundQualityIssueCount?: number;
+    inboundQualityCheckedQuantity?: number;
+    inboundComprehensiveCost?: number;
+  };
+  /** 同一公司不同履约团队的联系人，企业身份仍由本档案统一维护。 */
+  businessContacts?: {
+    inbound?: { department?: string; name?: string; method?: string };
+    dropship?: { department?: string; name?: string; method?: string };
+  };
 };
 
 export type OfferSku = {
@@ -310,6 +329,7 @@ export type LocalSkuMaster = {
   id: string;
   internalSkuCode: string;
   productName: string;
+  shortName?: string;
   specification: string;
   productId?: string;
   productMode?: "inbound" | "dropship" | "hybrid";
@@ -369,6 +389,22 @@ export type LocalMonthlyInboundSnapshot = {
   sourceFileName: string;
   sourceSheetName: string;
   importedAt: string;
+  /** Stable identity for one confirmed inbound workbook import; absent on legacy snapshots. */
+  importBatchId?: string;
+};
+
+/** 将供应商对账表中的商品名称/规格稳定映射到经营产品或 SKU，供后续导入复用。 */
+export type LocalSupplierInboundProductMapping = {
+  id: string;
+  supplierId: string;
+  supplierProductName: string;
+  supplierSpec: string;
+  mappingLevel: "sku" | "operating_product";
+  skuMasterId: string;
+  productFamilyKey?: string;
+  operatingProductCode?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type LocalSkuComposition = {
@@ -480,8 +516,13 @@ export type LocalSupplierOfferDecision = {
 };
 
 export type LocalWorkbenchData = {
+  procurementRecords?: import('./procurement').ProcurementRecord[];
+  /** Whole-collection revision: removals must not be revived by an older cloud snapshot. */
+  procurementRecordsUpdatedAt?: string;
+  supplierCostImprovementProjects?: import('./supplier-cost-improvement').SupplierCostImprovementProject[];
   supplierLifecycleRecords?: import('./supplier-lifecycle').LifecycleRecord[];
   supplierBusinessRecords?: import('./supplier-business').SupplierBusinessRecord[];
+  supplierNativePerformanceSnapshots?: NativeSupplierPerformanceSnapshot[];
   pendingDropshipSuppliers?: import('./dropship-performance-import').PendingDropshipSupplier[];
   dropshipProductPeriods?: import('./dropship-performance-import').DropshipProductPeriod[];
   supplierAliasMappings?: import('./dropship-performance-import').SupplierAliasMapping[];
@@ -509,6 +550,7 @@ export type LocalWorkbenchData = {
   skuMasters?: LocalSkuMaster[];
   skuOperatingSnapshots?: LocalSkuOperatingSnapshot[];
   monthlyInboundSnapshots?: LocalMonthlyInboundSnapshot[];
+  supplierInboundProductMappings?: LocalSupplierInboundProductMapping[];
   skuCompositions?: LocalSkuComposition[];
   skuSupplierAssignments?: LocalSkuSupplierAssignment[];
   productSupplierAssignments?: LocalProductSupplierAssignment[];
@@ -524,10 +566,24 @@ export type LocalCollectionName = "suppliers" | "communications" | "offers" | "p
 type LocalItem<C extends LocalCollectionName> = LocalWorkbenchData[C][number];
 
 const storageKey = "personal-commercial-workbench";
+const legacyProcurementKey = "procurement-workbench-v1";
 const pendingSyncKey = `${storageKey}:pending-sync`;
 const localRevisionKey = `${storageKey}:local-revision`;
 const PROXY_URL = "/api/supabase-proxy";
 export const SYNC_TIMEOUT_MS = 8000;
+
+function withLegacyProcurement(data: Partial<LocalWorkbenchData>): Partial<LocalWorkbenchData> {
+  if (typeof window === 'undefined' || data.procurementRecordsUpdatedAt) return data;
+  try {
+    const legacy = JSON.parse(window.localStorage.getItem(legacyProcurementKey) || '[]') as unknown;
+    if (!Array.isArray(legacy) || !legacy.length) return data;
+    const records = new Map((data.procurementRecords ?? []).map(record => [record.id, record]));
+    for (const record of legacy) {
+      if (record && typeof record === 'object' && typeof record.id === 'string' && !records.has(record.id)) records.set(record.id, record);
+    }
+    return { ...data, procurementRecords: [...records.values()], procurementRecordsUpdatedAt: new Date().toISOString() };
+  } catch { return data; }
+}
 
 /** 代理访问 Supabase：绕开浏览器网络限制，走本地 Next.js 服务器转发 */
 async function proxyFetch<T = unknown>(
@@ -608,7 +664,9 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
           }
         }
       }
-      const parsed = normalizeWorkbenchDataWithBridges(cloudData);
+      const migratedData = withLegacyProcurement(cloudData);
+      const procurementMigrated = !cloudData.procurementRecordsUpdatedAt && !!migratedData.procurementRecordsUpdatedAt;
+      const parsed = normalizeWorkbenchDataWithBridges(migratedData);
       const hadBridging = parsed.tasks.length > (first.data.tasks?.length ?? 0) ||
         parsed.products.some((p, i) =>
           (p.relatedSupplierIds ?? []).length > ((first.data.products?.[i]?.relatedSupplierIds as string[] | undefined)?.length ?? 0) ||
@@ -627,9 +685,7 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(parsed));
       }
-      if (hadBridging) {
-        saveWorkbenchData(parsed).catch(() => {});
-      }
+      if (procurementMigrated || hadBridging) saveLocalWorkbenchData(parsed);
       return parsed;
     }
   } catch (e) {
@@ -641,7 +697,10 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
     const stored = window.localStorage.getItem(storageKey);
     if (stored) {
       try {
-        const data = normalizeWorkbenchDataWithBridges(JSON.parse(stored) as Partial<LocalWorkbenchData>);
+        const raw = JSON.parse(stored) as Partial<LocalWorkbenchData>;
+        const migrated = withLegacyProcurement(raw);
+        const data = normalizeWorkbenchDataWithBridges(migrated);
+        if (!raw.procurementRecordsUpdatedAt && migrated.procurementRecordsUpdatedAt) saveLocalWorkbenchData(data);
         console.log("[Sync] 回退到 localStorage:", { products: data.products.length });
         return data;
       } catch {
@@ -651,7 +710,8 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
   }
 
   // 3. 使用默认数据
-  const defaults = normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
+  const defaults = normalizeWorkbenchDataWithBridges(withLegacyProcurement(defaultData as Partial<LocalWorkbenchData>));
+  if (defaults.procurementRecordsUpdatedAt) saveLocalWorkbenchData(defaults);
   console.log("[Sync] 使用默认数据");
   return defaults;
 }
@@ -659,7 +719,7 @@ export async function loadWorkbenchData(): Promise<LocalWorkbenchData> {
 // 保持同步版本用于兼容旧代码
 export function loadLocalWorkbenchData(): LocalWorkbenchData {
   if (typeof window === "undefined") {
-    return normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
+    return normalizeWorkbenchDataWithBridges(withLegacyProcurement(defaultData as Partial<LocalWorkbenchData>));
   }
   const stored = window.localStorage.getItem(storageKey);
   if (!stored) {
@@ -667,7 +727,7 @@ export function loadLocalWorkbenchData(): LocalWorkbenchData {
   }
 
   try {
-    return normalizeWorkbenchDataWithBridges(JSON.parse(stored) as Partial<LocalWorkbenchData>);
+    return normalizeWorkbenchDataWithBridges(withLegacyProcurement(JSON.parse(stored) as Partial<LocalWorkbenchData>));
   } catch {
     return normalizeWorkbenchDataWithBridges(defaultData as Partial<LocalWorkbenchData>);
   }
@@ -692,20 +752,31 @@ function newestRoutingByConfirmedAt<T extends { id: string; confirmedAt: string 
 }
 
 export function mergeDemandRecords(localData: Partial<LocalWorkbenchData>, cloudData: Partial<LocalWorkbenchData>): Partial<LocalWorkbenchData> {
+  const useLocalProcurement = !!localData.procurementRecordsUpdatedAt &&
+    localData.procurementRecordsUpdatedAt > (cloudData.procurementRecordsUpdatedAt ?? '');
   return {
     ...cloudData,
+    procurementRecords: useLocalProcurement ? localData.procurementRecords ?? [] : cloudData.procurementRecords ?? [],
+    procurementRecordsUpdatedAt: useLocalProcurement ? localData.procurementRecordsUpdatedAt : cloudData.procurementRecordsUpdatedAt,
+    supplierCostImprovementProjects: newestById(cloudData.supplierCostImprovementProjects, localData.supplierCostImprovementProjects),
     supplierLifecycleRecords: mergeLifecycleRecords(cloudData.supplierLifecycleRecords, localData.supplierLifecycleRecords),
     supplierBusinessRecords: newestById(cloudData.supplierBusinessRecords, localData.supplierBusinessRecords),
+    supplierNativePerformanceSnapshots: upsertNativeSupplierPerformanceSnapshots(
+      cloudData.supplierNativePerformanceSnapshots ?? [],
+      localData.supplierNativePerformanceSnapshots ?? [],
+    ),
     demandConfirmationDocuments: newestById(cloudData.demandConfirmationDocuments, localData.demandConfirmationDocuments),
     demandExplorations: newestById(cloudData.demandExplorations, localData.demandExplorations),
     supplierAliasMappings: newestRoutingByConfirmedAt(cloudData.supplierAliasMappings, localData.supplierAliasMappings),
     dropshipProductRoutings: newestRoutingByConfirmedAt(cloudData.dropshipProductRoutings, localData.dropshipProductRoutings),
+    supplierInboundProductMappings: newestById(cloudData.supplierInboundProductMappings, localData.supplierInboundProductMappings),
   };
 }
 
 /** 从云端强制同步到本地（在页面关键入口调用以确保数据新鲜） */
 export function syncFromCloud(): Promise<LocalWorkbenchData> {
-  return loadWorkbenchData();
+  // Manual mode never pulls a remote snapshot into the editable browser workspace implicitly.
+  return Promise.resolve(loadLocalWorkbenchData());
 }
 
 export function createDemandExploration(input: {
@@ -1092,24 +1163,8 @@ export function saveDraftToLocalWorkbench(extraction: DraftExtraction) {
 }
 
 export async function saveWorkbenchData(data: LocalWorkbenchData): Promise<void> {
-  // 1. 写入 localStorage（始终保存本地副本）
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(storageKey, JSON.stringify(data));
-  }
-
-  // 2. 写入 Supabase（通过本地代理，绕开浏览器网络限制）
-  try {
-    await proxyFetch("upsert", { data });
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(pendingSyncKey);
-    }
-    console.log("[Sync] 代理写入 Supabase 成功");
-  } catch (e) {
-    // 同步失败是可恢复的网络状态，不应使用 console.error 触发 Next.js 开发错误面板。
-    // pending-sync 标记会保留，下一次保存或手动同步时继续尝试。
-    console.warn("[Sync] 云端暂未同步，本地已保存，稍后将重试:", e instanceof Error ? e.message : e);
-    throw e;
-  }
+  void data;
+  throw new Error('旧版直接写云端接口已停用；请使用预览、版本校验和回读核验的手动备份流程');
 }
 
 // 保持同步版本用于兼容旧代码
@@ -1122,8 +1177,9 @@ export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
   const withEvaluations = recalcEvaluationsWithDeductions(normalized);
   const withTasks = ensureProductStageTasks(withEvaluations);
   window.localStorage.setItem(storageKey, JSON.stringify(withTasks));
-  window.localStorage.setItem(localRevisionKey, String(Date.now()));
+  window.localStorage.setItem(localRevisionKey, `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   window.localStorage.setItem(pendingSyncKey, String(Date.now()));
+  if (typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event('workbench-local-change'));
 
   try {
     const { setWorkbenchSnapshot } = require("./workbench-store");
@@ -1134,9 +1190,19 @@ export function saveLocalWorkbenchData(data: LocalWorkbenchData) {
     // workbench-store 尚未加载，忽略
   }
 
-  saveWorkbenchData(withTasks).catch(() => {
-    // 云端同步失败不影响本地操作
-  });
+  // Ordinary edits remain local until the user explicitly reviews and confirms a cloud backup.
+}
+
+/** Save a source-native result without routing it through the workbench QCDS evaluator. */
+export function saveSupplierNativePerformanceSnapshot(input: unknown): NativeSupplierPerformanceSnapshot {
+  const snapshot = normalizeNativeSupplierPerformance(input);
+  const current = loadLocalWorkbenchData();
+  const snapshots = upsertNativeSupplierPerformanceSnapshots(
+    current.supplierNativePerformanceSnapshots ?? [],
+    [snapshot],
+  );
+  saveLocalWorkbenchData({ ...current, supplierNativePerformanceSnapshots: snapshots });
+  return snapshot;
 }
 
 export function saveProductKnowledge(product: ProductKnowledgeV2): ProductKnowledgeV2 {
@@ -1697,14 +1763,16 @@ export function createSupplier(input: { name: string; location?: string; supplie
   return supplier;
 }
 
-export function archiveSupplier(supplierId: string) {
+export function archiveSupplier(supplierId: string, reason: string) {
+  const archiveReason = reason.trim();
+  if (!archiveReason) throw new Error("请填写停用理由");
   const current = loadLocalWorkbenchData();
   const supplier = current.suppliers.find((item) => item.id === supplierId);
   if (!supplier) throw new Error("未找到供应商");
   const archivedAt = new Date().toISOString();
   saveLocalWorkbenchData({
     ...current,
-    suppliers: current.suppliers.map((item) => item.id === supplierId ? { ...item, archivedAt } : item),
+    suppliers: current.suppliers.map((item) => item.id === supplierId ? { ...item, archivedAt, archiveReason } : item),
   });
   return archivedAt;
 }
@@ -1952,6 +2020,7 @@ export function mergeSuppliers(targetId: string, sourceId: string): LocalWorkben
     offers: updatedOffers,
     communications: updatedComms,
     tasks: updatedTasks,
+    supplierInboundProductMappings: mergeSupplierInboundMappingRecords(data.supplierInboundProductMappings ?? [], sourceId, targetId),
     supplierLifecycleRecords: data.supplierLifecycleRecords?.map(record => {
       if (!record.supplierIds.includes(sourceId)) return record;
       const { history, ...previous } = record;
@@ -2425,6 +2494,43 @@ export function saveMonthlyInboundSnapshots(entries: Array<Omit<LocalMonthlyInbo
   return saved;
 }
 
+function normalizeInboundMappingText(value: string) {
+  return value.toLowerCase().replace(/[\s*×xX·＋+\-_/（）()]/g, "");
+}
+
+function inboundMappingId(supplierId: string, supplierProductName: string, supplierSpec: string) {
+  return JSON.stringify([supplierId, normalizeInboundMappingText(supplierProductName), normalizeInboundMappingText(supplierSpec)]);
+}
+
+function mergeSupplierInboundMappingRecords(mappings: LocalSupplierInboundProductMapping[], sourceId: string, targetId: string) {
+  const merged = new Map<string, LocalSupplierInboundProductMapping>();
+  for (const item of mappings) {
+    const supplierId = item.supplierId === sourceId ? targetId : item.supplierId;
+    const updated = supplierId === item.supplierId ? item : { ...item, supplierId, id: inboundMappingId(supplierId, item.supplierProductName, item.supplierSpec) };
+    const existing = merged.get(updated.id);
+    if (!existing || updated.updatedAt >= existing.updatedAt) merged.set(updated.id, updated);
+  }
+  return [...merged.values()];
+}
+
+export function saveSupplierInboundProductMappings(entries: Array<Omit<LocalSupplierInboundProductMapping, "id" | "createdAt" | "updatedAt">>) {
+  if (!entries.length) return [];
+  const current = loadLocalWorkbenchData();
+  const mappings = [...(current.supplierInboundProductMappings ?? [])];
+  const now = new Date().toISOString();
+  const saved = entries.map((entry) => {
+    const id = inboundMappingId(entry.supplierId, entry.supplierProductName, entry.supplierSpec);
+    const existing = mappings.find((item) => item.id === id);
+    const mapping: LocalSupplierInboundProductMapping = { ...existing, ...entry, id, createdAt: existing?.createdAt ?? now, updatedAt: now };
+    const index = mappings.findIndex((item) => item.id === id);
+    if (index >= 0) mappings[index] = mapping;
+    else mappings.unshift(mapping);
+    return mapping;
+  });
+  saveLocalWorkbenchData({ ...current, supplierInboundProductMappings: mappings });
+  return saved;
+}
+
 export function saveSkuCompositions(entries: Array<Omit<LocalSkuComposition, "id"> & { id?: string }>) {
   const current = loadLocalWorkbenchData();
   const compositions = [...(current.skuCompositions ?? [])];
@@ -2646,6 +2752,7 @@ export function completeSupplierDecisionRecord(recordId: string) {
 
 function emptyData(): LocalWorkbenchData {
   return {
+    procurementRecords: [],
     suppliers: [],
     communications: [],
     offers: [],
@@ -2654,8 +2761,9 @@ function emptyData(): LocalWorkbenchData {
     knowledgeCards: [],
     knowledgeBooks: [],
     decisionTools: [],
-    knowledgeApplications: []
-    ,decisionCases: [],
+    knowledgeApplications: [],
+    supplierCostImprovementProjects: [],
+    decisionCases: [],
     researchReports: [],
     demandExplorations: [],
     demandConfirmationDocuments: [],
@@ -2672,6 +2780,7 @@ function emptyData(): LocalWorkbenchData {
     supplierOfferDecisions: [],
     supplierOfferDecisionHistory: [],
     supplierDecisionRecords: [],
+    supplierNativePerformanceSnapshots: [],
     supplierAliasMappings: [],
     dropshipProductRoutings: [],
   };
@@ -2717,6 +2826,8 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
   const current = { ...emptyData(), ...data };
   const supplierIdByName = new Map(current.suppliers.map((supplier) => [normalizeText(supplier.name), supplier.id]));
   return {
+    procurementRecords: Array.isArray(data.procurementRecords) ? data.procurementRecords : [],
+    procurementRecordsUpdatedAt: data.procurementRecordsUpdatedAt,
     suppliers: current.suppliers.map((supplier) => {
       // 迁移 legacy supplier：补齐新字段的默认值，防止历史数据因缺字段导致访问 undefined 崩溃
       const normalizedEvaluations = Array.isArray((supplier as any).evaluations) ? (supplier as any).evaluations : [];
@@ -2813,6 +2924,7 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     })) : [],
     skuOperatingSnapshots: Array.isArray(data.skuOperatingSnapshots) ? data.skuOperatingSnapshots : [],
     monthlyInboundSnapshots: Array.isArray(data.monthlyInboundSnapshots) ? data.monthlyInboundSnapshots : [],
+    supplierInboundProductMappings: Array.isArray(data.supplierInboundProductMappings) ? data.supplierInboundProductMappings : [],
     skuCompositions: Array.isArray(data.skuCompositions) ? data.skuCompositions : [],
     skuSupplierAssignments: Array.isArray(data.skuSupplierAssignments) ? data.skuSupplierAssignments : [],
     productSupplierAssignments: Array.isArray(data.productSupplierAssignments) ? data.productSupplierAssignments : [],
@@ -2822,7 +2934,9 @@ export function normalizeWorkbenchData(data: Partial<LocalWorkbenchData>): Local
     supplierOfferDecisions: Array.isArray(data.supplierOfferDecisions) ? data.supplierOfferDecisions : [],
     supplierOfferDecisionHistory: Array.isArray(data.supplierOfferDecisionHistory) ? data.supplierOfferDecisionHistory : [],
     supplierDecisionRecords: Array.isArray(data.supplierDecisionRecords) ? data.supplierDecisionRecords : [],
+    supplierNativePerformanceSnapshots: Array.isArray(data.supplierNativePerformanceSnapshots) ? data.supplierNativePerformanceSnapshots : [],
     supplierLifecycleRecords: Array.isArray(data.supplierLifecycleRecords) ? data.supplierLifecycleRecords : [],
+    supplierCostImprovementProjects: Array.isArray(data.supplierCostImprovementProjects) ? data.supplierCostImprovementProjects : [],
     supplierBusinessRecords: Array.isArray(data.supplierBusinessRecords) ? data.supplierBusinessRecords : [],
     pendingDropshipSuppliers: Array.isArray(data.pendingDropshipSuppliers) ? data.pendingDropshipSuppliers : [],
     dropshipProductPeriods: Array.isArray(data.dropshipProductPeriods) ? data.dropshipProductPeriods : [],

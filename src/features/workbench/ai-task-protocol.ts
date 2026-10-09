@@ -1,3 +1,5 @@
+import { RESEARCH_INTEGRITY_RULES } from "./research-integrity";
+
 export type AiTaskModule = "industry-insight" | "demand-exploration" | "competitor-analysis" | "product-decomposition";
 
 export type AiTaskField = {
@@ -20,7 +22,22 @@ export type AiTaskDraft = {
   recognizedFields: Record<string, string>;
   unrecognizedLines: string[];
   status: "draft";
+  fieldDecisions?: Record<string, AiTaskFieldDecisionRecord>;
 };
+
+export type AiTaskFieldDecision = "pending" | "adopted" | "edited" | "needs_verification" | "excluded";
+export type AiTaskFieldDecisionRecord = { decision: AiTaskFieldDecision; value: string; reviewedAt: string; reason?: string };
+
+export function applyAiTaskFieldDecision(draft: AiTaskDraft, path: string, decision: AiTaskFieldDecision, value = draft.recognizedFields[path], reason?: string): AiTaskDraft {
+  if (!(path in draft.recognizedFields)) return draft;
+  return {
+    ...draft,
+    fieldDecisions: {
+      ...(draft.fieldDecisions ?? {}),
+      [path]: { decision, value, reviewedAt: new Date().toISOString(), ...(reason ? { reason } : {}) },
+    },
+  };
+}
 
 export function createAiTaskDraftRevision(draft: AiTaskDraft, recognizedFields: Record<string, string>): AiTaskDraft {
   return {
@@ -44,6 +61,7 @@ export function buildAiTaskPackage(input: {
   title: string;
   context: string;
   fields: AiTaskField[];
+  referencedEvidence?: string;
 }): AiTaskPackage {
   const uniqueFields = input.fields.filter((field, index, fields) => fields.findIndex((item) => item.path === field.path) === index);
   const fieldLines = uniqueFields.map((field) => `- ${field.path}（${field.label}）：${field.guidance}`).join("\n");
@@ -55,11 +73,13 @@ export function buildAiTaskPackage(input: {
     "",
     "研究上下文：",
     input.context || "未提供研究上下文。",
+    ...(input.referencedEvidence ? ["", input.referencedEvidence] : []),
     "",
     "只能输出以下字段，不得创建其他字段：",
     fieldLines || "- 暂无字段",
     "",
     "统一要求：每条内容标注事实 / 推断 / 待验证；证据写明来源板块、来源名称、时间和口径。不得编造来源、样本、销量或用户原话。找不到资料时明确写‘未找到’。不得替用户做最终商业化、采购或入仓决策。",
+    RESEARCH_INTEGRITY_RULES,
     "请按字段逐项输出，内容不足的字段保留并写‘未找到’。",
   ].join("\n");
   return { module: input.module, projectId: input.projectId, prompt, allowedFields: uniqueFields };

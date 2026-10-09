@@ -2,51 +2,23 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-const root = process.cwd();
+const read = (file: string) => fs.readFileSync(path.join(process.cwd(), file), "utf8");
 
-describe("supplier decision overview UI contract", () => {
-  it("shows evidence-based supplier actions instead of score-only conclusions", () => {
-    const source = fs.readFileSync(path.join(root, "src/app/suppliers/page.tsx"), "utf8");
-
-    expect(source).toContain("供应商决策总览");
-    expect(source).toContain("实际供货产品");
-    expect(source).toContain("实际供货 SKU");
-    expect(source).toContain("periodMetricLabel(period)");
-    expect(source).toContain("证据");
-    expect(source).toContain("下一步");
-    expect(source).not.toContain("补齐未覆盖 SKU");
-    expect(source).toContain("decisionFilter");
-    expect(source).toContain("focusedDecisionRows");
-    expect(source).toContain("buildSupplierAutoEvidence");
-    expect(source).toContain("聚水潭自动证据");
-    expect(source).toContain("数据口径");
-    expect(source).toContain("实退数量 ÷ 实发数量");
-    expect(source).not.toContain("交付、服务等无来源数据不补分");
-    expect(source).toContain("评分仅作参考");
-    expect(source).toContain("buildSupplierDecisionOverviewRows");
-    expect(source).toContain("decisionOperatingSnapshots");
-    expect(source).toContain("snapshot.period === selectedMonth");
-    expect(source).toContain("维护供应关系");
-    expect(source).toContain("createSupplierDecisionTask");
-    expect(source).toContain("生成复核待办");
-    expect(source).toContain('row.decision !== "maintain_primary"');
+describe("supplier management boundary", () => {
+  it("keeps risk monitoring and cross-supplier decisions on the lifecycle overview", () => {
+    const overview = read("src/components/workbench/supplier-lifecycle-workspace.tsx");
+    expect(overview).toContain("function Overview");
+    expect(overview).toContain("代发经营监控");
+    expect(overview).toContain("本期需跟进");
+    expect(overview).toContain("总监只读查看");
   });
 
-  it("keeps supplier score headers on one line with fixed aligned columns", () => {
-    const source = fs.readFileSync(path.join(root, "src/app/suppliers/page.tsx"), "utf8");
-
-    expect(source).toContain("table-fixed");
-    expect(source).toContain("<colgroup>");
-    expect(source).toContain("whitespace-nowrap");
-    expect(source).toContain("text-center font-medium");
-    expect(source).toContain("label=\"供应商等级\"");
-  });
-
-  it("explains why the decision overview is empty instead of hiding the section", () => {
-    const source = fs.readFileSync(path.join(root, "src/app/suppliers/page.tsx"), "utf8");
-
-    expect(source).toContain("当前周期暂未生成供应商决策");
-    expect(source).toContain("已读取供应商");
-    expect(source).toContain("去入仓产品查看数据来源");
+  it("keeps the supplier directory free of cross-supplier scoreboards", () => {
+    const archive = read("src/app/suppliers/page.tsx");
+    expect(archive).toContain("供应商档案");
+    expect(archive).toContain("实际业务归属");
+    expect(archive).toContain('href="/supplier-lifecycle"');
+    expect(archive).not.toContain("供应商决策总览");
+    expect(archive).not.toContain("供应商管理决策台账");
   });
 });

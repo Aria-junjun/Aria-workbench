@@ -80,6 +80,8 @@ export type ProductDecompositionProject = {
   linkedProductId?: string;
   opportunityProductId?: string;
   aiDrafts?: AiTaskDraft[];
+  /** 已逐字段审核并写入的 AI 研究结论，不覆盖人工拆解记录。 */
+  aiFindings?: Record<string, string>;
   targetUsers: string;
   scenario: string;
   centralQuestion: string;
@@ -194,6 +196,7 @@ export function buildProductDecompositionReport(project: ProductDecompositionPro
       { key: "causes", title: "事实与判断", content: causeText },
       { key: "solutions", title: "方案与优先级", content: solutionText },
       { key: "actions", title: "行动计划", content: actionText },
+      { key: "ai_findings", title: "AI 已确认研究结论", content: Object.entries(project.aiFindings ?? {}).map(([path, value]) => `${path}：${value}`).join("\n") || "尚未形成记录" },
     ],
     completeness: getProductDecompositionCompleteness(project),
     sourceReferences: {

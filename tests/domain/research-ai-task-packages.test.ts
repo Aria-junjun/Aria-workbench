@@ -30,4 +30,9 @@ describe("研究模块 AI 任务包", () => {
     expect(task.prompt).toContain("行动计划");
     expect(task.prompt).toContain("不得把方案假设写成已验证需求");
   });
+
+  it("只把已确认的目标项目引用注入下一个 GPT 任务包", () => {
+    const task = buildDemandExplorationTaskPackage({ projectId: "demand-1", title: "白板贴需求", productName: "白板贴", userType: "家庭办公", scenario: "居家学习", problem: "擦除后留痕", referencedEvidence: "来源板块：行业洞察\n项目：白板贴行业洞察\n字段：决策问题\n内容：验证留痕原因" });
+    expect(task.prompt).toContain("验证留痕原因");
+  });
 });

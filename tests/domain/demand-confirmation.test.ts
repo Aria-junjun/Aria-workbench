@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addDemandSection,
   addDemandItem,
   addDemandQuestion,
   appendDemandResponse,
@@ -13,6 +14,25 @@ import {
 } from "@/features/workbench/demand-confirmation";
 
 describe("demand confirmation document", () => {
+  it("can persist a functional section before any demand item is added", () => {
+    let document = createDemandConfirmationDocument({ title: "需求确认", productName: "产品" });
+
+    document = addDemandSection(document, "重复书写体验");
+
+    expect(document.sections).toHaveLength(1);
+    expect(document.sections[0]).toEqual(expect.objectContaining({ name: "重复书写体验", itemIds: [] }));
+    expect(document.demandItems).toHaveLength(0);
+  });
+
+  it("does not create duplicate sections when the name already exists", () => {
+    let document = createDemandConfirmationDocument({ title: "需求确认", productName: "产品" });
+
+    document = addDemandSection(document, "重复书写体验");
+    document = addDemandSection(document, "重复书写体验");
+
+    expect(document.sections).toHaveLength(1);
+  });
+
   it("supports multiple sections, items, and exploration questions", () => {
     let document = createDemandConfirmationDocument({
       title: "聊天工具需求确认",

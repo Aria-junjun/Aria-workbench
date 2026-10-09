@@ -1,6 +1,6 @@
-import { DocumentWorkspace } from "@/components/workbench/demand-exploration/document-workspace";
+import { DemandDocumentRoute } from "@/components/workbench/demand-exploration/demand-document-route";
 
 export default async function DemandConfirmationDocumentPage({ params }: { params: Promise<{ analysisId: string }> }) {
   const { analysisId } = await params;
-  return <DocumentWorkspace documentId={analysisId} />;
+  return <DemandDocumentRoute documentId={analysisId} />;
 }

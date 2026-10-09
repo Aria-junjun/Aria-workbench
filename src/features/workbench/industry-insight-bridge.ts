@@ -1,3 +1,4 @@
+import { RESEARCH_INTEGRITY_RULES } from "./research-integrity";
 import type {
   IndustryDimensionKey,
   IndustryEvidenceTag,
@@ -117,7 +118,7 @@ const dimensionLabels: Record<string, IndustryDimensionKey> = {
 
 const id = () => `industry-draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-export function buildIndustryInsightResearchPrompt(project: IndustryInsightProject): string {
+export function buildIndustryInsightResearchPrompt(project: IndustryInsightProject, referencedEvidence = ""): string {
   const fields = INDUSTRY_INSIGHT_FIELD_CATALOG.map((field) => `- ${field.path}（${field.section} / ${field.label}）：${field.guidance}`).join("\n");
   const input = project.researchInput;
   return [
@@ -134,7 +135,9 @@ export function buildIndustryInsightResearchPrompt(project: IndustryInsightProje
     `- 初步假设：${input?.initialHypotheses || "未填写"}`,
     `- 重点核查：${input?.focusQuestions || "未填写"}`,
     `- 明确不扩展：${input?.excludedDirections || "未填写"}`,
+    ...(referencedEvidence ? ["", referencedEvidence] : []),
     "输出要求：每个字段单独回答；区分事实、推断、待验证和策略建议；无数据写“未找到”；不要编造市场规模、销量或占比；关键事实附来源、发布时间和抓取时间。",
+    RESEARCH_INTEGRITY_RULES,
     "必须严格按照下面的字段路径和 Markdown 格式输出，不得使用编号列表代替字段，不得改写字段路径，不得把多个字段合并成一段：",
     "### purpose.decisionQuestion",
     "事实：",

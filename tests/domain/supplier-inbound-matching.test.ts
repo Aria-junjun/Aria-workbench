@@ -59,4 +59,23 @@ describe("supplier inbound SKU matching", () => {
       },
     )).toEqual({ kind: "operating_product", productFamilyKey: "whiteboard-family", operatingProductCode: "Y-05BBT", skuMasterId: "sku-90-2" });
   });
+
+  it("reuses a saved supplier product-name and specification mapping on later imports", () => {
+    expect(suggestInboundMapping(
+      { supplierProductName: "厂家墙贴", supplierSpec: "90*2" },
+      [{ ...skuMasters[0], productName: "内部白板贴", productFamilyKey: "whiteboard-family" }],
+      {
+        supplierId: "supplier-a",
+        savedMappings: [{ id: "mapping-1", supplierId: "supplier-a", supplierProductName: "厂家墙贴", supplierSpec: "90×2", mappingLevel: "operating_product", productFamilyKey: "whiteboard-family", operatingProductCode: "Y-90", skuMasterId: "sku-90-2", createdAt: "now", updatedAt: "now" }],
+      },
+    )).toEqual({ kind: "operating_product", productFamilyKey: "whiteboard-family", operatingProductCode: "Y-90", skuMasterId: "sku-90-2" });
+  });
+
+  it("does not reuse a saved product mapping for another supplier", () => {
+    expect(suggestInboundMapping(
+      { supplierProductName: "厂家墙贴", supplierSpec: "90*2" },
+      skuMasters,
+      { supplierId: "supplier-b", savedMappings: [{ id: "mapping-1", supplierId: "supplier-a", supplierProductName: "厂家墙贴", supplierSpec: "90×2", mappingLevel: "sku", skuMasterId: "sku-90-2", createdAt: "now", updatedAt: "now" }] },
+    )).toBeUndefined();
+  });
 });

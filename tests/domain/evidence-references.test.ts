@@ -22,6 +22,8 @@ beforeEach(() => {
 describe("evidence references", () => {
   it("only allows confirmed evidence to be referenced", () => {
     expect(canReferenceEvidence("confirmed")).toBe(true);
+    expect(canReferenceEvidence("confirmed", false)).toBe(false);
+    expect(canReferenceEvidence("confirmed", undefined)).toBe(true);
     expect(canReferenceEvidence("original")).toBe(false);
     expect(canReferenceEvidence("ai-draft")).toBe(false);
     expect(canReferenceEvidence("edited")).toBe(false);

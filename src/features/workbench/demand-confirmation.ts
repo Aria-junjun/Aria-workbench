@@ -55,6 +55,8 @@ export type DemandConfirmationDocument = {
   productId?: string;
   opportunityProductId?: string;
   aiDrafts?: AiTaskDraft[];
+  /** 已逐字段审核并写入的 AI 研究结论，不覆盖原始需求字段。 */
+  aiFindings?: Record<string, string>;
   userType: string;
   scenario: string;
   problem: string;
@@ -124,6 +126,18 @@ export function restoreDemandConfirmationDocument(document: DemandConfirmationDo
       ? "completed"
       : "in_progress";
   return { ...document, status, updatedAt: now() };
+}
+
+export function addDemandSection(document: DemandConfirmationDocument, name: string): DemandConfirmationDocument {
+  const sectionName = name.trim();
+  if (!sectionName) return document;
+  if (document.sections.some((section) => section.name === sectionName)) return document;
+  return {
+    ...document,
+    sections: [...document.sections, { id: makeId("demand-section"), name: sectionName, itemIds: [] }],
+    status: document.status === "archived" ? "archived" : "in_progress",
+    updatedAt: now(),
+  };
 }
 
 export function addDemandItem(

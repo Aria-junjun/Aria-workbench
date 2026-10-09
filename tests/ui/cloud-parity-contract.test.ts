@@ -41,7 +41,8 @@ describe("cloud parity contract", () => {
     const store = fs.readFileSync(path.join(root, "src/features/workbench/local-store.ts"), "utf8");
 
     expect(page).not.toContain("loadWorkbenchData");
-    expect(loader).toContain("loadWorkbenchData");
+    expect(loader).not.toContain("loadWorkbenchData");
+    expect(loader).toContain("prepareCloudBackup");
     expect(store).toContain("SYNC_TIMEOUT_MS");
     expect(store).toContain("new AbortController()");
     expect(store).toContain("signal: controller.signal");

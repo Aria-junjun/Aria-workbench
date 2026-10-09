@@ -1,36 +1,39 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const pagePath = "src/app/suppliers/page.tsx";
+const page = readFileSync("src/app/suppliers/page.tsx", "utf8");
 
-describe("supplier dashboard UI contract", () => {
-  const source = readFileSync(pagePath, "utf8");
-
-  it("renders the three decision sections", () => {
-    expect(source).toContain("供应商中心");
-    expect(source).toContain("待处理供应商");
-    expect(source).toContain("全部供应商绩效总览");
-    expect(source).toContain("聚水潭绩效");
-    expect(source).toContain("工作台判断");
-    expect(source).toContain("当前操作月份");
-    expect(source).toContain("最新已导入数据");
-    expect(source).toContain("成本偏差");
-    expect(source).toContain("costRowsBySupplier");
-    expect(source).toContain("判断依据");
-    expect(source).toContain("质量");
-    expect(source).toContain("交付");
-    expect(source).toContain("成本");
-    expect(source).toContain("供应关系");
-    expect(source).toContain("数据完整度");
-    expect(source).toContain("table-fixed");
-    expect(source).toContain("查看月份");
-    expect(source).toContain("selectedMonth");
-    expect(source).toContain("buildSupplierDashboard(data, selectedMonth)");
-    expect(source).toContain("availableMonths");
+describe("supplier archive directory UI contract", () => {
+  it("keeps the archive focused on supplier identity and directory actions", () => {
+    expect(page).toContain("供应商档案");
+    expect(page).toContain("搜索供应商名称、简称或品类");
+    expect(page).toContain("实际业务归属");
+    expect(page).toContain("查看档案");
+    expect(page).toContain("管理总览");
+    expect(page).not.toContain("供应商管理决策台账");
+    expect(page).not.toContain("onManagementFactChange");
   });
 
-  it("does not present the supplier home as a long archive table", () => {
-    expect(source).not.toContain("聊天快速评估");
-    expect(source).not.toContain("供应商能力");
+  it("preserves add, duplicate-check, archive and restore actions", () => {
+    expect(page).toContain("新增供应商");
+    expect(page).toContain("检测重复");
+    expect(page).toContain("停用供应商");
+    expect(page).toContain("恢复供应商");
+    expect(page).toContain("archiveSupplier");
+    expect(page).toContain("restoreSupplier");
+  });
+
+  it("requires an archive reason, supports restoration, and keeps directory actions on one line", () => {
+    expect(page).toContain("停用理由（必填）");
+    expect(page).toContain("disabled={!archiveReason.trim()}");
+    expect(page).toContain("whitespace-nowrap");
+    expect(page).toContain("archiveReason");
+    expect(page).toContain("恢复供应商");
+  });
+
+  it("provides an explicit low-activity view using the confirmed 30-day threshold", () => {
+    expect(page).toContain("低活跃");
+    expect(page).toContain("classifySupplierActivity");
+    expect(page).toContain("低活跃 ${activityCounts.low}");
   });
 });

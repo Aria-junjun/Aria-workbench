@@ -18,6 +18,9 @@ describe("竞品分析项目工作区", () => {
     expect(navigation).toContain("strategy_report");
     expect(workspace).toContain("证据完整度");
     expect(workspace).toContain("保存研究前输入");
+    expect(workspace).toContain("已有研究前输入");
+    expect(workspace).toContain("修改研究前输入");
+    expect(workspace).toContain("Object.values(input).some");
     expect(evidence).toContain("采集日期");
     expect(evidence).toContain("事实 / 推断 / 待验证 / 策略建议");
     expect(layers).toContain("不要只记录“竞品长什么样”");

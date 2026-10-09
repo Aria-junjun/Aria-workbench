@@ -14,7 +14,7 @@ import {
   saveDemandConfirmationDocument,
   saveProductDecompositionProject,
 } from "@/features/workbench/local-store";
-import type { AiTaskDraft } from "@/features/workbench/ai-task-protocol";
+import { applyAiTaskFieldDecision, type AiTaskDraft } from "@/features/workbench/ai-task-protocol";
 import { ExternalAiTaskPanel } from "@/components/workbench/external-ai-task-panel";
 
 type Props = Parameters<typeof ExternalAiTaskPanel>[0];
@@ -41,6 +41,7 @@ describe("外部 GPT 任务包面板", () => {
       persistedDrafts.push(JSON.parse(JSON.stringify(draft)) as AiTaskDraft);
     };
     const { unmount } = render(<ExternalAiTaskPanel task={task} onSaveDraft={saveDraft} savedDrafts={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /展开 AI 辅助/ }));
 
     fireEvent.change(screen.getByLabelText("AI 初稿导入内容"), {
       target: { value: "summary：原始结论\nunknown.field：保留" },
@@ -67,6 +68,7 @@ describe("外部 GPT 任务包面板", () => {
 
     unmount();
     render(<ExternalAiTaskPanel task={task} onSaveDraft={saveDraft} savedDrafts={persistedDrafts} />);
+    fireEvent.click(screen.getByRole("button", { name: /展开 AI 辅助/ }));
 
     expect(screen.getByText("历史 AI 初稿（2）")).toBeTruthy();
     expect(screen.getAllByText("人工修改结论")).toHaveLength(2);
@@ -107,5 +109,52 @@ describe("外部 GPT 任务包面板", () => {
     expect(reloadedDemand!.aiDrafts).toEqual([draft]);
     expect(reloadedCompetitor!.aiDrafts).toEqual([draft]);
     expect(reloadedDecomposition!.aiDrafts).toEqual([draft]);
+  });
+
+  it("已处理字段不再显示重复操作，历史初稿默认收起", () => {
+    const adopted = applyAiTaskFieldDecision({
+      id: "adopted-draft",
+      importedAt: "2026-09-18T00:00:00.000Z",
+      rawText: "summary：已采用结论",
+      recognizedFields: { summary: "已采用结论" },
+      unrecognizedLines: [],
+      status: "draft",
+    }, "summary", "adopted");
+
+    render(<ExternalAiTaskPanel task={task} savedDrafts={[adopted]} />);
+    fireEvent.click(screen.getByRole("button", { name: /展开 AI 辅助/ }));
+
+    expect(screen.getByText("历史 AI 初稿（1）")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "采用写入正式字段" })).toBeNull();
+    expect(screen.getByText("已写入正式字段")).toBeTruthy();
+    const historyDetails = screen.getByText(/已保存 1 个字段/).closest("details") as HTMLDetailsElement;
+    expect(historyDetails.open).toBe(false);
+
+    fireEvent.click(screen.getByText(/已保存 1 个字段/));
+    expect(historyDetails.open).toBe(true);
+    expect(screen.getByText("原始 AI 初稿")).toBeTruthy();
+  });
+
+  it("任务包、导入框和历史初稿使用一致的正文排版", () => {
+    const draft: AiTaskDraft = {
+      id: "history-typography",
+      importedAt: "2026-09-18T00:00:00.000Z",
+      rawText: "summary：历史结论",
+      recognizedFields: { summary: "历史结论" },
+      unrecognizedLines: [],
+      status: "draft",
+    };
+
+    render(<ExternalAiTaskPanel task={task} savedDrafts={[draft]} />);
+
+    expect(screen.getByRole("button", { name: /展开 AI 辅助/ })).toHaveProperty("ariaExpanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: /展开 AI 辅助/ }));
+    expect(screen.getByLabelText("外部 GPT 任务包内容").className).toContain("text-sm");
+    expect(screen.getByLabelText("外部 GPT 任务包内容").className).toContain("leading-6");
+    expect(screen.getByLabelText("AI 初稿导入内容").className).toContain("text-sm");
+    expect(screen.getByLabelText("AI 初稿导入内容").className).toContain("leading-6");
+    fireEvent.click(screen.getByText(/已保存 1 个字段/));
+    expect(screen.getByText("历史结论").className).toContain("text-sm");
+    expect(screen.getByText("历史结论").className).toContain("leading-6");
   });
 });

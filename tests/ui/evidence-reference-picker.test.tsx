@@ -80,4 +80,10 @@ describe("统一证据引用选择器", () => {
     fireEvent.click(screen.getByRole("button", { name: "已引用" }));
     expect(screen.getAllByLabelText("引用副本：决策问题")).toHaveLength(1);
   });
+
+  it("不展示仅限本项目使用的已确认资料", () => {
+    render(<EvidenceReferencePicker targetModule="demand-exploration" targetProjectId="d" targetFieldPath="evidenceReferences" targetFieldLabel="引用证据" currentReferences={[]} onReferencesChange={vi.fn()} sourceProjects={[{ module: "industry-insight", projectId: "i", projectTitle: "白板贴", fields: [{ path: "decisionQuestion", label: "仅本项目问题", snapshot: "不应跨项目引用", status: "confirmed", referenceable: false }] }]} />);
+    expect(screen.queryByText("仅本项目问题")).toBeNull();
+    expect(screen.getByText("暂无符合方向且已确认的可引用资料。")).toBeTruthy();
+  });
 });

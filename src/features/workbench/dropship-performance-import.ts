@@ -26,16 +26,17 @@ type Source = { sourceSheetName: string; sourceRowNumber: number };
 export type ImportSourceReference = { fileName: string; sheetName: string; rowNumber: number; sourceType: 'merchant' | 'afterSales' };
 export type DropshipMerchantRow = Source & {
   supplierName: string; paidOrders?: number; gmv?: number; pickup48Rate?: number; paymentToSignHours?: number;
-  paymentToSignChangeHours?: number; refundRate?: number; rejectReturnRate?: number; response3mRate?: number;
+  paymentToSignChangeHours?: number; refundRate?: number; rejectReturnRate?: number; response3mRate?: number; rawFields?: Record<string, string>;
 };
 export type DropshipProductRow = Source & {
-  productName: string; paidOrders?: number; gmv?: number; pickup48Rate?: number; paymentToSignHours?: number;
-  paymentToSignChangeHours?: number; refundRate?: number; rejectReturnRate?: number;
+  productName: string; shortName?: string; paidOrders?: number; gmv?: number; pickup48Rate?: number; paymentToSignHours?: number;
+  paymentToSignChangeHours?: number; refundRate?: number; rejectReturnRate?: number; rawFields?: Record<string, string>;
 };
 export type DropshipAfterSalesRow = Source & {
   supplierName: string; afterSalesCount?: number; afterSalesRate?: number; afterSalesRejectCount?: number;
   afterSalesRejectRate?: number; averageRefundSeconds?: number; paidOrders?: number; lighthouseAfterSales?: number;
   lighthouseQuality?: number; lighthouseService?: number;
+  rawFields?: Record<string, string>;
 };
 export type ParsedDropshipWorkbook = DropshipImportMeta & {
   merchants: DropshipMerchantRow[]; products: DropshipProductRow[]; afterSales: DropshipAfterSalesRow[]; issues: DropshipImportIssue[];
@@ -48,7 +49,7 @@ export type SupplierImportPreviewRow = {
   filingBand: FilingBand; businessKey?: string; willReplace: boolean;
 };
 export type PendingDropshipSupplier = {
-  id: string; sourceName: string; platform: string; periodStart: string; periodEnd: string;
+  id: string; sourceName: string; shortName?: string; platform: string; periodStart: string; periodEnd: string;
   paidOrders?: number; gmv?: number; filingBand: FilingBand; sourceFileName: string; sourceReferences?: ImportSourceReference[]; createdAt: string;
   status?: 'active' | 'observing' | 'resolved' | 'archived'; handledAt?: string; linkedSupplierId?: string;
   pickup48Rate?: number; paymentToSignHours?: number; refundRate?: number; rejectReturnRate?: number; response3mRate?: number;
@@ -58,8 +59,11 @@ export type PendingDropshipSupplier = {
 export type DropshipProductPeriod = DropshipProductRow & DropshipImportMeta & { id: string; businessKey: string; supplierId?: string; businessMode?: SupplierBusinessMode; importedAt: string };
 export type DropshipRoutingDecision = {
   suppliers: Record<string, string>;
+  supplierShortNames?: Record<string, string>;
   products: Record<string, { selected?: boolean; supplierId?: string; businessMode: SupplierBusinessMode }>;
+  productShortNames?: Record<string, string>;
 };
+export type DropshipImportMode = 'full' | 'product' | 'performance';
 export type DropshipImportPreview = ParsedDropshipWorkbook & {
   suppliers: SupplierImportPreviewRow[];
   products: Array<DropshipProductRow & { supplierId?: string; businessMode: SupplierBusinessMode }>;
@@ -91,6 +95,9 @@ const ordersAndGmv = (value: unknown) => {
 const headers = (row: unknown[] = []) => row.map(text);
 const col = (header: string[], name: string) => header.indexOf(name);
 const value = (row: unknown[], header: string[], name: string) => row[col(header, name)];
+const sourceFields = (row: unknown[], header: string[], _mapped: string[]) => Object.fromEntries(header
+  .map((name, index) => [name, text(row[index])] as const)
+  .filter(([, value]) => value !== ''));
 const source = (sheetName: string, rowNumber: number): Source => ({ sourceSheetName: sheetName, sourceRowNumber: rowNumber });
 const missing = (header: string[], required: string[]) => required.filter(name => !header.includes(name));
 
@@ -114,16 +121,16 @@ export function parseDropshipWorkbook(sheets: WorkbookSheet[], meta: DropshipImp
       if (subject === 'merchant') {
         const supplierName = text(value(row, header, '商家')); if (!supplierName) return;
         const scale = ordersAndGmv(value(row, header, '主单/GMV'));
-        previous = { ...source(sheet.name,rowNumber), supplierName, ...scale, pickup48Rate:percentage(value(row,header,'48H揽收率')), paymentToSignHours:number(value(row,header,'支签时长')), refundRate:percentage(value(row,header,'退款率')), rejectReturnRate:percentage(value(row,header,'拒退率')), response3mRate:percentage(value(row,header,'3分钟响应率')) };
+        previous = { ...source(sheet.name,rowNumber), supplierName, ...scale, pickup48Rate:percentage(value(row,header,'48H揽收率')), paymentToSignHours:number(value(row,header,'支签时长')), refundRate:percentage(value(row,header,'退款率')), rejectReturnRate:percentage(value(row,header,'拒退率')), response3mRate:percentage(value(row,header,'3分钟响应率')), rawFields:sourceFields(row,header,['排名','商家','主单/GMV','48H揽收率','支签时长','退款率','拒退率','3分钟响应率']) };
         result.merchants.push(previous as DropshipMerchantRow);
       } else if (subject === 'product') {
         const productName = text(value(row, header, '商品信息')); if (!productName) return;
         const scale = ordersAndGmv(value(row, header, '主单/GMV'));
-        previous = { ...source(sheet.name,rowNumber), productName, ...scale, pickup48Rate:percentage(value(row,header,'48H揽收率')), paymentToSignHours:number(value(row,header,'支签时长')), refundRate:percentage(value(row,header,'退款率')), rejectReturnRate:percentage(value(row,header,'拒退率')) };
+        previous = { ...source(sheet.name,rowNumber), productName, ...scale, pickup48Rate:percentage(value(row,header,'48H揽收率')), paymentToSignHours:number(value(row,header,'支签时长')), refundRate:percentage(value(row,header,'退款率')), rejectReturnRate:percentage(value(row,header,'拒退率')), rawFields:sourceFields(row,header,['排名','商品信息','主单/GMV','48H揽收率','支签时长','退款率','拒退率']) };
         result.products.push(previous as DropshipProductRow);
       } else {
         const supplierName = text(value(row, header, '商家名')); if (!supplierName) return;
-        result.afterSales.push({ ...source(sheet.name,rowNumber), supplierName, afterSalesCount:number(value(row,header,'售后量')), afterSalesRate:percentage(value(row,header,'售后率')), afterSalesRejectCount:number(value(row,header,'售后拒绝量')), afterSalesRejectRate:percentage(value(row,header,'售后拒绝率')), averageRefundSeconds:seconds(value(row,header,'平均退款时长（秒）')), paidOrders:number(value(row,header,'支付订单量')), lighthouseAfterSales:number(value(row,header,'灯塔分_售后（5分制）')), lighthouseQuality:number(value(row,header,'灯塔分_品质（5分制）')), lighthouseService:number(value(row,header,'灯塔分_综合服务（5分制）')) });
+        result.afterSales.push({ ...source(sheet.name,rowNumber), supplierName, afterSalesCount:number(value(row,header,'售后量')), afterSalesRate:percentage(value(row,header,'售后率')), afterSalesRejectCount:number(value(row,header,'售后拒绝量')), afterSalesRejectRate:percentage(value(row,header,'售后拒绝率')), averageRefundSeconds:seconds(value(row,header,'平均退款时长（秒）')), paidOrders:number(value(row,header,'支付订单量')), lighthouseAfterSales:number(value(row,header,'灯塔分_售后（5分制）')), lighthouseQuality:number(value(row,header,'灯塔分_品质（5分制）')), lighthouseService:number(value(row,header,'灯塔分_综合服务（5分制）')), rawFields:sourceFields(row,header,['排行','商家名','售后量','售后率','售后拒绝量','售后拒绝率','平均退款时长（秒）','支付订单量','灯塔分_售后（5分制）','灯塔分_品质（5分制）','灯塔分_综合服务（5分制）']) });
       }
     });
   }
@@ -250,7 +257,8 @@ const mergeSourceReferences = (existing: string | undefined, incoming: ImportSou
 function importedRecord(row: SupplierImportPreviewRow, supplierId: string, preview: DropshipImportPreview, existing?: SupplierBusinessRecord): SupplierBusinessRecord {
   const now = new Date().toISOString(); const merchant = row.merchant; const afterSales = row.afterSales;
   const references = mergeSourceReferences(existing?.fields.sourceReferences, sourceReferences(row, preview.fileName));
-  const candidate = { sourceKey:sourceKey(preview,supplierId), periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, dataSource:`${preview.fileName}；${[merchant?.sourceSheetName,afterSales?.sourceSheetName].filter(Boolean).join('、')}`, sourceReferences:JSON.stringify(references), paidOrders:str(merchant?.paidOrders ?? existing?.fields.paidOrders ?? afterSales?.paidOrders), gmv:str(merchant?.gmv ?? existing?.fields.gmv), pickup48Rate:str(merchant?.pickup48Rate), paymentToSignHours:str(merchant?.paymentToSignHours), paymentToSignChangeHours:str(merchant?.paymentToSignChangeHours), refundRate:str(merchant?.refundRate), rejectReturnRate:str(merchant?.rejectReturnRate), response3mRate:str(merchant?.response3mRate), afterSalesCount:str(afterSales?.afterSalesCount), afterSalesRate:str(afterSales?.afterSalesRate), rejectedAfterSalesCount:str(afterSales?.afterSalesRejectCount), rejectedAfterSalesRate:str(afterSales?.afterSalesRejectRate), averageRefundSeconds:str(afterSales?.averageRefundSeconds), lighthouseAfterSales:str(afterSales?.lighthouseAfterSales), lighthouseQuality:str(afterSales?.lighthouseQuality), lighthouseScore:str(afterSales?.lighthouseService), evidenceNote:'Excel批量导入' };
+  const rawFields = Object.fromEntries(Object.entries({ ...(merchant?.rawFields ?? {}), ...(afterSales?.rawFields ?? {}) }).map(([key, value]) => [`raw:${key}`, value]));
+  const candidate = { sourceKey:sourceKey(preview,supplierId), periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, dataSource:`${preview.fileName}；${[merchant?.sourceSheetName,afterSales?.sourceSheetName].filter(Boolean).join('、')}`, sourceReferences:JSON.stringify(references), paidOrders:str(merchant?.paidOrders ?? existing?.fields.paidOrders ?? afterSales?.paidOrders), gmv:str(merchant?.gmv ?? existing?.fields.gmv), pickup48Rate:str(merchant?.pickup48Rate), paymentToSignHours:str(merchant?.paymentToSignHours), paymentToSignChangeHours:str(merchant?.paymentToSignChangeHours), refundRate:str(merchant?.refundRate), rejectReturnRate:str(merchant?.rejectReturnRate), response3mRate:str(merchant?.response3mRate), afterSalesCount:str(afterSales?.afterSalesCount), afterSalesRate:str(afterSales?.afterSalesRate), rejectedAfterSalesCount:str(afterSales?.afterSalesRejectCount), rejectedAfterSalesRate:str(afterSales?.afterSalesRejectRate), averageRefundSeconds:str(afterSales?.averageRefundSeconds), lighthouseAfterSales:str(afterSales?.lighthouseAfterSales), lighthouseQuality:str(afterSales?.lighthouseQuality), lighthouseScore:str(afterSales?.lighthouseService), evidenceNote:'Excel批量导入', ...rawFields };
   const fields = { ...(existing?.fields ?? {}) };
   for (const [key,value] of Object.entries(candidate)) if (value !== '') fields[key] = value;
   const record: SupplierBusinessRecord = {
@@ -262,13 +270,17 @@ function importedRecord(row: SupplierImportPreviewRow, supplierId: string, previ
   return record;
 }
 
-export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipImportPreview, decisions: DropshipRoutingDecision | Record<string,string>): LocalWorkbenchData {
+export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipImportPreview, decisions: DropshipRoutingDecision | Record<string,string>, options: { mode?: DropshipImportMode } = {}): LocalWorkbenchData {
+  const mode = options.mode ?? 'full';
   const structured = 'suppliers' in decisions || 'products' in decisions;
   const supplierDecisions = structured ? (decisions as DropshipRoutingDecision).suppliers ?? {} : decisions as Record<string,string>;
+  const supplierShortNames = structured ? (decisions as DropshipRoutingDecision).supplierShortNames ?? {} : {};
   const productDecisions = structured ? (decisions as DropshipRoutingDecision).products ?? {} : {};
+  const productShortNames = structured ? (decisions as DropshipRoutingDecision).productShortNames ?? {} : {};
   const validationIssues = [...preview.blockingIssues];
   const supplierIds = new Set(data.suppliers.map(item => item.id));
-  for (const row of preview.suppliers) {
+  let nextSuppliers = [...data.suppliers];
+  for (const row of mode === 'product' ? [] : preview.suppliers) {
     const supplierId = row.supplierId || supplierDecisions[row.sourceName];
     if (supplierId && !supplierIds.has(supplierId)) validationIssues.push(`供应商“${row.sourceName}”关联的供应商档案不存在`);
   }
@@ -276,7 +288,7 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
     if (decision.selected && !decision.supplierId) validationIssues.push(`商品“${productName}”未选择供应商`);
     if (decision.selected !== false && decision.supplierId && !supplierIds.has(decision.supplierId)) validationIssues.push(`商品“${productName}”关联的供应商档案不存在`);
   }
-  for (const row of preview.products) {
+  for (const row of mode === 'performance' ? [] : preview.products) {
     const decision = productDecisions[row.productName];
     if (!decision && row.supplierId && !supplierIds.has(row.supplierId)) validationIssues.push(`商品“${row.productName}”关联的供应商档案不存在`);
   }
@@ -284,10 +296,12 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
   const existing = data.supplierBusinessRecords ?? []; const nextRecords = [...existing];
   const pending: PendingDropshipSupplier[] = [...(data.pendingDropshipSuppliers ?? [])];
   const aliasMappings = [...(data.supplierAliasMappings ?? [])];
-  for (const row of preview.suppliers) {
+  for (const row of mode === 'product' ? [] : preview.suppliers) {
     const supplierId = row.supplierId || supplierDecisions[row.sourceName];
     if (supplierId) {
       const key = sourceKey(preview,supplierId); const old = nextRecords.find(record => record.kind === 'dropship_period' && record.fields.sourceKey === key);
+      const shortName = supplierShortNames[row.sourceName]?.trim();
+      if (shortName) nextSuppliers = nextSuppliers.map(supplier => supplier.id === supplierId ? { ...supplier, shortName } : supplier);
       const record = importedRecord(row,supplierId,preview,old);
       const index = old ? nextRecords.indexOf(old) : -1; if (index >= 0) nextRecords[index] = record; else nextRecords.unshift(record);
       for (const sourceName of [row.merchant?.supplierName, row.afterSales?.supplierName].filter((item): item is string => Boolean(item))) {
@@ -302,13 +316,14 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
     } else {
       const pendingKey = [preview.platform,preview.periodStart,preview.periodEnd,normalizeName(row.sourceName)].join('|');
       const index = pending.findIndex(value => value.id === pendingKey); const old = index >= 0 ? pending[index] : undefined;
-      const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders, gmv:row.merchant?.gmv, filingBand:row.filingBand, sourceFileName:preview.fileName, sourceReferences:sourceReferences(row,preview.fileName), createdAt:old?.createdAt ?? new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
+      const item: PendingDropshipSupplier = { id:pendingKey, sourceName:row.sourceName, shortName:supplierShortNames[row.sourceName]?.trim() || old?.shortName, platform:preview.platform, periodStart:preview.periodStart, periodEnd:preview.periodEnd, paidOrders:row.merchant?.paidOrders ?? row.afterSales?.paidOrders, gmv:row.merchant?.gmv, filingBand:row.filingBand, sourceFileName:preview.fileName, sourceReferences:sourceReferences(row,preview.fileName), createdAt:old?.createdAt ?? new Date().toISOString(), status:'active', pickup48Rate:row.merchant?.pickup48Rate, paymentToSignHours:row.merchant?.paymentToSignHours, refundRate:row.merchant?.refundRate, rejectReturnRate:row.merchant?.rejectReturnRate, response3mRate:row.merchant?.response3mRate, afterSalesCount:row.afterSales?.afterSalesCount, afterSalesRate:row.afterSales?.afterSalesRate, afterSalesRejectCount:row.afterSales?.afterSalesRejectCount, afterSalesRejectRate:row.afterSales?.afterSalesRejectRate, averageRefundSeconds:row.afterSales?.averageRefundSeconds, lighthouseAfterSales:row.afterSales?.lighthouseAfterSales, lighthouseQuality:row.afterSales?.lighthouseQuality, lighthouseScore:row.afterSales?.lighthouseService };
       if (index >= 0) pending[index] = JSON.stringify(old) === JSON.stringify(item) ? old! : item; else pending.unshift(item);
     }
   }
   const products = [...(data.dropshipProductPeriods ?? [])];
+  let nextSkuMasters = [...(data.skuMasters ?? [])];
   const productRoutings = [...(data.dropshipProductRoutings ?? [])];
-  for (const row of preview.products) {
+  for (const row of mode === 'performance' ? [] : preview.products) {
     const decision = productDecisions[row.productName];
     const isRouted = decision ? decision.selected !== false && Boolean(decision.supplierId) : Boolean(row.supplierId);
     if (!isRouted) continue;
@@ -317,7 +332,8 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
     const normalizedProductName = normalizeName(row.productName);
     const relationshipKey = productRelationshipKey(preview.platform, normalizedProductName, supplierId!, businessMode);
     const businessKey = [preview.periodStart,preview.periodEnd,relationshipKey].join('|');
-    const item: DropshipProductPeriod = { ...row, supplierId, businessMode, periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, fileName:preview.fileName, id:businessKey, businessKey, importedAt:new Date().toISOString() };
+    const item: DropshipProductPeriod = { ...row, shortName:productShortNames[row.productName]?.trim() || row.shortName, supplierId, businessMode, periodStart:preview.periodStart, periodEnd:preview.periodEnd, platform:preview.platform, fileName:preview.fileName, id:businessKey, businessKey, importedAt:new Date().toISOString() };
+    if (item.shortName) nextSkuMasters = nextSkuMasters.map(master => master.productName === row.productName ? { ...master, shortName:item.shortName } : master);
     const index = products.findIndex(value => value.businessKey === businessKey || (
       value.platform === preview.platform && value.periodStart === preview.periodStart && value.periodEnd === preview.periodEnd
       && normalizeName(value.productName) === normalizedProductName && value.supplierId === supplierId && value.businessMode === businessMode
@@ -335,7 +351,7 @@ export function applyDropshipImport(data: LocalWorkbenchData, preview: DropshipI
       } else productRoutings.push(mapping);
     }
   }
-  return { ...data, supplierBusinessRecords:nextRecords, pendingDropshipSuppliers:pending, dropshipProductPeriods:products, supplierAliasMappings:aliasMappings, dropshipProductRoutings:productRoutings };
+  return { ...data, suppliers:nextSuppliers, skuMasters:nextSkuMasters, supplierBusinessRecords:nextRecords, pendingDropshipSuppliers:pending, dropshipProductPeriods:products, supplierAliasMappings:aliasMappings, dropshipProductRoutings:productRoutings };
 }
 
 export function archiveSupplierProductRelationship(data: LocalWorkbenchData, relationshipId: string, effectiveTo: string): LocalWorkbenchData {

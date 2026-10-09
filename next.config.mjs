@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Keep production verification separate from the running local development server.
+  ...(process.env.WORKBENCH_VERIFY_BUILD === '1' ? { distDir: '.next-verify' } : {}),
   // Enable React Strict Mode for better development experience
   reactStrictMode: true,
 

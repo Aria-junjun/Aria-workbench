@@ -3,16 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 describe("supplier evidence display", () => {
-  it("uses monthly operating data as the primary supplier detail view", () => {
+  it("keeps supplier detail as profile and links history instead of duplicating monthly facts", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
-    expect(source).toContain("<MonthlyPerformanceTab");
-    expect(source).toContain("当前操作月份");
+    expect(source).toContain("<SupplierProfileWorkspace");
+    expect(source).not.toContain("<MonthlyPerformanceTab");
     expect(source).toContain("查看月份");
     expect(source).toContain("period === defaultMonth()");
-    expect(source).toContain("产品族表现与成本核验");
     expect(source).toContain("monthlyCostRows");
-    expect(source).toContain("产品族表现");
-    expect(source).toContain("月度表现 ·");
     expect(source).toContain("<CostReductionTab");
     expect(source).not.toContain('label="数据依据"');
     expect(source).not.toContain('label="历史判断"');
@@ -24,11 +21,11 @@ describe("supplier evidence display", () => {
     expect(source).toContain("去规格关联");
   });
 
-  it("uses the applicable-dimension score breakdown on the supplier overview", () => {
+  it("keeps cross-supplier performance decisions out of the supplier directory", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/page.tsx"), "utf8");
-    expect(source).toContain("getScoreBreakdown");
-    expect(source).toContain("N/A");
-    expect(source).toContain("暂无评分");
+    expect(source).toContain("供应商档案");
+    expect(source).toContain('href="/supplier-lifecycle"');
+    expect(source).not.toContain("getScoreBreakdown");
   });
 
   it("shows auto-linked monthly cost verification and evidence-only event entry", () => {
@@ -43,5 +40,21 @@ describe("supplier evidence display", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
     expect(source).toMatch(/<CostReductionTab[\s\S]*?monthlyCostRows=\{monthlyCostRows\}/);
     expect(source).toMatch(/<CostReductionTab[\s\S]*?costEvents=\{supplier\.costEvents \?\? \[\]\}/);
+  });
+
+  it("keeps the supplier identity area free of operational date clutter", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
+    expect(source).not.toContain("grid min-w-[150px]");
+    expect(source).not.toContain("最新数据</div>");
+    expect(source).toContain("min-w-0 flex-1");
+  });
+
+  it("treats month as a page filter and hides the non-decision supplier type badge", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
+    expect(source).toContain("查看月份");
+    expect(source).toContain("defaultMonth()");
+    expect(source).not.toContain("当前操作月份</div>");
+    expect(source).not.toContain("{typeLabel}</span>");
+    expect(source).toContain("flex flex-wrap items-start justify-between gap-6");
   });
 });

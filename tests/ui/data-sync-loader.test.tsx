@@ -3,10 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 describe("data sync loader", () => {
-  it("does not block page interaction while cloud sync is pending", () => {
+  it("does not trigger unguarded cloud writes or reads on mount", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/components/data-sync-loader.tsx"), "utf8");
-    expect(source).toContain("pointer-events-none");
-    expect(source).toContain("setWorkbenchSnapshot(localData)");
-    expect(source).toContain("云端读取可能暂时返回旧快照");
+    expect(source).not.toContain('setInterval(sync, 30000)');
+    expect(source).not.toContain('saveWorkbenchData(loadLocalWorkbenchData())');
+    expect(source).toContain('prepareCloudBackup');
   });
 });

@@ -11,7 +11,7 @@
  */
 
 import { useSyncExternalStore } from "react";
-import type { LocalWorkbenchData } from "./local-store";
+import { loadLocalWorkbenchData, type LocalWorkbenchData } from "./local-store";
 
 // ---- 全局单例状态 ----
 let currentSnapshot: LocalWorkbenchData | null = null;
@@ -22,7 +22,6 @@ function getSnapshotInternal(): LocalWorkbenchData {
   if (currentSnapshot) return currentSnapshot;
   // 延迟导入，避免循环依赖
   if (typeof window !== "undefined") {
-    const { loadLocalWorkbenchData } = require("./local-store");
     currentSnapshot = loadLocalWorkbenchData();
   } else {
     currentSnapshot = { suppliers: [], communications: [], offers: [], products: [], tasks: [], knowledgeCards: [], knowledgeBooks: [], decisionTools: [], knowledgeApplications: [], decisionCases: [], researchReports: [] };

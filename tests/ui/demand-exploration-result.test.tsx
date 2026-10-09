@@ -13,7 +13,7 @@ describe("需求探索结果和四象限", () => {
 
   it("supports the comparison surface and explains the single-demand boundary", () => {
     const quadrant = fs.readFileSync(path.join(process.cwd(), "src/components/workbench/demand-exploration/kano-quadrant.tsx"), "utf8");
-    expect(quadrant).toContain("需要至少两个有有效分数的需求");
+    expect(quadrant).toContain("至少需要两个有有效 SI / DSI 的需求项");
     expect(quadrant).toContain("SI / Better");
     expect(quadrant).toContain("DSI / Worse");
   });

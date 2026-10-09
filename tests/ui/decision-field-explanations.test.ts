@@ -24,13 +24,12 @@ describe("decision field explanations contract", () => {
     expect(source).not.toContain("库存 / 可售");
   });
 
-  it("keeps supplier evidence visible with compact explanations", () => {
-    const source = read("src/app/suppliers/page.tsx");
+  it("keeps supplier metric definitions with the management overview", () => {
+    const source = read("src/components/workbench/supplier-lifecycle-workspace.tsx");
 
-    expect(source).toContain("数据口径");
-    expect(source).toContain("HelpHint");
-    expect(source).toContain('label="退货率信号"');
-    expect(source).not.toContain("交付、服务等无来源数据不补分");
+    expect(source).toContain("metricDefinitions");
+    expect(source).toContain("口径说明");
+    expect(source).toContain("未采集");
   });
 
   it("shows import quality before writing operating data", () => {
@@ -43,12 +42,12 @@ describe("decision field explanations contract", () => {
     expect(inboundSource).toContain("未关联");
   });
 
-  it("documents the decision rule next to supplier actions", () => {
-    const source = read("src/app/suppliers/page.tsx");
+  it("routes supplier-directory users to evidence-based management decisions", () => {
+    const directory = read("src/app/suppliers/page.tsx");
+    const overview = read("src/components/workbench/supplier-lifecycle-workspace.tsx");
 
-    expect(source).toContain("决策规则");
-    expect(source).toContain("保持主供");
-    expect(source).toContain("复核质量信号");
-    expect(source).toContain("SKU覆盖仅作参考");
+    expect(directory).toContain("业务绩效和跨供应商风险判断请到管理总览查看");
+    expect(overview).toContain("集中度是供给暴露，不等同供方绩效差");
+    expect(overview).toContain("查看来源");
   });
 });

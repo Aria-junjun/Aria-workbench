@@ -20,16 +20,31 @@ it('provides seven business-specific tabs and scopes sample records to this supp
   fireEvent.click(screen.getByRole('button',{name:'基础与资质'}));
   expect(screen.getByText('张先生')).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'送样与准入'}));
-  expect(screen.getByRole('button',{name:'甲厂白板样'})).toBeTruthy();
+  expect(screen.getByRole('link',{name:/查看寄样业务记录/}).getAttribute('href')).toContain('supplierId=a');
   expect(screen.queryByText('乙厂白板样')).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'甲厂白板样'}));
-  expect(screen.getByRole('dialog')).toBeTruthy();
-  expect(screen.queryByRole('textbox')).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'关闭窗口'}));
   fireEvent.click(screen.getByRole('button',{name:'暂停与退出'}));
   fireEvent.click(screen.getByRole('button',{name:'新增暂停与退出'}));
   expect(screen.getByLabelText('替代与过渡安排')).toBeTruthy();
   expect(screen.queryByLabelText('验证标准')).toBeNull();
+});
+
+it('links from supplier profile to scoped source records instead of embedding transaction tables', () => {
+  const data = normalizeWorkbenchData({ suppliers: [{ id: 'a', name: '供应商甲', categories: [], riskTags: [], createdAt: '' }], supplierBusinessRecords: [{ ...newBusinessRecord('dropship_period', 'a'), id: 'period-a', title: '代发周期', productScope: '商品甲', fields: { paidOrders: '30' } }] });
+  setWorkbenchSnapshot(data);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: '履约与改善' }));
+  expect(screen.getByRole('link', { name: /查看代发业务记录/ }).getAttribute('href')).toBe('/supplier-records?supplierId=a&kind=dropship_period');
+  expect(screen.queryByRole('button', { name: '代发周期' })).toBeNull();
+});
+
+it('does not present a multi-SKU offer as one supplier-wide unit price', () => {
+  const data = normalizeWorkbenchData({ suppliers: [{ id: 'a', name: '供应商甲', categories: [], riskTags: [], createdAt: '' }], offers: [{ id: 'offer-a', supplierId: 'a', name: '白板贴报价单', quotedPrice: '¥3', skus: [{ id: 'sku-a', specName: '小号', unitPrice: 3 }, { id: 'sku-b', specName: '大号', unitPrice: 5 }], createdAt: '' }] });
+  setWorkbenchSnapshot(data);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: '产品与报价' }));
+  expect(screen.getByText('2 个 SKU')).toBeTruthy();
+  expect(screen.getByText('查看各 SKU 价格')).toBeTruthy();
+  expect(screen.queryByText('¥3')).toBeNull();
 });
 
 it('derives and presents dropship and inbound cooperation on one supplier master', () => {
@@ -46,16 +61,27 @@ it('derives and presents dropship and inbound cooperation on one supplier master
   expect(screen.getByText('代发')).toBeTruthy();
   expect(screen.getByText('入仓')).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
-  expect(screen.getByText('代发履约')).toBeTruthy();
-  expect(screen.getByText('入仓履约')).toBeTruthy();
-  expect(screen.getByRole('button',{name:'第38周代发'})).toBeTruthy();
-  expect(screen.getByRole('button',{name:'PO-入仓'})).toBeTruthy();
+  expect(screen.getByText('代发履约历史入口')).toBeTruthy();
+  expect(screen.getByText('入仓履约历史入口')).toBeTruthy();
+  expect(screen.getByRole('link',{name:/查看代发业务记录/})).toBeTruthy();
+  expect(screen.getByRole('link',{name:/查看入仓业务记录/})).toBeTruthy();
 });
 
 it('derives inbound mode from an existing procurement fulfillment line', () => {
   const data = normalizeWorkbenchData({ suppliers: [{ id:'a',name:'入仓供应商',categories:[],riskTags:[],createdAt:'' }] });
   localStorage.setItem('procurement-workbench-v1', JSON.stringify([{id:'f1',section:'fulfillment',title:'入仓履约',productName:'商品',priority:'中',status:'pending',createdAt:'',fulfillment:{mode:'warehouse',orderNo:'PO-3',orderDate:'2026-09-23',owner:'采购',settlement:'现结',settlementTerms:'',sourcePlatform:'1688',originalOrderNo:'',importBatch:'',destination:'仓库',lines:[{lineId:'l1',supplierId:'a',supplierName:'入仓供应商',quantity:10}],events:[]}}]));
   expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['inbound']);
+});
+
+it('derives inbound profile mode from a supplier-linked monthly receipt snapshot', () => {
+  const data = normalizeWorkbenchData({ suppliers: [{ id: 'a', name: '入仓供应商', categories: [], riskTags: [], createdAt: '' }], monthlyInboundSnapshots: [{ id: 'receipt-a', skuMasterId: 'sku-a', period: '2026-09', supplierId: 'a', sourceFileName: '对账.xlsx', sourceSheetName: '九月', importedAt: '' }] });
+  expect(deriveSupplierBusinessModes(data, 'a')).toEqual(['inbound']);
+});
+it('uses a unique supplier name for legacy inbound snapshots but not an ambiguous name', () => {
+  const base = { id: 'receipt-a', skuMasterId: 'sku-a', period: '2026-09', supplierName: '聚赢', sourceFileName: '对账.xlsx', sourceSheetName: '九月', importedAt: '' };
+  const supplier = { id: 'a', name: '聚赢', categories: [], riskTags: [], createdAt: '' };
+  expect(deriveSupplierBusinessModes(normalizeWorkbenchData({ suppliers: [supplier], monthlyInboundSnapshots: [base] }), 'a')).toEqual(['inbound']);
+  expect(deriveSupplierBusinessModes(normalizeWorkbenchData({ suppliers: [supplier, { ...supplier, id: 'b' }], monthlyInboundSnapshots: [base] }), 'a')).toEqual([]);
 });
 
 it('does not treat a generic active product relation as inbound evidence', () => {
@@ -84,8 +110,7 @@ it('shows routed product-period facts in the assigned supplier dropship section'
   setWorkbenchSnapshot(data);
   render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
   fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
-  expect(screen.getByText('透明收纳盒')).toBeTruthy();
-  expect(screen.getByText('18单 / ¥360')).toBeTruthy();
+  expect(screen.getByRole('link',{name:/查看代发业务记录/})).toBeTruthy();
 });
 
 it('hides inbound performance payload for a dropship-only supplier', () => {
@@ -94,21 +119,21 @@ it('hides inbound performance payload for a dropship-only supplier', () => {
     supplierBusinessRecords: [{id:'period',kind:'dropship_period',supplierIds:['a'],offerIds:[],productScope:'商品甲',status:'completed',title:'代发周期',owner:'',fields:{paidOrders:'30'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''}],
   });
   setWorkbenchSnapshot(data);
-  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} performance={<div>入仓数量成本评分</div>} />);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} />);
   fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
-  expect(screen.getByText('代发履约')).toBeTruthy();
-  expect(screen.queryByText('入仓履约')).toBeNull();
-  expect(screen.queryByText('入仓数量成本评分')).toBeNull();
+  expect(screen.getByText('代发履约历史入口')).toBeTruthy();
+  expect(screen.queryByText('入仓履约历史入口')).toBeNull();
 });
 
-it('renders inbound performance payload inside the inbound section', () => {
+it('keeps supplier quality history separate from mode-specific business-period links', () => {
   const data = normalizeWorkbenchData({
     suppliers: [{ id:'a',name:'入仓供应商',categories:[],riskTags:[],createdAt:'' }],
     supplierBusinessRecords: [{id:'purchase',kind:'purchase',supplierIds:['a'],offerIds:[],productScope:'商品乙',status:'completed',title:'入仓采购',owner:'',fields:{fulfillmentMode:'warehouse'},attachmentIds:[],revision:1,createdAt:'',updatedAt:''}],
   });
   setWorkbenchSnapshot(data);
-  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} performance={<div>入仓数量成本评分</div>} />);
+  render(<SupplierProfileWorkspace supplierId="a" onEdit={vi.fn()} performance={<div>质量原始凭证列表</div>} />);
   fireEvent.click(screen.getByRole('button',{name:'履约与改善'}));
-  const inbound = screen.getByText('入仓履约').closest('section');
-  expect(inbound?.textContent).toContain('入仓数量成本评分');
+  expect(screen.getByText('质量原始凭证列表')).toBeTruthy();
+  expect(screen.getByRole('link',{name:/查看入仓业务记录/})).toBeTruthy();
+  expect(screen.queryByText('入仓数量成本评分')).toBeNull();
 });

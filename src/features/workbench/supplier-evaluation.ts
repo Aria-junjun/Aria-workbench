@@ -40,6 +40,7 @@ export const SupplierQualityIssueSchema = z.object({
   orderRef: z.string().optional(),
   productName: z.string().optional(),
   reportedAt: z.string().optional(),
+  evidenceNote: z.string().optional(),
   issueCount: z.number().default(1),
   totalBatchSize: z.number().optional(),
   issueDescription: z.string().optional(),

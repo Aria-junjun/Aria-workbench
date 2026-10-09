@@ -40,13 +40,13 @@ export function EvidenceReferencePicker({
   sourceOnly = false,
 }: EvidenceReferencePickerProps) {
   const selectableFields = sourceProjects.flatMap((project) => project.fields
-    .filter((field) => canReferenceEvidence(field.status) && isEvidenceReferenceDirectionAllowed(project.module, targetModule))
+    .filter((field) => canReferenceEvidence(field.status, field.referenceable) && isEvidenceReferenceDirectionAllowed(project.module, targetModule))
     .map((field) => ({ project, field })));
   const targetReferences = currentReferences.filter((reference) => reference.targetModule === targetModule && reference.targetProjectId === targetProjectId && (reference.targetFieldPath ?? reference.sourceFieldPath) === targetFieldPath);
   const isAdded = (project: EvidenceSourceProject, field: EvidenceSourceField) => targetReferences.some((reference) => reference.sourceModule === project.module && reference.sourceProjectId === project.projectId && reference.sourceFieldPath === field.path);
 
   function addReference(project: EvidenceSourceProject, field: EvidenceSourceField) {
-    if (isAdded(project, field) || !canReferenceEvidence(field.status) || !isEvidenceReferenceDirectionAllowed(project.module, targetModule)) return;
+    if (isAdded(project, field) || !canReferenceEvidence(field.status, field.referenceable) || !isEvidenceReferenceDirectionAllowed(project.module, targetModule)) return;
     onReferencesChange([...currentReferences, createEvidenceReference({
       targetModule,
       targetProjectId,
@@ -68,7 +68,7 @@ export function EvidenceReferencePicker({
 
   if (sourceOnly) {
     const confirmedSources = sourceProjects.flatMap((project) => project.fields
-      .filter((field) => canReferenceEvidence(field.status))
+      .filter((field) => canReferenceEvidence(field.status, field.referenceable))
       .map((field) => ({ project, field })));
     return <section className="rounded-2xl border border-line bg-surface p-5 shadow-card"><h2 className="font-display text-lg font-bold text-ink">可供引用的已确认资料</h2><p className="mt-1 text-sm text-muted">行业洞察只作为来源，不接收其他工作区的回写。</p><EvidenceSourceList rows={confirmedSources} /></section>;
   }

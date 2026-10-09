@@ -15,6 +15,23 @@ describe("product master monthly inbound import contract", () => {
     expect(preview).toContain("暂不关联");
   });
 
+  it("keeps test seed data out of the production page and explains the operating snapshot action", () => {
+    expect(page).not.toContain("录入6月聚赢测试数据");
+    expect(page).toContain("保存本月经营指标");
+    expect(page).toContain("月度销售、退货与成本指标");
+  });
+
+  it("persists confirmed supplier item mappings for future imports", () => {
+    expect(page).toContain("saveSupplierInboundProductMappings");
+    expect(preview).toContain("savedMappings");
+    expect(preview).toContain("供应商商品名 + 规格");
+  });
+
+  it("assigns one stable batch identifier to each confirmed inbound workbook import", () => {
+    expect(page).toContain("importBatchId");
+    expect(page).toContain("grouped.map");
+  });
+
   it("requires a supplier choice when the statement has no supplier name", () => {
     expect(preview).toContain("请选择供应商");
     expect(preview).toContain("!supplierFromFile && !supplierId");

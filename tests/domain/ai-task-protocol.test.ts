@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAiTaskPackage, parseAiTaskDraft, type AiTaskField } from "@/features/workbench/ai-task-protocol";
+import { applyAiTaskFieldDecision, buildAiTaskPackage, parseAiTaskDraft, type AiTaskField } from "@/features/workbench/ai-task-protocol";
 import { buildCompetitorAnalysisTaskPackage, buildProductDecompositionTaskPackage } from "@/features/workbench/research-ai-task-packages";
 
 describe("统一 AI 任务协议", () => {
@@ -45,5 +45,15 @@ describe("统一 AI 任务协议", () => {
     const decompositionTask = buildProductDecompositionTaskPackage({ projectId: "d-1", title: "拆解", targetUsers: "家庭用户", scenario: "书写", centralQuestion: "为什么", decisionGoal: "怎么改" });
     expect(parseAiTaskDraft("### competitor.boundary（竞品边界）：\n直接竞品：传统白板", competitorTask).recognizedFields["competitor.boundary"]).toContain("直接竞品");
     expect(parseAiTaskDraft("### decomposition.causes（原因拆解）：\n事实：擦除后有痕迹", decompositionTask).recognizedFields["decomposition.causes"]).toContain("擦除后有痕迹");
+  });
+
+  it("逐字段采用会保留原稿并记录正式字段候选状态", () => {
+    const task = buildAiTaskPackage({ module: "demand-exploration", projectId: "project-1", title: "需求", context: "白板贴", fields: [{ path: "demand.problem", label: "需求问题", guidance: "" }] });
+    const draft = parseAiTaskDraft("### demand.problem\n事实：擦除后有痕迹", task);
+    const reviewed = applyAiTaskFieldDecision(draft, "demand.problem", "adopted");
+
+    expect(reviewed.rawText).toBe(draft.rawText);
+    expect(reviewed.fieldDecisions?.["demand.problem"]).toMatchObject({ decision: "adopted", value: draft.recognizedFields["demand.problem"] });
+    expect(draft.fieldDecisions).toBeUndefined();
   });
 });

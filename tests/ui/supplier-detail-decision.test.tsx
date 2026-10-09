@@ -4,16 +4,21 @@ import path from "node:path";
 
 const root = process.cwd();
 
-describe("supplier detail decision loop UI contract", () => {
-  it("shows evidence and persisted decision actions", () => {
+describe("supplier detail archive boundary", () => {
+  it("keeps product/date/batch evidence with supplier quality records, not a duplicate decision dashboard", () => {
     const source = fs.readFileSync(path.join(root, "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
 
-    expect(source).toContain("供应商决策闭环");
-    expect(source).toContain("本周期实际入仓");
-    expect(source).toContain("产品质量信号");
-    expect(source).toContain("记录决策");
-    expect(source).toContain("completeSupplierDecisionRecord");
-    expect(source).toContain("supplierDecisionRecords");
+    expect(source).toContain("关联产品");
+    expect(source).toContain("发生日期");
+    expect(source).toContain("检验 / 入库批次数量");
+    expect(source).toContain("证据 / 处理说明");
+    expect(source).toContain("异常占比");
+    expect(source).not.toContain("overview={<SupplierDecisionLoop");
+    expect(source).toContain("质量、交付与服务原始记录");
+  });
+
+  it("preserves supplier relation maintenance actions", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/suppliers/[supplierId]/page.tsx"), "utf8");
     expect(source).toContain("relationshipEditorRef");
     expect(source).toContain('{settingsPanel === "relationship" ? <SupplierRelationshipEditor');
     expect(source).toContain(">保存</button>");
